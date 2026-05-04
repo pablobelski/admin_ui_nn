@@ -2,6 +2,11 @@ import 'package:flutter/material.dart';
 
 import '../models/admin_resource.dart';
 
+const organizationLookup = AdminLookup(
+  endpoint: '/api/admin/organizations',
+  labelKeys: ['display_name', 'legal_name', 'organization_type'],
+);
+
 const dashboardResource = AdminResourceDefinition(
   key: 'dashboard',
   title: 'Dashboard',
@@ -120,7 +125,7 @@ const adminNavGroups = <AdminNavGroup>[
           AdminField(key: 'name', label: 'Name'),
           AdminField(key: 'scope_code', label: 'Scope code'),
           AdminField(key: 'currency', label: 'Currency'),
-          AdminField(key: 'organization_id', label: 'Organization id'),
+          AdminField(key: 'organization_id', label: 'Organization', lookup: organizationLookup),
           AdminField(key: 'product_family_id', label: 'Product family id'),
           AdminField(key: 'valid_from', label: 'Valid from', type: AdminFieldType.date),
           AdminField(key: 'valid_to', label: 'Valid to', type: AdminFieldType.date),
@@ -233,7 +238,7 @@ const adminNavGroups = <AdminNavGroup>[
           AdminColumn(key: 'is_active', label: 'Active'),
         ],
         formFields: [
-          AdminField(key: 'organization_id', label: 'Organization id'),
+          AdminField(key: 'organization_id', label: 'Organization', lookup: organizationLookup),
           AdminField(key: 'relation_id', label: 'Relation id'),
           AdminField(key: 'product_family_id', label: 'Product family id'),
           AdminField(key: 'catalog_item_id', label: 'Catalog item id'),
@@ -263,7 +268,7 @@ const adminNavGroups = <AdminNavGroup>[
           AdminColumn(key: 'is_active', label: 'Active'),
         ],
         formFields: [
-          AdminField(key: 'organization_id', label: 'Organization id'),
+          AdminField(key: 'organization_id', label: 'Organization', lookup: organizationLookup),
           AdminField(key: 'relation_id', label: 'Relation id'),
           AdminField(key: 'discount_type_code', label: 'Discount type'),
           AdminField(key: 'product_family_id', label: 'Product family id'),
@@ -587,7 +592,11 @@ const adminNavGroups = <AdminNavGroup>[
           AdminColumn(key: 'is_active', label: 'Active'),
         ],
         formFields: [
-          AdminField(key: 'organization_id', label: 'Organization id'),
+          AdminField(
+            key: 'organization_id',
+            label: 'Organization (optional; auto-created if empty)',
+            lookup: organizationLookup,
+          ),
           AdminField(key: 'brand_name', label: 'Brand name'),
           AdminField(key: 'logo_file_id', label: 'Logo file id'),
           AdminField(key: 'secondary_logo_file_id', label: 'Secondary logo file id'),

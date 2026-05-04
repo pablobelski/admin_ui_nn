@@ -157,7 +157,10 @@ class _ToolbarState extends ConsumerState<_Toolbar> {
             onPressed: () async {
               final payload = await showDialog<Map<String, dynamic>>(
                 context: context,
-                builder: (_) => ResourceEditorDialog(resource: widget.resource),
+                builder: (_) => ResourceEditorDialog(
+                  resource: widget.resource,
+                  repository: repository,
+                ),
               );
               if (payload == null) return;
               await repository.create(widget.resource, payload);
@@ -317,6 +320,7 @@ class _DetailsCard extends ConsumerWidget {
                             context: context,
                             builder: (_) => ResourceEditorDialog(
                               resource: resource,
+                              repository: repository,
                               initialData: data,
                             ),
                           );

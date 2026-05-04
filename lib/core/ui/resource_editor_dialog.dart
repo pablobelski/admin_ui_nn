@@ -1,17 +1,18 @@
 import 'dart:convert';
-
+import '../http/admin_resource_repository.dart';
 import 'package:flutter/material.dart';
-
 import '../models/admin_resource.dart';
 
 class ResourceEditorDialog extends StatefulWidget {
   const ResourceEditorDialog({
     super.key,
     required this.resource,
+    this.repository,
     this.initialData,
   });
 
   final AdminResourceDefinition resource;
+  final AdminResourceRepository? repository;
   final Map<String, dynamic>? initialData;
 
   @override
@@ -22,6 +23,7 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
   final _formKey = GlobalKey<FormState>();
   late final Map<String, TextEditingController> _controllers;
   late final Map<String, bool> _boolValues;
+  late final Map<String, Future<List<Map<String, dynamic>>>> _lookupFutures;
 
   @override
   void initState() {
@@ -36,8 +38,19 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
     _boolValues = {
       for (final field in widget.resource.formFields)
         if (field.type == AdminFieldType.boolType)
-          field.key: widget.initialData?[field.key] == true,
+          field.key: widget.initialData?[field.key] == true ||
+              (widget.initialData == null && _defaultBoolValue(field.key)),
     };
+    _lookupFutures = {
+      for (final field in widget.resource.formFields)
+        if (field.lookup != null)
+          field.key: widget.repository?.fetchLookup(field.lookup!) ??
+              Future<List<Map<String, dynamic>>>.value(const <Map<String, dynamic>>[]),
+    };
+  }
+
+  bool _defaultBoolValue(String key) {
+    return key == 'is_active' || key == 'is_default';
   }
 
   String _initialText(String key) {
@@ -114,6 +127,65 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
       );
     }
 
+    if (field.lookup != null) {
+      return FutureBuilder<List<Map<String, dynamic>>>(
+        future: _lookupFutures[field.key],
+        builder: (context, snapshot) {
+          final lookup = field.lookup!;
+          final controller = _controllers[field.key]!;
+          final currentValue = controller.text.trim();
+          final rows = snapshot.data ?? const <Map<String, dynamic>>[];
+          final options = <DropdownMenuItem<String>>[
+            const DropdownMenuItem(value: '', child: Text('— Not selected —')),
+          ];
+          var hasCurrentValue = currentValue.isEmpty;
+
+          for (final row in rows) {
+            final id = row[lookup.idKey]?.toString();
+            if (id == null || id.isEmpty) continue;
+            hasCurrentValue = hasCurrentValue || id == currentValue;
+            options.add(
+              DropdownMenuItem(
+                value: id,
+                child: Text(
+                  _lookupLabel(lookup, row),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            );
+          }
+
+          if (!hasCurrentValue) {
+            options.add(
+              DropdownMenuItem(
+                value: currentValue,
+                child: Text(currentValue, overflow: TextOverflow.ellipsis),
+              ),
+            );
+          }
+
+          return DropdownButtonFormField<String>(
+            value: currentValue.isEmpty ? '' : currentValue,
+            isExpanded: true,
+            items: options,
+            onChanged: field.readOnly
+                ? null
+                : (value) {
+              controller.text = value ?? '';
+            },
+            decoration: InputDecoration(
+              labelText: field.label,
+              helperText: snapshot.connectionState == ConnectionState.waiting
+                  ? 'Loading options...'
+                  : snapshot.hasError
+                  ? 'Failed to load; keep existing value or leave empty'
+                  : null,
+            ),
+          );
+        },
+      );
+    }
+
     return TextFormField(
       controller: _controllers[field.key],
       readOnly: field.readOnly,
@@ -134,6 +206,21 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
         return null;
       },
     );
+  }
+
+  String _lookupLabel(AdminLookup lookup, Map<String, dynamic> row) {
+    final labels = <String>[];
+    for (final key in lookup.labelKeys) {
+      final value = row[key];
+      if (value != null && value.toString().trim().isNotEmpty) {
+        labels.add(value.toString());
+      }
+    }
+
+    final id = row[lookup.idKey]?.toString() ?? '';
+    if (labels.isEmpty) return id;
+    if (id.isEmpty) return labels.join(' · ');
+    return '${labels.join(' · ')} ($id)';
   }
 
   void _submit() {

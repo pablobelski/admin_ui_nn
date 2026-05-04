@@ -2,18 +2,32 @@ import 'package:flutter/material.dart';
 
 enum AdminFieldType { text, longText, number, boolType, date, json }
 
+class AdminLookup {
+  const AdminLookup({
+    required this.endpoint,
+    this.idKey = 'id',
+    this.labelKeys = const ['display_name', 'legal_name', 'name', 'code'],
+  });
+
+  final String endpoint;
+  final String idKey;
+  final List<String> labelKeys;
+}
+
 class AdminField {
   const AdminField({
     required this.key,
     required this.label,
     this.type = AdminFieldType.text,
     this.readOnly = false,
+    this.lookup,
   });
 
   final String key;
   final String label;
   final AdminFieldType type;
   final bool readOnly;
+  final AdminLookup? lookup;
 }
 
 class AdminColumn {

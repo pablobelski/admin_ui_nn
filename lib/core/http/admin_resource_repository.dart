@@ -39,6 +39,26 @@ class AdminResourceRepository {
     return _client.getJson('${resource.endpoint}/$id');
   }
 
+  Future<List<Map<String, dynamic>>> fetchLookup(
+      AdminLookup lookup, {
+        String query = '',
+        int limit = 100,
+      }) async {
+    final response = await _client.getJson(
+      lookup.endpoint,
+      query: {
+        if (query.isNotEmpty) 'q': query,
+        'limit': '$limit',
+        'offset': '0',
+      },
+    );
+
+    return (response['items'] as List? ?? const [])
+        .cast<Map>()
+        .map((entry) => Map<String, dynamic>.from(entry))
+        .toList();
+  }
+
   Future<Map<String, dynamic>> create(
     AdminResourceDefinition resource,
     Map<String, dynamic> body,
