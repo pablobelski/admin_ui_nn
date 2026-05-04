@@ -41,7 +41,7 @@ class TemplateWorkspaceState {
   }
 }
 
-class TemplateWorkspaceNotifier extends AutoDisposeNotifier<TemplateWorkspaceState> {
+class TemplateWorkspaceNotifier extends Notifier<TemplateWorkspaceState> {
   @override
   TemplateWorkspaceState build() => const TemplateWorkspaceState();
 
@@ -89,7 +89,7 @@ final configuratorTemplateRepositoryProvider = Provider<ConfiguratorTemplateRepo
 });
 
 final templateWorkspaceProvider =
-    AutoDisposeNotifierProvider<TemplateWorkspaceNotifier, TemplateWorkspaceState>(
+    NotifierProvider.autoDispose<TemplateWorkspaceNotifier, TemplateWorkspaceState>(
   TemplateWorkspaceNotifier.new,
 );
 

@@ -41,7 +41,7 @@ class PriceMatrixBrowserState {
   }
 }
 
-class PriceMatrixBrowserNotifier extends AutoDisposeNotifier<PriceMatrixBrowserState> {
+class PriceMatrixBrowserNotifier extends Notifier<PriceMatrixBrowserState> {
   @override
   PriceMatrixBrowserState build() => const PriceMatrixBrowserState();
 
@@ -80,7 +80,7 @@ final priceMatrixRepositoryProvider = Provider<PriceMatrixRepository>((ref) {
 });
 
 final priceMatrixBrowserProvider =
-    AutoDisposeNotifierProvider<PriceMatrixBrowserNotifier, PriceMatrixBrowserState>(
+    NotifierProvider.autoDispose<PriceMatrixBrowserNotifier, PriceMatrixBrowserState>(
   PriceMatrixBrowserNotifier.new,
 );
 

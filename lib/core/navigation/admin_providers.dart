@@ -19,24 +19,24 @@ final resourceRepositoryProvider = Provider<AdminResourceRepository>((ref) {
   return AdminResourceRepository(ref.watch(apiClientProvider));
 });
 
-class SelectedResourceNotifier extends AutoDisposeNotifier<String> {
+class SelectedResourceNotifier extends Notifier<String> {
   @override
   String build() => dashboardResource.key;
 
   void select(String key) => state = key;
 }
 
-final selectedResourceProvider = AutoDisposeNotifierProvider<SelectedResourceNotifier, String>(
+final selectedResourceProvider = NotifierProvider.autoDispose<SelectedResourceNotifier, String>(
   SelectedResourceNotifier.new,
 );
 
-class ResourceBrowserNotifier
-    extends AutoDisposeFamilyNotifier<ResourceBrowserState, String> {
-  late final String resourceKey;
+class ResourceBrowserNotifier extends Notifier<ResourceBrowserState> {
+  ResourceBrowserNotifier(this.resourceKey);
+
+  final String resourceKey;
 
   @override
-  ResourceBrowserState build(String arg) {
-    resourceKey = arg;
+  ResourceBrowserState build() {
     return const ResourceBrowserState();
   }
 
@@ -61,7 +61,7 @@ class ResourceBrowserNotifier
   }
 }
 
-final resourceBrowserProvider = AutoDisposeNotifierProviderFamily<
+final resourceBrowserProvider = NotifierProvider.autoDispose.family<
     ResourceBrowserNotifier, ResourceBrowserState, String>(
   ResourceBrowserNotifier.new,
 );

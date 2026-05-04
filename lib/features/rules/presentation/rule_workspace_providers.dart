@@ -51,7 +51,7 @@ class RuleWorkspaceState {
   }
 }
 
-class RuleWorkspaceNotifier extends AutoDisposeNotifier<RuleWorkspaceState> {
+class RuleWorkspaceNotifier extends Notifier<RuleWorkspaceState> {
   @override
   RuleWorkspaceState build() => const RuleWorkspaceState();
 
@@ -110,7 +110,7 @@ final ruleSetRepositoryProvider = Provider<RuleSetRepository>((ref) {
 });
 
 final ruleWorkspaceProvider =
-    AutoDisposeNotifierProvider<RuleWorkspaceNotifier, RuleWorkspaceState>(
+    NotifierProvider.autoDispose<RuleWorkspaceNotifier, RuleWorkspaceState>(
   RuleWorkspaceNotifier.new,
 );
 
