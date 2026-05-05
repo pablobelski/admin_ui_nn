@@ -828,7 +828,8 @@ class _RuleRowsTab extends ConsumerWidget {
                       Expanded(
                         child: ListView.separated(
                           key: PageStorageKey<String>(
-                            'rule-row-list-${matrixId ?? "none"}',
+                            //'rule-row-list-${matrixId ?? "none"}',
+                            'rule-row-list-$matrixId',
                           ),
                           itemCount: response.items.length,
                           separatorBuilder: (_, __) => const Divider(height: 1),
