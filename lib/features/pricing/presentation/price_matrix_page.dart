@@ -235,6 +235,7 @@ class _MatrixListCard extends ConsumerWidget {
                 const SizedBox(height: 12),
                 Expanded(
                   child: ListView.separated(
+                    key: const PageStorageKey<String>('price-matrix-list'),
                     itemCount: response.items.length,
                     separatorBuilder: (_, __) => const SizedBox(height: 8),
                     itemBuilder: (context, index) {
@@ -707,6 +708,9 @@ class _CellTable extends StatelessWidget {
                 child: SizedBox(
                   width: 980,
                   child: ListView.separated(
+                    key: PageStorageKey<String>(
+                      'price-matrix-cell-list-${cells.isEmpty ? "empty" : cells.first.priceMatrixId}',
+                    ),
                     itemCount: cells.length,
                     separatorBuilder: (_, __) => const Divider(height: 1),
                     itemBuilder: (context, index) {

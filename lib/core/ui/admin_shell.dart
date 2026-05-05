@@ -1,8 +1,11 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../features/dashboard/presentation/dashboard_page.dart';
 import '../../features/pricing/presentation/price_matrix_page.dart';
+import '../../features/references/presentation/reference_workspace_page.dart';
 import '../../features/resources/presentation/resource_page.dart';
 import '../../features/rules/presentation/rule_workspace_page.dart';
 import '../../features/templates/presentation/template_workspace_page.dart';
@@ -10,12 +13,36 @@ import '../auth/auth_session.dart';
 import '../models/admin_resource.dart';
 import '../navigation/admin_providers.dart';
 import '../navigation/admin_registry.dart';
+import '../navigation/admin_route_paths.dart';
+import '../navigation/browser_navigation.dart';
 
-class AdminShell extends ConsumerWidget {
+class AdminShell extends ConsumerStatefulWidget {
   const AdminShell({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<AdminShell> createState() => _AdminShellState();
+}
+
+class _AdminShellState extends ConsumerState<AdminShell> {
+  @override
+  void initState() {
+    super.initState();
+    setAdminRouteListener(() {
+      if (!mounted) {
+        return;
+      }
+      ref.read(selectedResourceProvider.notifier).syncFromBrowserLocation();
+    });
+  }
+
+  @override
+  void dispose() {
+    setAdminRouteListener(null);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final selectedKey = ref.watch(selectedResourceProvider);
     final selectedResource = findResourceByKey(selectedKey);
     final isNarrow = MediaQuery.sizeOf(context).width < 1100;
@@ -48,6 +75,7 @@ class AdminShell extends ConsumerWidget {
                     ref.read(selectedResourceProvider.notifier).select(key);
                     Navigator.of(context).pop();
                   },
+                  onOpenInNewTab: openAdminResourceInNewTab,
                 ),
               ),
             )
@@ -65,6 +93,7 @@ class AdminShell extends ConsumerWidget {
                     onSelect: (key) {
                       ref.read(selectedResourceProvider.notifier).select(key);
                     },
+                    onOpenInNewTab: openAdminResourceInNewTab,
                   ),
                 ),
               ),
@@ -99,6 +128,12 @@ class AdminShell extends ConsumerWidget {
     if (resource.key == 'rule_matrix_rows') {
       return const RuleWorkspacePage(initialMode: RuleWorkspaceMode.rows);
     }
+    if (resource.key == 'reference_domains') {
+      return const ReferenceWorkspacePage(initialMode: ReferenceWorkspaceMode.domains);
+    }
+    if (resource.key == 'reference_values') {
+      return const ReferenceWorkspacePage(initialMode: ReferenceWorkspaceMode.referenceValues);
+    }
     if (resource.key == 'configurator_templates') {
       return const TemplateWorkspacePage(initialMode: TemplateWorkspaceMode.templates);
     }
@@ -113,10 +148,12 @@ class _NavigationTree extends StatelessWidget {
   const _NavigationTree({
     required this.selectedKey,
     required this.onSelect,
+    required this.onOpenInNewTab,
   });
 
   final String selectedKey;
   final ValueChanged<String> onSelect;
+  final ValueChanged<String> onOpenInNewTab;
 
   @override
   Widget build(BuildContext context) {
@@ -124,10 +161,12 @@ class _NavigationTree extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
       children: [
         _NavTile(
+          resourceKey: dashboardResource.key,
           title: dashboardResource.title,
           icon: dashboardResource.icon,
           selected: selectedKey == dashboardResource.key,
           onTap: () => onSelect(dashboardResource.key),
+          onOpenInNewTab: () => onOpenInNewTab(dashboardResource.key),
         ),
         const SizedBox(height: 8),
         for (final group in adminNavGroups)
@@ -140,10 +179,12 @@ class _NavigationTree extends StatelessWidget {
               children: [
                 for (final resource in group.resources)
                   _NavTile(
+                    resourceKey: resource.key,
                     title: resource.title,
                     icon: resource.icon,
                     selected: selectedKey == resource.key,
                     onTap: () => onSelect(resource.key),
+                    onOpenInNewTab: () => onOpenInNewTab(resource.key),
                   ),
               ],
             ),
@@ -153,29 +194,89 @@ class _NavigationTree extends StatelessWidget {
   }
 }
 
+enum _NavTileMenuAction { open, openInNewTab, copyLink }
+
 class _NavTile extends StatelessWidget {
   const _NavTile({
+    required this.resourceKey,
     required this.title,
     required this.icon,
     required this.selected,
     required this.onTap,
+    required this.onOpenInNewTab,
   });
 
+  final String resourceKey;
   final String title;
   final IconData icon;
   final bool selected;
   final VoidCallback onTap;
+  final VoidCallback onOpenInNewTab;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return ListTile(
-      dense: true,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      tileColor: selected ? scheme.primaryContainer : null,
-      leading: Icon(icon, size: 20),
-      title: Text(title),
-      onTap: onTap,
+    return Listener(
+      onPointerDown: (event) {
+        if (event.buttons == kMiddleMouseButton) {
+          onOpenInNewTab();
+        }
+      },
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onSecondaryTapDown: (details) => _showContextMenu(context, details),
+        child: Tooltip(
+          message: adminHrefForResourceKey(resourceKey),
+          child: ListTile(
+            dense: true,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            tileColor: selected ? scheme.primaryContainer : null,
+            leading: Icon(icon, size: 20),
+            title: Text(title),
+            onTap: onTap,
+          ),
+        ),
+      ),
     );
+  }
+
+  Future<void> _showContextMenu(BuildContext context, TapDownDetails details) async {
+    final action = await showMenu<_NavTileMenuAction>(
+      context: context,
+      position: RelativeRect.fromLTRB(
+        details.globalPosition.dx,
+        details.globalPosition.dy,
+        details.globalPosition.dx,
+        details.globalPosition.dy,
+      ),
+      items: [
+        const PopupMenuItem(
+          value: _NavTileMenuAction.open,
+          child: Text('Open'),
+        ),
+        const PopupMenuItem(
+          value: _NavTileMenuAction.openInNewTab,
+          child: Text('Open in new tab'),
+        ),
+        PopupMenuItem(
+          value: _NavTileMenuAction.copyLink,
+          child: const Text('Copy link'),
+        ),
+      ],
+    );
+
+    switch (action) {
+      case _NavTileMenuAction.open:
+        onTap();
+        break;
+      case _NavTileMenuAction.openInNewTab:
+        onOpenInNewTab();
+        break;
+      case _NavTileMenuAction.copyLink:
+        await Clipboard.setData(ClipboardData(text: adminResourceUrl(resourceKey)));
+        break;
+      case null:
+        break;
+    }
   }
 }

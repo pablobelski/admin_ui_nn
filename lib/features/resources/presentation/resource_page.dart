@@ -207,6 +207,9 @@ class _ListCard extends ConsumerWidget {
                     child: SizedBox(
                       width: resource.columns.fold<double>(0, (sum, col) => sum + (col.flex * 180.0)),
                       child: ListView.separated(
+                        key: PageStorageKey<String>(
+                          'resource-list-${resource.key}-${browserState.query}-${browserState.offset}-${browserState.limit}',
+                        ),
                         itemCount: response.items.length,
                         separatorBuilder: (_, __) => const Divider(height: 1),
                         itemBuilder: (context, index) {

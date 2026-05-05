@@ -249,6 +249,7 @@ class _TemplateListCard extends ConsumerWidget {
                 const SizedBox(height: 12),
                 Expanded(
                   child: ListView.separated(
+                    key: const PageStorageKey<String>('template-list'),
                     itemCount: response.items.length,
                     separatorBuilder: (_, __) => const SizedBox(height: 8),
                     itemBuilder: (context, index) {
@@ -706,6 +707,9 @@ class _ModuleListCard extends ConsumerWidget {
             const SizedBox(height: 12),
             Expanded(
               child: ListView.separated(
+                key: PageStorageKey<String>(
+                  'template-module-list-${browserState.selectedTemplateId ?? "none"}',
+                ),
                 itemCount: response.items.length,
                 separatorBuilder: (_, __) => const SizedBox(height: 8),
                 itemBuilder: (context, index) {

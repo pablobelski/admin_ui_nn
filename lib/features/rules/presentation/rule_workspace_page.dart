@@ -229,6 +229,7 @@ class _RuleSetListCard extends ConsumerWidget {
                 const SizedBox(height: 12),
                 Expanded(
                   child: ListView.separated(
+                    key: const PageStorageKey<String>('rule-set-list'),
                     itemCount: response.items.length,
                     separatorBuilder: (_, __) => const SizedBox(height: 8),
                     itemBuilder: (context, index) {
@@ -699,6 +700,9 @@ class _RuleMatrixListCard extends ConsumerWidget {
                 const SizedBox(height: 12),
                 Expanded(
                   child: ListView.separated(
+                    key: PageStorageKey<String>(
+                      'rule-matrix-list-${browserState.selectedRuleSetId ?? "none"}',
+                    ),
                     itemCount: response.items.length,
                     separatorBuilder: (_, __) => const SizedBox(height: 8),
                     itemBuilder: (context, index) {
@@ -823,6 +827,9 @@ class _RuleRowsTab extends ConsumerWidget {
                       const SizedBox(height: 12),
                       Expanded(
                         child: ListView.separated(
+                          key: PageStorageKey<String>(
+                            'rule-row-list-${matrixId ?? "none"}',
+                          ),
                           itemCount: response.items.length,
                           separatorBuilder: (_, __) => const Divider(height: 1),
                           itemBuilder: (context, index) {

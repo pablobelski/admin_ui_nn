@@ -7,6 +7,8 @@ import '../http/api_client.dart';
 import '../models/admin_resource.dart';
 import '../models/admin_state.dart';
 import 'admin_registry.dart';
+import 'admin_route_paths.dart';
+import 'browser_navigation.dart';
 
 final apiClientProvider = Provider<ApiClient>((ref) {
   return ApiClient(
@@ -21,9 +23,19 @@ final resourceRepositoryProvider = Provider<AdminResourceRepository>((ref) {
 
 class SelectedResourceNotifier extends Notifier<String> {
   @override
-  String build() => dashboardResource.key;
+  String build() => currentAdminResourceKey();
 
-  void select(String key) => state = key;
+  void select(String key, {bool updateUrl = true}) {
+    final nextKey = isKnownAdminResourceKey(key) ? key : dashboardResource.key;
+    state = nextKey;
+    if (updateUrl) {
+      pushAdminResourceUrl(nextKey);
+    }
+  }
+
+  void syncFromBrowserLocation() {
+    select(currentAdminResourceKey(), updateUrl: false);
+  }
 }
 
 final selectedResourceProvider = NotifierProvider.autoDispose<SelectedResourceNotifier, String>(

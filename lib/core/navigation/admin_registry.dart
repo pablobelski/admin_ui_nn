@@ -7,6 +7,11 @@ const organizationLookup = AdminLookup(
   labelKeys: ['display_name', 'legal_name', 'organization_type'],
 );
 
+const referenceDomainLookup = AdminLookup(
+  endpoint: '/api/admin/reference-domains',
+  labelKeys: ['code', 'name'],
+);
+
 const dashboardResource = AdminResourceDefinition(
   key: 'dashboard',
   title: 'Dashboard',
@@ -473,7 +478,8 @@ const adminNavGroups = <AdminNavGroup>[
           AdminColumn(key: 'is_active', label: 'Active'),
         ],
         formFields: [
-          AdminField(key: 'domain_id', label: 'Domain id'),
+          //AdminField(key: 'domain_id', label: 'Domain id'),
+          AdminField(key: 'domain_id', label: 'Domain', lookup: referenceDomainLookup),
           AdminField(key: 'code', label: 'Code'),
           AdminField(key: 'label', label: 'Label'),
           AdminField(key: 'alt_label', label: 'Alt label'),
