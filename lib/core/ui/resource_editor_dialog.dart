@@ -165,7 +165,7 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
           }
 
           return DropdownButtonFormField<String>(
-            value: currentValue.isEmpty ? '' : currentValue,
+            initialValue: currentValue.isEmpty ? '' : currentValue,
             isExpanded: true,
             items: options,
             onChanged: field.readOnly
