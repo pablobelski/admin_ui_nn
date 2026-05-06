@@ -1,15 +1,29 @@
+import '../models/admin_resource.dart';
 import 'admin_route_paths.dart';
 
 String currentAdminResourceKey() {
   return adminResourceKeyFromLocationUri(Uri.base);
 }
 
-String adminResourceUrl(String key) {
-  return adminHrefForResourceKey(key);
+Map<String, String> currentAdminResourceFilters(AdminResourceDefinition resource) {
+  return adminFiltersFromLocationUri(Uri.base, resource);
 }
 
-void pushAdminResourceUrl(String key) {}
+String adminResourceUrl(
+    String key, {
+      Map<String, String> filters = const {},
+    }) {
+  return adminHrefForResourceKey(key, filters: filters);
+}
 
-void openAdminResourceInNewTab(String key) {}
+void pushAdminResourceUrl(
+    String key, {
+      Map<String, String> filters = const {},
+    }) {}
+
+void openAdminResourceInNewTab(
+    String key, {
+      Map<String, String> filters = const {},
+    }) {}
 
 void setAdminRouteListener(void Function()? listener) {}

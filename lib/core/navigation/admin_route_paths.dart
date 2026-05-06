@@ -1,7 +1,9 @@
+import '../models/admin_resource.dart';
 import 'admin_registry.dart';
 
 const _resourceRoutePrefix = '/resources/';
 const _resourceQueryParameter = 'resource';
+const _filterQueryPrefix = 'filter_';
 
 String adminPathForResourceKey(String key) {
   if (key == dashboardResource.key) {
@@ -10,21 +12,55 @@ String adminPathForResourceKey(String key) {
   return '$_resourceRoutePrefix${Uri.encodeComponent(key)}';
 }
 
-String adminHrefForResourceKey(String key) {
+String adminHrefForResourceKey(
+    String key, {
+      Map<String, String> filters = const {},
+    }) {
   final safeKey = isKnownAdminResourceKey(key) ? key : dashboardResource.key;
-  return '?$_resourceQueryParameter=${Uri.encodeQueryComponent(safeKey)}';
+  final queryParameters = <String, String>{
+    _resourceQueryParameter: safeKey,
+    for (final entry in filters.entries)
+      if (entry.value.trim().isNotEmpty) '$_filterQueryPrefix${entry.key}': entry.value.trim(),
+  };
+  return '?${Uri(queryParameters: queryParameters).query}';
 }
 
-Uri adminUriForResourceKey(Uri currentUri, String key) {
+Uri adminUriForResourceKey(
+    Uri currentUri,
+    String key, {
+      Map<String, String> filters = const {},
+    }) {
   final safeKey = isKnownAdminResourceKey(key) ? key : dashboardResource.key;
-  final nextQuery = Map<String, String>.from(currentUri.queryParameters);
+  final nextQuery = Map<String, String>.from(currentUri.queryParameters)
+    ..removeWhere((key, _) => key.startsWith(_filterQueryPrefix));
   nextQuery[_resourceQueryParameter] = safeKey;
+
+  for (final entry in filters.entries) {
+    final value = entry.value.trim();
+    if (value.isNotEmpty) {
+      nextQuery['$_filterQueryPrefix${entry.key}'] = value;
+    }
+  }
 
   return currentUri.replace(
     queryParameters: nextQuery,
     fragment: '',
   );
 }
+
+Map<String, String> adminFiltersFromLocationUri(Uri uri, AdminResourceDefinition resource) {
+  if (resource.listFilters.isEmpty) return const {};
+
+  final filters = <String, String>{};
+  for (final filter in resource.listFilters) {
+    final value = uri.queryParameters['$_filterQueryPrefix${filter.key}'];
+    if (value != null && value.trim().isNotEmpty) {
+      filters[filter.key] = value.trim();
+    }
+  }
+  return filters;
+}
+
 
 String adminResourceKeyFromLocationUri(Uri uri) {
   // Query parameter routes are preferred because Flutter Web treats #/... as

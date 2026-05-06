@@ -6,18 +6,21 @@ class ResourceBrowserState {
     this.selectedId,
     this.offset = 0,
     this.limit = 50,
+    this.filters = const {},
   });
 
   final String query;
   final String? selectedId;
   final int offset;
   final int limit;
+  final Map<String, String> filters;
 
   ResourceBrowserState copyWith({
     String? query,
     String? selectedId,
     int? offset,
     int? limit,
+    Map<String, String>? filters,
     bool clearSelected = false,
   }) {
     return ResourceBrowserState(
@@ -25,6 +28,7 @@ class ResourceBrowserState {
       selectedId: clearSelected ? null : (selectedId ?? this.selectedId),
       offset: offset ?? this.offset,
       limit: limit ?? this.limit,
+      filters: filters ?? this.filters,
     );
   }
 }

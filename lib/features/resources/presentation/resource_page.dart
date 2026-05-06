@@ -8,6 +8,7 @@ import '../../../core/http/admin_resource_repository.dart';
 import '../../../core/models/admin_resource.dart';
 import '../../../core/models/admin_state.dart';
 import '../../../core/navigation/admin_providers.dart';
+import '../../../core/navigation/admin_registry.dart';
 import '../../../core/ui/json_view_card.dart';
 import '../../../core/ui/resource_editor_dialog.dart';
 
@@ -36,20 +37,20 @@ class ResourcePage extends ConsumerWidget {
         Expanded(
           child: isWide
               ? Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(flex: 3, child: _ListCard(resource: resource, listAsync: listAsync)),
-                    const SizedBox(width: 16),
-                    Expanded(flex: 2, child: _DetailsCard(resource: resource, detailsAsync: detailsAsync)),
-                  ],
-                )
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(flex: 3, child: _ListCard(resource: resource, listAsync: listAsync)),
+              const SizedBox(width: 16),
+              Expanded(flex: 2, child: _DetailsCard(resource: resource, detailsAsync: detailsAsync)),
+            ],
+          )
               : Column(
-                  children: [
-                    Expanded(child: _ListCard(resource: resource, listAsync: listAsync)),
-                    const SizedBox(height: 16),
-                    Expanded(child: _DetailsCard(resource: resource, detailsAsync: detailsAsync)),
-                  ],
-                ),
+            children: [
+              Expanded(child: _ListCard(resource: resource, listAsync: listAsync)),
+              const SizedBox(height: 16),
+              Expanded(child: _DetailsCard(resource: resource, detailsAsync: detailsAsync)),
+            ],
+          ),
         ),
       ],
     );
@@ -122,54 +123,181 @@ class _ToolbarState extends ConsumerState<_Toolbar> {
   Widget build(BuildContext context) {
     final browser = ref.read(resourceBrowserProvider(widget.resource.key).notifier);
     final repository = ref.read(resourceRepositoryProvider);
+    final hasActiveFilters = widget.browserState.filters.isNotEmpty;
 
-    return Row(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SizedBox(
-          width: 320,
-          child: TextField(
-            controller: _searchController,
-            decoration: const InputDecoration(
-              prefixIcon: Icon(Icons.search),
-              hintText: 'Search',
-            ),
-            onSubmitted: browser.setQuery,
-          ),
-        ),
-        const SizedBox(width: 8),
-        FilledButton.tonalIcon(
-          onPressed: () => browser.setQuery(_searchController.text.trim()),
-          icon: const Icon(Icons.filter_alt_outlined),
-          label: const Text('Apply'),
-        ),
-        const SizedBox(width: 8),
-        IconButton(
-          tooltip: 'Refresh',
-          onPressed: () {
-            ref.invalidate(resourceListProvider(widget.resource));
-            ref.invalidate(resourceDetailsProvider(widget.resource));
-          },
-          icon: const Icon(Icons.refresh),
-        ),
-        const Spacer(),
-        if (widget.resource.supportsCreate)
-          FilledButton.icon(
-            onPressed: () async {
-              final payload = await showDialog<Map<String, dynamic>>(
-                context: context,
-                builder: (_) => ResourceEditorDialog(
-                  resource: widget.resource,
-                  repository: repository,
+        Row(
+          children: [
+            SizedBox(
+              width: 320,
+              child: TextField(
+                controller: _searchController,
+                decoration: const InputDecoration(
+                  prefixIcon: Icon(Icons.search),
+                  hintText: 'Search',
                 ),
-              );
-              if (payload == null) return;
-              await repository.create(widget.resource, payload);
-              ref.invalidate(resourceListProvider(widget.resource));
-            },
-            icon: const Icon(Icons.add),
-            label: const Text('Create'),
+                onSubmitted: browser.setQuery,
+              ),
+            ),
+            const SizedBox(width: 8),
+            FilledButton.tonalIcon(
+              onPressed: () => browser.setQuery(_searchController.text.trim()),
+              icon: const Icon(Icons.filter_alt_outlined),
+              label: const Text('Apply'),
+            ),
+            const SizedBox(width: 8),
+            IconButton(
+              tooltip: 'Refresh',
+              onPressed: () {
+                ref.invalidate(resourceListProvider(widget.resource));
+                ref.invalidate(resourceDetailsProvider(widget.resource));
+              },
+              icon: const Icon(Icons.refresh),
+            ),
+            const Spacer(),
+            if (widget.resource.supportsCreate)
+              FilledButton.icon(
+                onPressed: () async {
+                  final payload = await showDialog<Map<String, dynamic>>(
+                    context: context,
+                    builder: (_) => ResourceEditorDialog(
+                      resource: widget.resource,
+                      repository: repository,
+                    ),
+                  );
+                  if (payload == null) return;
+                  await repository.create(widget.resource, payload);
+                  ref.invalidate(resourceListProvider(widget.resource));
+                },
+                icon: const Icon(Icons.add),
+                label: const Text('Create'),
+              ),
+          ],
+        ),
+        if (widget.resource.listFilters.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              for (final filter in widget.resource.listFilters)
+                SizedBox(
+                  width: 320,
+                  child: _ListFilterField(
+                    resource: widget.resource,
+                    filter: filter,
+                    value: widget.browserState.filters[filter.key] ?? '',
+                  ),
+                ),
+              if (hasActiveFilters)
+                TextButton.icon(
+                  onPressed: browser.clearFilters,
+                  icon: const Icon(Icons.clear),
+                  label: const Text('Clear filters'),
+                ),
+            ],
           ),
+        ],
       ],
+    );
+  }
+
+}
+
+
+class _ListFilterField extends ConsumerWidget {
+  const _ListFilterField({
+    required this.resource,
+    required this.filter,
+    required this.value,
+  });
+
+  final AdminResourceDefinition resource;
+  final AdminResourceFilter filter;
+  final String value;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final browser = ref.read(resourceBrowserProvider(resource.key).notifier);
+    final lookup = filter.lookup;
+
+    if (lookup == null) {
+      return TextFormField(
+        key: ValueKey('filter-${resource.key}-${filter.key}-$value'),
+        initialValue: value,
+        decoration: InputDecoration(labelText: filter.label),
+        onFieldSubmitted: (nextValue) => browser.setFilter(filter.key, nextValue),
+      );
+    }
+
+    final lookupAsync = ref.watch(adminLookupProvider(lookup));
+    return lookupAsync.when(
+      loading: () => DropdownButtonFormField<String>(
+        key: ValueKey('filter-${resource.key}-${filter.key}-$value-loading'),
+        initialValue: value.isEmpty ? '' : value,
+        isExpanded: true,
+        items: [
+          const DropdownMenuItem(value: '', child: Text('— Not selected —')),
+          if (value.isNotEmpty)
+            DropdownMenuItem(value: value, child: Text(value, overflow: TextOverflow.ellipsis)),
+        ],
+        onChanged: null,
+        decoration: InputDecoration(
+          labelText: filter.label,
+          helperText: 'Loading options...',
+        ),
+      ),
+      error: (_, __) => TextFormField(
+        key: ValueKey('filter-${resource.key}-${filter.key}-$value-error'),
+        initialValue: value,
+        decoration: InputDecoration(
+          labelText: filter.label,
+          helperText: 'Lookup failed; paste id manually',
+        ),
+        onFieldSubmitted: (nextValue) => browser.setFilter(filter.key, nextValue),
+      ),
+      data: (rows) {
+        final options = <DropdownMenuItem<String>>[
+          const DropdownMenuItem(value: '', child: Text('— All —')),
+        ];
+        var hasCurrentValue = value.isEmpty;
+
+        for (final row in rows) {
+          final id = row[lookup.idKey]?.toString();
+          if (id == null || id.isEmpty) continue;
+          hasCurrentValue = hasCurrentValue || id == value;
+          options.add(
+            DropdownMenuItem(
+              value: id,
+              child: Text(
+                _lookupLabel(lookup, row),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          );
+        }
+
+        if (!hasCurrentValue) {
+          options.add(
+            DropdownMenuItem(
+              value: value,
+              child: Text(value, overflow: TextOverflow.ellipsis),
+            ),
+          );
+        }
+
+        return DropdownButtonFormField<String>(
+          key: ValueKey('filter-${resource.key}-${filter.key}-$value'),
+          initialValue: value.isEmpty ? '' : value,
+          isExpanded: true,
+          items: options,
+          onChanged: (nextValue) => browser.setFilter(filter.key, nextValue),
+          decoration: InputDecoration(labelText: filter.label),
+        );
+      },
     );
   }
 }
@@ -187,6 +315,15 @@ class _ListCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final browserState = ref.watch(resourceBrowserProvider(resource.key));
     final browser = ref.read(resourceBrowserProvider(resource.key).notifier);
+    final lookupLabelsByColumn = <String, Map<String, String>>{
+      for (final column in resource.columns)
+        if (column.lookup != null)
+          column.key: ref.watch(adminLookupProvider(column.lookup!)).maybeWhen(
+            data: (rows) => _lookupLabelMap(column.lookup!, rows),
+            orElse: () => const <String, String>{},
+          ),
+    };
+    final filtersKey = _filtersStorageKey(browserState.filters);
 
     return Card(
       child: Padding(
@@ -208,7 +345,7 @@ class _ListCard extends ConsumerWidget {
                       width: resource.columns.fold<double>(0, (sum, col) => sum + (col.flex * 180.0)),
                       child: ListView.separated(
                         key: PageStorageKey<String>(
-                          'resource-list-${resource.key}-${browserState.query}-${browserState.offset}-${browserState.limit}',
+                          'resource-list-${resource.key}-${browserState.query}-$filtersKey-${browserState.offset}-${browserState.limit}',
                         ),
                         itemCount: response.items.length,
                         separatorBuilder: (_, __) => const Divider(height: 1),
@@ -227,13 +364,16 @@ class _ListCard extends ConsumerWidget {
                                     Expanded(
                                       flex: column.flex,
                                       child: Text(
-                                        _displayValue(row[column.key]),
+                                        _displayValue(
+                                          row[column.key],
+                                          lookupLabels: lookupLabelsByColumn[column.key],
+                                        ),
                                         maxLines: 2,
                                         overflow: TextOverflow.ellipsis,
                                         style: column.isPrimary
                                             ? Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                                  fontWeight: FontWeight.w600,
-                                                )
+                                          fontWeight: FontWeight.w600,
+                                        )
                                             : null,
                                       ),
                                     ),
@@ -315,6 +455,29 @@ class _DetailsCard extends ConsumerWidget {
                   children: [
                     Text('Details', style: Theme.of(context).textTheme.titleLarge),
                     const Spacer(),
+                    for (final action in resource.detailActions)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: OutlinedButton.icon(
+                          onPressed: _detailActionValue(action, data) == null
+                              ? null
+                              : () {
+                            final targetResource = findResourceByKey(action.targetResourceKey);
+                            final filterValue = _detailActionValue(action, data)!;
+                            final filters = {action.filterKey: filterValue};
+                            ref
+                                .read(resourceBrowserProvider(action.targetResourceKey).notifier)
+                                .setFilter(action.filterKey, filterValue);
+                            ref.read(selectedResourceProvider.notifier).select(
+                              action.targetResourceKey,
+                              filters: filters,
+                            );
+                            ref.invalidate(resourceListProvider(targetResource));
+                          },
+                          icon: Icon(action.icon, size: 18),
+                          label: Text(action.label),
+                        ),
+                      ),
                     if (resource.supportsEdit)
                       IconButton(
                         tooltip: 'Edit',
@@ -371,8 +534,8 @@ class _DetailsCard extends ConsumerWidget {
                                         child: Text(
                                           entry.key,
                                           style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                                fontWeight: FontWeight.w600,
-                                              ),
+                                            fontWeight: FontWeight.w600,
+                                          ),
                                         ),
                                       ),
                                       Expanded(child: Text(_displayValue(entry.value))),
@@ -413,8 +576,60 @@ class _ErrorState extends StatelessWidget {
   }
 }
 
-String _displayValue(Object? value) {
+String? _detailActionValue(AdminDetailAction action, Map<String, dynamic> data) {
+  final value = data[action.sourceValueKey]?.toString().trim();
+  if (value == null || value.isEmpty) return null;
+  return value;
+}
+
+String _filtersStorageKey(Map<String, String> filters) {
+  if (filters.isEmpty) return 'nofilters';
+  final entries = filters.entries.toList()..sort((a, b) => a.key.compareTo(b.key));
+  return entries.map((entry) => '${entry.key}=${entry.value}').join('&');
+}
+
+Map<String, String> _lookupLabelMap(AdminLookup lookup, List<Map<String, dynamic>> rows) {
+  return {
+    for (final row in rows)
+      if ((row[lookup.idKey]?.toString().trim() ?? '').isNotEmpty)
+        row[lookup.idKey]!.toString(): _lookupCompactLabel(lookup, row),
+  };
+}
+
+List<String> _lookupLabelParts(AdminLookup lookup, Map<String, dynamic> row) {
+  final labels = <String>[];
+  for (final key in lookup.labelKeys) {
+    final value = row[key];
+    if (value != null && value.toString().trim().isNotEmpty) {
+      labels.add(value.toString());
+    }
+  }
+  return labels;
+}
+
+String _lookupCompactLabel(AdminLookup lookup, Map<String, dynamic> row) {
+  final labels = _lookupLabelParts(lookup, row);
+  if (labels.isNotEmpty) return labels.join(' · ');
+  return row[lookup.idKey]?.toString() ?? '';
+}
+
+String _lookupLabel(AdminLookup lookup, Map<String, dynamic> row) {
+  final compactLabel = _lookupCompactLabel(lookup, row);
+  final id = row[lookup.idKey]?.toString() ?? '';
+  if (compactLabel.isEmpty) return id;
+  if (id.isEmpty) return compactLabel;
+  return '$compactLabel ($id)';
+}
+
+String _displayValue(Object? value, {Map<String, String>? lookupLabels}) {
   if (value == null) return '—';
+  if (lookupLabels != null) {
+    final key = value.toString();
+    final label = lookupLabels[key];
+    if (label != null && label.isNotEmpty) {
+      return label;
+    }
+  }
   if (value is bool) return value ? 'Yes' : 'No';
   if (value is DateTime) return DateFormat('yyyy-MM-dd HH:mm').format(value);
   if (value is Map || value is List) {

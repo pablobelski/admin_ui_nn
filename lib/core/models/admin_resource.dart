@@ -36,12 +36,43 @@ class AdminColumn {
     required this.label,
     this.flex = 1,
     this.isPrimary = false,
+    this.lookup,
   });
 
   final String key;
   final String label;
   final int flex;
   final bool isPrimary;
+  final AdminLookup? lookup;
+}
+
+class AdminResourceFilter {
+  const AdminResourceFilter({
+    required this.key,
+    required this.label,
+    this.lookup,
+  });
+
+  final String key;
+  final String label;
+  final AdminLookup? lookup;
+}
+
+class AdminDetailAction {
+  const AdminDetailAction({
+    required this.label,
+    required this.targetResourceKey,
+    required this.filterKey,
+    required this.sourceValueKey,
+    this.icon = Icons.open_in_new_rounded,
+  });
+
+  final String label;
+  final String targetResourceKey;
+  final String filterKey;
+  final String sourceValueKey;
+  final IconData icon;
+
 }
 
 class AdminResourceDefinition {
@@ -56,6 +87,8 @@ class AdminResourceDefinition {
     this.supportsEdit = true,
     this.supportsDelete = false,
     this.description,
+    this.listFilters = const [],
+    this.detailActions = const [],
   });
 
   final String key;
@@ -68,6 +101,8 @@ class AdminResourceDefinition {
   final bool supportsEdit;
   final bool supportsDelete;
   final String? description;
+  final List<AdminResourceFilter> listFilters;
+  final List<AdminDetailAction> detailActions;
 }
 
 class AdminNavGroup {

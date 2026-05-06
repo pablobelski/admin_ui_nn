@@ -11,11 +11,14 @@ class AdminResourceRepository {
     String query = '',
     int limit = 50,
     int offset = 0,
+    Map<String, String> filters = const {},
   }) async {
     final response = await _client.getJson(
       resource.endpoint,
       query: {
         if (query.isNotEmpty) 'q': query,
+        for (final entry in filters.entries)
+            if (entry.value.trim().isNotEmpty) entry.key: entry.value.trim(),
         'limit': '$limit',
         'offset': '$offset',
       },

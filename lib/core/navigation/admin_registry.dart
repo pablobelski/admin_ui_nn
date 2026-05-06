@@ -12,6 +12,11 @@ const referenceDomainLookup = AdminLookup(
   labelKeys: ['code', 'name'],
 );
 
+const productFamilyLookup = AdminLookup(
+  endpoint: '/api/admin/product-families',
+  labelKeys: ['code', 'name'],
+);
+
 const dashboardResource = AdminResourceDefinition(
   key: 'dashboard',
   title: 'Dashboard',
@@ -38,12 +43,17 @@ const adminNavGroups = <AdminNavGroup>[
         columns: [
           AdminColumn(key: 'base_code', label: 'Base code', isPrimary: true, flex: 2),
           AdminColumn(key: 'name', label: 'Name', flex: 3),
+          AdminColumn(key: 'product_family_id', label: 'Product family', flex: 2, lookup: productFamilyLookup),
           AdminColumn(key: 'category_code', label: 'Category'),
           AdminColumn(key: 'system_code', label: 'System'),
           AdminColumn(key: 'measure_type_code', label: 'Unit'),
           AdminColumn(key: 'is_active', label: 'Active'),
         ],
+        listFilters: [
+          AdminResourceFilter(key: 'product_family_id', label: 'Product family', lookup: productFamilyLookup),
+        ],
         formFields: [
+          AdminField(key: 'product_family_id', label: 'Product family', lookup: productFamilyLookup),
           AdminField(key: 'base_code', label: 'Base code'),
           AdminField(key: 'name', label: 'Name'),
           AdminField(key: 'short_name', label: 'Short name'),
@@ -507,6 +517,15 @@ const adminNavGroups = <AdminNavGroup>[
           AdminField(key: 'sort_order', label: 'Sort order', type: AdminFieldType.number),
           AdminField(key: 'metadata_json', label: 'Metadata JSON', type: AdminFieldType.json),
           AdminField(key: 'is_active', label: 'Active', type: AdminFieldType.boolType),
+        ],
+        detailActions: [
+          AdminDetailAction(
+            label: 'Show catalog items',
+            targetResourceKey: 'catalog_items',
+            filterKey: 'product_family_id',
+            sourceValueKey: 'id',
+            icon: Icons.view_list_rounded,
+          ),
         ],
       ),
       AdminResourceDefinition(

@@ -21,15 +21,25 @@ final resourceRepositoryProvider = Provider<AdminResourceRepository>((ref) {
   return AdminResourceRepository(ref.watch(apiClientProvider));
 });
 
+final adminLookupProvider = FutureProvider.family<List<Map<String, dynamic>>, AdminLookup>(
+      (ref, lookup) {
+    return ref.watch(resourceRepositoryProvider).fetchLookup(lookup, limit: 500);
+  },
+);
+
 class SelectedResourceNotifier extends Notifier<String> {
   @override
   String build() => currentAdminResourceKey();
 
-  void select(String key, {bool updateUrl = true}) {
+  void select(
+      String key, {
+        bool updateUrl = true,
+        Map<String, String> filters = const {},
+      }) {
     final nextKey = isKnownAdminResourceKey(key) ? key : dashboardResource.key;
     state = nextKey;
     if (updateUrl) {
-      pushAdminResourceUrl(nextKey);
+      pushAdminResourceUrl(nextKey, filters: filters);
     }
   }
 
@@ -49,11 +59,31 @@ class ResourceBrowserNotifier extends Notifier<ResourceBrowserState> {
 
   @override
   ResourceBrowserState build() {
+    final resource = findResourceByKey(resourceKey);
+    return ResourceBrowserState(filters: currentAdminResourceFilters(resource));
     return const ResourceBrowserState();
   }
 
   void setQuery(String value) {
     state = state.copyWith(query: value, offset: 0, clearSelected: true);
+  }
+
+
+  void setFilter(String key, String? value) {
+    final nextFilters = Map<String, String>.from(state.filters);
+    final normalizedValue = value?.trim() ?? '';
+    if (normalizedValue.isEmpty) {
+      nextFilters.remove(key);
+    } else {
+      nextFilters[key] = normalizedValue;
+    }
+    state = state.copyWith(filters: nextFilters, offset: 0, clearSelected: true);
+    pushAdminResourceUrl(resourceKey, filters: nextFilters);
+  }
+
+  void clearFilters() {
+    state = state.copyWith(filters: const {}, offset: 0, clearSelected: true);
+    pushAdminResourceUrl(resourceKey);
   }
 
   void select(String? id) {
@@ -87,6 +117,7 @@ final resourceListProvider = FutureProvider.family<ResourceListResponse, AdminRe
       query: browserState.query,
       limit: browserState.limit,
       offset: browserState.offset,
+      filters: browserState.filters,
     );
   },
 );

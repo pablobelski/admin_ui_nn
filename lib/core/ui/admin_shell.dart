@@ -75,7 +75,7 @@ class _AdminShellState extends ConsumerState<AdminShell> {
                     ref.read(selectedResourceProvider.notifier).select(key);
                     Navigator.of(context).pop();
                   },
-                  onOpenInNewTab: openAdminResourceInNewTab,
+                  onOpenInNewTab: (key) => openAdminResourceInNewTab(key),
                 ),
               ),
             )
@@ -93,7 +93,7 @@ class _AdminShellState extends ConsumerState<AdminShell> {
                     onSelect: (key) {
                       ref.read(selectedResourceProvider.notifier).select(key);
                     },
-                    onOpenInNewTab: openAdminResourceInNewTab,
+                    onOpenInNewTab: (key) => openAdminResourceInNewTab(key),
                   ),
                 ),
               ),
