@@ -61,7 +61,6 @@ class ResourceBrowserNotifier extends Notifier<ResourceBrowserState> {
   ResourceBrowserState build() {
     final resource = findResourceByKey(resourceKey);
     return ResourceBrowserState(filters: currentAdminResourceFilters(resource));
-    return const ResourceBrowserState();
   }
 
   void setQuery(String value) {
@@ -109,7 +108,7 @@ final resourceBrowserProvider = NotifierProvider.autoDispose.family<
 );
 
 final resourceListProvider = FutureProvider.family<ResourceListResponse, AdminResourceDefinition>(
-  (ref, resource) async {
+      (ref, resource) async {
     final browserState = ref.watch(resourceBrowserProvider(resource.key));
     final repository = ref.watch(resourceRepositoryProvider);
     return repository.fetchList(
@@ -123,7 +122,7 @@ final resourceListProvider = FutureProvider.family<ResourceListResponse, AdminRe
 );
 
 final resourceDetailsProvider = FutureProvider.family<Map<String, dynamic>?, AdminResourceDefinition>(
-  (ref, resource) async {
+      (ref, resource) async {
     final browserState = ref.watch(resourceBrowserProvider(resource.key));
     final selectedId = browserState.selectedId;
     if (selectedId == null || selectedId.isEmpty) {
