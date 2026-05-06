@@ -7,11 +7,13 @@ class AdminLookup {
     required this.endpoint,
     this.idKey = 'id',
     this.labelKeys = const ['display_name', 'legal_name', 'name', 'code'],
+    this.limit = 500,
   });
 
   final String endpoint;
   final String idKey;
   final List<String> labelKeys;
+  final int limit;
 }
 
 class AdminField {

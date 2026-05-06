@@ -23,7 +23,7 @@ final resourceRepositoryProvider = Provider<AdminResourceRepository>((ref) {
 
 final adminLookupProvider = FutureProvider.family<List<Map<String, dynamic>>, AdminLookup>(
       (ref, lookup) {
-    return ref.watch(resourceRepositoryProvider).fetchLookup(lookup, limit: 500);
+    return ref.watch(resourceRepositoryProvider).fetchLookup(lookup, limit: lookup.limit);
   },
 );
 

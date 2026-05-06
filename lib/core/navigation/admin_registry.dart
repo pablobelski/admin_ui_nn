@@ -17,6 +17,12 @@ const productFamilyLookup = AdminLookup(
   labelKeys: ['code', 'name'],
 );
 
+const catalogItemLookup = AdminLookup(
+  endpoint: '/api/admin/catalog-items',
+  labelKeys: ['base_code', 'name'],
+  limit: 2000,
+);
+
 const dashboardResource = AdminResourceDefinition(
   key: 'dashboard',
   title: 'Dashboard',
@@ -66,6 +72,15 @@ const adminNavGroups = <AdminNavGroup>[
           AdminField(key: 'is_active', label: 'Active', type: AdminFieldType.boolType),
           AdminField(key: 'attributes_json', label: 'Attributes JSON', type: AdminFieldType.json),
         ],
+        detailActions: [
+          AdminDetailAction(
+            label: 'Show catalog variants',
+            targetResourceKey: 'catalog_variants',
+            filterKey: 'catalog_item_id',
+            sourceValueKey: 'id',
+            icon: Icons.tune_rounded,
+          ),
+        ],
       ),
       AdminResourceDefinition(
         key: 'catalog_variants',
@@ -74,14 +89,18 @@ const adminNavGroups = <AdminNavGroup>[
         icon: Icons.tune_rounded,
         columns: [
           AdminColumn(key: 'variant_sku', label: 'Variant SKU', isPrimary: true, flex: 2),
+          AdminColumn(key: 'catalog_item_id', label: 'Catalog item', flex: 2, lookup: catalogItemLookup),
           AdminColumn(key: 'article_no', label: 'Article no'),
           AdminColumn(key: 'color_name', label: 'Color'),
           AdminColumn(key: 'length_mm', label: 'Length'),
           AdminColumn(key: 'glass_type_code', label: 'Glass'),
           AdminColumn(key: 'is_active', label: 'Active'),
         ],
+        listFilters: [
+          AdminResourceFilter(key: 'catalog_item_id', label: 'Catalog item', lookup: catalogItemLookup),
+        ],
         formFields: [
-          AdminField(key: 'catalog_item_id', label: 'Catalog item id'),
+          AdminField(key: 'catalog_item_id', label: 'Catalog item', lookup: catalogItemLookup),
           AdminField(key: 'variant_sku', label: 'Variant SKU'),
           AdminField(key: 'article_no', label: 'Article no'),
           AdminField(key: 'color_code', label: 'Color code'),
