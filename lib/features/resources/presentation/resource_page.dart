@@ -10,6 +10,8 @@ import '../../../core/models/admin_state.dart';
 import '../../../core/navigation/admin_providers.dart';
 import '../../../core/navigation/admin_registry.dart';
 import '../../../core/ui/json_view_card.dart';
+import '../../../core/ui/resizable_split_pane.dart';
+import '../../../core/ui/scrollable_areas.dart';
 import '../../../core/ui/resource_editor_dialog.dart';
 
 class ResourcePage extends ConsumerWidget {
@@ -35,21 +37,13 @@ class ResourcePage extends ConsumerWidget {
         _Toolbar(resource: resource, browserState: browserState),
         const SizedBox(height: 16),
         Expanded(
-          child: isWide
-              ? Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(flex: 3, child: _ListCard(resource: resource, listAsync: listAsync)),
-              const SizedBox(width: 16),
-              Expanded(flex: 2, child: _DetailsCard(resource: resource, detailsAsync: detailsAsync)),
-            ],
-          )
-              : Column(
-            children: [
-              Expanded(child: _ListCard(resource: resource, listAsync: listAsync)),
-              const SizedBox(height: 16),
-              Expanded(child: _DetailsCard(resource: resource, detailsAsync: detailsAsync)),
-            ],
+          child: ResizableSplitPane(
+            axis: isWide ? Axis.horizontal : Axis.vertical,
+            initialFraction: isWide ? 0.6 : 0.5,
+            minFirstFraction: 0.25,
+            minSecondFraction: 0.25,
+            first: _ListCard(resource: resource, listAsync: listAsync),
+            second: _DetailsCard(resource: resource, detailsAsync: detailsAsync),
           ),
         ),
       ],
@@ -339,8 +333,7 @@ class _ListCard extends ConsumerWidget {
             return Column(
               children: [
                 Expanded(
-                  child: SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
+                  child: HorizontalScrollArea(
                     child: SizedBox(
                       width: resource.columns.fold<double>(0, (sum, col) => sum + (col.flex * 180.0)),
                       child: ListView.separated(

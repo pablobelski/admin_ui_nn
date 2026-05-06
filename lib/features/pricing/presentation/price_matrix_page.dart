@@ -4,6 +4,8 @@ import 'package:intl/intl.dart';
 
 import '../../../core/navigation/admin_registry.dart';
 import '../../../core/ui/json_view_card.dart';
+import '../../../core/ui/resizable_split_pane.dart';
+import '../../../core/ui/scrollable_areas.dart';
 import '../../../core/ui/resource_editor_dialog.dart';
 import '../data/price_matrix_repository.dart';
 import 'price_matrix_providers.dart';
@@ -34,31 +36,35 @@ class PriceMatrixPage extends ConsumerWidget {
           const SizedBox(height: 16),
           Expanded(
             child: isWide
-                ? Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Expanded(flex: 2, child: _MatrixListCard()),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        flex: 3,
-                        child: Column(
-                          children: [
-                            Expanded(child: _MatrixDetailsCard(detailsAsync: selectedMatrixAsync)),
-                            const SizedBox(height: 16),
-                            Expanded(flex: 2, child: _CellsWorkspace(cellsAsync: cellsAsync)),
-                          ],
-                        ),
-                      ),
-                    ],
+                ? ResizableSplitPane(
+                    axis: Axis.horizontal,
+                    initialFraction: 0.4,
+                    minFirstFraction: 0.25,
+                    minSecondFraction: 0.35,
+                    first: const _MatrixListCard(),
+                    second: ResizableSplitPane(
+                      axis: Axis.vertical,
+                      initialFraction: 0.34,
+                      minFirstFraction: 0.18,
+                      minSecondFraction: 0.35,
+                      first: _MatrixDetailsCard(detailsAsync: selectedMatrixAsync),
+                      second: _CellsWorkspace(cellsAsync: cellsAsync),
+                    ),
                   )
-                : Column(
-                    children: [
-                      const Expanded(child: _MatrixListCard()),
-                      const SizedBox(height: 16),
-                      Expanded(child: _MatrixDetailsCard(detailsAsync: selectedMatrixAsync)),
-                      const SizedBox(height: 16),
-                      Expanded(flex: 2, child: _CellsWorkspace(cellsAsync: cellsAsync)),
-                    ],
+                : ResizableSplitPane(
+                    axis: Axis.vertical,
+                    initialFraction: 0.35,
+                    minFirstFraction: 0.2,
+                    minSecondFraction: 0.35,
+                    first: const _MatrixListCard(),
+                    second: ResizableSplitPane(
+                      axis: Axis.vertical,
+                      initialFraction: 0.34,
+                      minFirstFraction: 0.18,
+                      minSecondFraction: 0.35,
+                      first: _MatrixDetailsCard(detailsAsync: selectedMatrixAsync),
+                      second: _CellsWorkspace(cellsAsync: cellsAsync),
+                    ),
                   ),
           ),
         ],
@@ -652,12 +658,13 @@ class _CellsTableTab extends ConsumerWidget {
                   createButton,
                   const SizedBox(height: 12),
                   Expanded(
-                    child: Row(
-                      children: [
-                        Expanded(flex: 3, child: table),
-                        const SizedBox(width: 16),
-                        Expanded(flex: 2, child: details),
-                      ],
+                    child: ResizableSplitPane(
+                      axis: Axis.horizontal,
+                      initialFraction: 0.6,
+                      minFirstFraction: 0.35,
+                      minSecondFraction: 0.25,
+                      first: table,
+                      second: details,
                     ),
                   ),
                 ],
@@ -668,9 +675,16 @@ class _CellsTableTab extends ConsumerWidget {
               children: [
                 createButton,
                 const SizedBox(height: 12),
-                Expanded(child: table),
-                const SizedBox(height: 16),
-                SizedBox(height: 280, child: details),
+                Expanded(
+                  child: ResizableSplitPane(
+                    axis: Axis.vertical,
+                    initialFraction: 0.6,
+                    minFirstFraction: 0.35,
+                    minSecondFraction: 0.25,
+                    first: table,
+                    second: details,
+                  ),
+                ),
               ],
             );
           },
@@ -703,8 +717,7 @@ class _CellTable extends StatelessWidget {
             Text('Cells table', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 8),
             Expanded(
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
+              child: HorizontalScrollArea(
                 child: SizedBox(
                   width: 980,
                   child: ListView.separated(
@@ -850,10 +863,8 @@ class _CellsGridTab extends StatelessWidget {
           for (final cell in response.items) '${cell.rowNo}:${cell.colNo}': cell,
         };
 
-        return SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: SingleChildScrollView(
-            child: DataTable(
+        return BidirectionalScrollArea(
+          child: DataTable(
               columnSpacing: 18,
               columns: [
                 const DataColumn(label: Text('Row \\ Col')),
@@ -874,7 +885,6 @@ class _CellsGridTab extends StatelessWidget {
                   ),
               ],
             ),
-          ),
         );
       },
     );

@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/navigation/admin_providers.dart';
 import '../../../core/navigation/admin_registry.dart';
 import '../../../core/ui/json_view_card.dart';
+import '../../../core/ui/resizable_split_pane.dart';
+import '../../../core/ui/scrollable_areas.dart';
 import '../../../core/ui/resource_editor_dialog.dart';
 import '../data/reference_repository.dart';
 import 'reference_workspace_providers.dart';
@@ -34,31 +36,35 @@ class ReferenceWorkspacePage extends ConsumerWidget {
           const SizedBox(height: 16),
           Expanded(
             child: isWide
-                ? Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Expanded(flex: 2, child: _DomainListCard()),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        flex: 3,
-                        child: Column(
-                          children: [
-                            Expanded(child: _DomainDetailsCard(detailsAsync: selectedDomainAsync)),
-                            const SizedBox(height: 16),
-                            Expanded(flex: 2, child: _ValuesWorkspace(valuesAsync: valuesAsync)),
-                          ],
-                        ),
-                      ),
-                    ],
+                ? ResizableSplitPane(
+                    axis: Axis.horizontal,
+                    initialFraction: 0.4,
+                    minFirstFraction: 0.25,
+                    minSecondFraction: 0.35,
+                    first: const _DomainListCard(),
+                    second: ResizableSplitPane(
+                      axis: Axis.vertical,
+                      initialFraction: 0.34,
+                      minFirstFraction: 0.18,
+                      minSecondFraction: 0.35,
+                      first: _DomainDetailsCard(detailsAsync: selectedDomainAsync),
+                      second: _ValuesWorkspace(valuesAsync: valuesAsync),
+                    ),
                   )
-                : Column(
-                    children: [
-                      const Expanded(child: _DomainListCard()),
-                      const SizedBox(height: 16),
-                      Expanded(child: _DomainDetailsCard(detailsAsync: selectedDomainAsync)),
-                      const SizedBox(height: 16),
-                      Expanded(flex: 2, child: _ValuesWorkspace(valuesAsync: valuesAsync)),
-                    ],
+                : ResizableSplitPane(
+                    axis: Axis.vertical,
+                    initialFraction: 0.35,
+                    minFirstFraction: 0.2,
+                    minSecondFraction: 0.35,
+                    first: const _DomainListCard(),
+                    second: ResizableSplitPane(
+                      axis: Axis.vertical,
+                      initialFraction: 0.34,
+                      minFirstFraction: 0.18,
+                      minSecondFraction: 0.35,
+                      first: _DomainDetailsCard(detailsAsync: selectedDomainAsync),
+                      second: _ValuesWorkspace(valuesAsync: valuesAsync),
+                    ),
                   ),
           ),
         ],
@@ -610,12 +616,13 @@ class _ValuesTableTab extends ConsumerWidget {
                   createButton,
                   const SizedBox(height: 12),
                   Expanded(
-                    child: Row(
-                      children: [
-                        Expanded(flex: 3, child: table),
-                        const SizedBox(width: 16),
-                        Expanded(flex: 2, child: details),
-                      ],
+                    child: ResizableSplitPane(
+                      axis: Axis.horizontal,
+                      initialFraction: 0.6,
+                      minFirstFraction: 0.35,
+                      minSecondFraction: 0.25,
+                      first: table,
+                      second: details,
                     ),
                   ),
                 ],
@@ -626,9 +633,16 @@ class _ValuesTableTab extends ConsumerWidget {
               children: [
                 createButton,
                 const SizedBox(height: 12),
-                Expanded(child: table),
-                const SizedBox(height: 16),
-                SizedBox(height: 280, child: details),
+                Expanded(
+                  child: ResizableSplitPane(
+                    axis: Axis.vertical,
+                    initialFraction: 0.6,
+                    minFirstFraction: 0.35,
+                    minSecondFraction: 0.25,
+                    first: table,
+                    second: details,
+                  ),
+                ),
               ],
             );
           },
@@ -661,8 +675,7 @@ class _ValueTable extends StatelessWidget {
             Text('Values table', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 8),
             Expanded(
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
+              child: HorizontalScrollArea(
                 child: SizedBox(
                   width: 880,
                   child: ListView.separated(

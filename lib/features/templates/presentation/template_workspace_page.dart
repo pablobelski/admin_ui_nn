@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 
 import '../../../core/navigation/admin_registry.dart';
 import '../../../core/ui/json_view_card.dart';
+import '../../../core/ui/resizable_split_pane.dart';
 import '../../../core/ui/resource_editor_dialog.dart';
 import '../data/configurator_template_repository.dart';
 import 'template_workspace_providers.dart';
@@ -33,45 +34,43 @@ class TemplateWorkspacePage extends ConsumerWidget {
         const SizedBox(height: 16),
         Expanded(
           child: isWide
-              ? Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Expanded(flex: 2, child: _TemplateListCard()),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      flex: 3,
-                      child: Column(
-                        children: [
-                          Expanded(child: _TemplateDetailsCard(detailsAsync: selectedTemplateAsync)),
-                          const SizedBox(height: 16),
-                          Expanded(
-                            flex: 2,
-                            child: _TemplateModuleWorkspace(
-                              initialMode: initialMode,
-                              selectedTemplateAsync: selectedTemplateAsync,
-                              selectedModuleAsync: selectedModuleAsync
-                            ),
-                          ),
-                        ],
-                      ),
+              ? ResizableSplitPane(
+                  axis: Axis.horizontal,
+                  initialFraction: 0.4,
+                  minFirstFraction: 0.25,
+                  minSecondFraction: 0.35,
+                  first: const _TemplateListCard(),
+                  second: ResizableSplitPane(
+                    axis: Axis.vertical,
+                    initialFraction: 0.32,
+                    minFirstFraction: 0.18,
+                    minSecondFraction: 0.35,
+                    first: _TemplateDetailsCard(detailsAsync: selectedTemplateAsync),
+                    second: _TemplateModuleWorkspace(
+                      initialMode: initialMode,
+                      selectedTemplateAsync: selectedTemplateAsync,
+                      selectedModuleAsync: selectedModuleAsync,
                     ),
-                  ],
+                  ),
                 )
-              : Column(
-                  children: [
-                    const Expanded(child: _TemplateListCard()),
-                    const SizedBox(height: 16),
-                    Expanded(child: _TemplateDetailsCard(detailsAsync: selectedTemplateAsync)),
-                    const SizedBox(height: 16),
-                    Expanded(
-                      flex: 2,
-                      child: _TemplateModuleWorkspace(
-                        initialMode: initialMode,
-                        selectedTemplateAsync: selectedTemplateAsync,
-                        selectedModuleAsync: selectedModuleAsync
-                      ),
+              : ResizableSplitPane(
+                  axis: Axis.vertical,
+                  initialFraction: 0.35,
+                  minFirstFraction: 0.2,
+                  minSecondFraction: 0.35,
+                  first: const _TemplateListCard(),
+                  second: ResizableSplitPane(
+                    axis: Axis.vertical,
+                    initialFraction: 0.32,
+                    minFirstFraction: 0.18,
+                    minSecondFraction: 0.35,
+                    first: _TemplateDetailsCard(detailsAsync: selectedTemplateAsync),
+                    second: _TemplateModuleWorkspace(
+                      initialMode: initialMode,
+                      selectedTemplateAsync: selectedTemplateAsync,
+                      selectedModuleAsync: selectedModuleAsync,
                     ),
-                  ],
+                  ),
                 ),
         ),
       ],
@@ -513,14 +512,13 @@ class _TemplateModuleWorkspace extends ConsumerWidget {
                     const SizedBox(height: 12),
                     Expanded(
                       child: isWide
-                          ? Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Expanded(flex: 2, child: _ModuleListCard()),
-                                const SizedBox(width: 16),
-                                Expanded(
-                                  flex: 3,
-                                  child: Column(
+                          ? ResizableSplitPane(
+                              axis: Axis.horizontal,
+                              initialFraction: 0.4,
+                              minFirstFraction: 0.28,
+                              minSecondFraction: 0.35,
+                              first: const _ModuleListCard(),
+                              second: Column(
                                     children: [
                                       const TabBar(
                                         isScrollable: true,
@@ -544,15 +542,14 @@ class _TemplateModuleWorkspace extends ConsumerWidget {
                                       ),
                                     ],
                                   ),
-                                ),
-                              ],
                             )
-                          : Column(
-                              children: [
-                                const Expanded(child: _ModuleListCard()),
-                                const SizedBox(height: 16),
-                                Expanded(
-                                  child: Column(
+                          : ResizableSplitPane(
+                              axis: Axis.vertical,
+                              initialFraction: 0.5,
+                              minFirstFraction: 0.25,
+                              minSecondFraction: 0.25,
+                              first: const _ModuleListCard(),
+                              second: Column(
                                     children: [
                                       const TabBar(
                                         isScrollable: true,
@@ -576,8 +573,6 @@ class _TemplateModuleWorkspace extends ConsumerWidget {
                                       ),
                                     ],
                                   ),
-                                ),
-                              ],
                             ),
                     ),
                   ],

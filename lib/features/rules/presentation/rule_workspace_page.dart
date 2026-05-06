@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 
 import '../../../core/navigation/admin_registry.dart';
 import '../../../core/ui/json_view_card.dart';
+import '../../../core/ui/resizable_split_pane.dart';
 import '../../../core/ui/resource_editor_dialog.dart';
 import '../data/rule_set_repository.dart';
 import 'rule_workspace_providers.dart';
@@ -42,47 +43,45 @@ class RuleWorkspacePage extends ConsumerWidget {
           const SizedBox(height: 16),
           Expanded(
             child: isWide
-                ? Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Expanded(flex: 2, child: _RuleSetListCard()),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        flex: 5,
-                        child: Column(
-                          children: [
-                            Expanded(child: _RuleSetDetailsCard(detailsAsync: selectedRuleSetAsync)),
-                            const SizedBox(height: 16),
-                            Expanded(
-                              flex: 2,
-                              child: _RuleWorkspace(
-                                selectedRuleSetAsync: selectedRuleSetAsync,
-                                selectedRuleMatrixAsync: selectedRuleMatrixAsync,
-                                matricesAsync: matricesAsync,
-                                rowsAsync: rowsAsync,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
+                ? ResizableSplitPane(
+                    axis: Axis.horizontal,
+                    initialFraction: 0.3,
+                    minFirstFraction: 0.2,
+                    minSecondFraction: 0.45,
+                    first: const _RuleSetListCard(),
+                    second: ResizableSplitPane(
+                      axis: Axis.vertical,
+                      initialFraction: 0.32,
+                      minFirstFraction: 0.18,
+                      minSecondFraction: 0.35,
+                      first: _RuleSetDetailsCard(detailsAsync: selectedRuleSetAsync),
+                      second: _RuleWorkspace(
+                      selectedRuleSetAsync: selectedRuleSetAsync,
+                      selectedRuleMatrixAsync: selectedRuleMatrixAsync,
+                      matricesAsync: matricesAsync,
+                      rowsAsync: rowsAsync,
+                    ),
+                    ),
                   )
-                : Column(
-                    children: [
-                      const Expanded(child: _RuleSetListCard()),
-                      const SizedBox(height: 16),
-                      Expanded(child: _RuleSetDetailsCard(detailsAsync: selectedRuleSetAsync)),
-                      const SizedBox(height: 16),
-                      Expanded(
-                        flex: 2,
-                        child: _RuleWorkspace(
-                          selectedRuleSetAsync: selectedRuleSetAsync,
-                          selectedRuleMatrixAsync: selectedRuleMatrixAsync,
-                          matricesAsync: matricesAsync,
-                          rowsAsync: rowsAsync,
-                        ),
-                      ),
-                    ],
+                : ResizableSplitPane(
+                    axis: Axis.vertical,
+                    initialFraction: 0.3,
+                    minFirstFraction: 0.2,
+                    minSecondFraction: 0.45,
+                    first: const _RuleSetListCard(),
+                    second: ResizableSplitPane(
+                      axis: Axis.vertical,
+                      initialFraction: 0.32,
+                      minFirstFraction: 0.18,
+                      minSecondFraction: 0.35,
+                      first: _RuleSetDetailsCard(detailsAsync: selectedRuleSetAsync),
+                      second: _RuleWorkspace(
+                      selectedRuleSetAsync: selectedRuleSetAsync,
+                      selectedRuleMatrixAsync: selectedRuleMatrixAsync,
+                      matricesAsync: matricesAsync,
+                      rowsAsync: rowsAsync,
+                    ),
+                    ),
                   ),
           ),
         ],
@@ -472,14 +471,13 @@ class _RuleWorkspace extends ConsumerWidget {
         const SizedBox(height: 12),
         Expanded(
           child: isWide
-              ? Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(child: _RuleMatrixListCard(matricesAsync: matricesAsync)),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      flex: 2,
-                      child: Column(
+              ? ResizableSplitPane(
+                  axis: Axis.horizontal,
+                  initialFraction: 0.34,
+                  minFirstFraction: 0.25,
+                  minSecondFraction: 0.4,
+                  first: _RuleMatrixListCard(matricesAsync: matricesAsync),
+                  second: Column(
                         children: [
                           const Material(
                             color: Colors.transparent,
@@ -504,16 +502,14 @@ class _RuleWorkspace extends ConsumerWidget {
                           ),
                         ],
                       ),
-                    ),
-                  ],
                 )
-              : Column(
-                  children: [
-                    Expanded(child: _RuleMatrixListCard(matricesAsync: matricesAsync)),
-                    const SizedBox(height: 12),
-                    Expanded(
-                      flex: 2,
-                      child: Column(
+              : ResizableSplitPane(
+                  axis: Axis.vertical,
+                  initialFraction: 0.45,
+                  minFirstFraction: 0.25,
+                  minSecondFraction: 0.3,
+                  first: _RuleMatrixListCard(matricesAsync: matricesAsync),
+                  second: Column(
                         children: [
                           const Material(
                             color: Colors.transparent,
@@ -538,8 +534,6 @@ class _RuleWorkspace extends ConsumerWidget {
                           ),
                         ],
                       ),
-                    ),
-                  ],
                 ),
         ),
       ],
@@ -811,11 +805,12 @@ class _RuleRowsTab extends ConsumerWidget {
           });
         }
 
-        return Row(
-          children: [
-            Expanded(
-              flex: 2,
-              child: Card(
+        return ResizableSplitPane(
+          axis: Axis.horizontal,
+          initialFraction: 0.4,
+          minFirstFraction: 0.25,
+          minSecondFraction: 0.3,
+          first: Card(
                 child: Padding(
                   padding: const EdgeInsets.all(16),
                   child: Column(
@@ -860,11 +855,7 @@ class _RuleRowsTab extends ConsumerWidget {
                   ),
                 ),
               ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              flex: 3,
-              child: Card(
+          second: Card(
                 child: Padding(
                   padding: const EdgeInsets.all(16),
                   child: Column(
@@ -953,8 +944,6 @@ class _RuleRowsTab extends ConsumerWidget {
                   ),
                 ),
               ),
-            ),
-          ],
         );
       },
     );
