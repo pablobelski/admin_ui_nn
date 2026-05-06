@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../../../core/navigation/admin_registry.dart';
+import '../../../core/ui/admin_list_table.dart';
 import '../../../core/ui/json_view_card.dart';
 import '../../../core/ui/resizable_split_pane.dart';
 import '../../../core/ui/scrollable_areas.dart';
@@ -233,19 +234,30 @@ class _MatrixListCard extends ConsumerWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text('Matrices', style: Theme.of(context).textTheme.titleLarge),
-                const SizedBox(height: 4),
-                Text(
-                  'Rows: ${response.items.length} / total: ${response.total}',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
                 const SizedBox(height: 12),
                 Expanded(
                   child: ListView.separated(
                     key: const PageStorageKey<String>('price-matrix-list'),
-                    itemCount: response.items.length,
+                    itemCount: response.items.length + 1,
                     separatorBuilder: (_, __) => const SizedBox(height: 8),
                     itemBuilder: (context, index) {
-                      final matrix = response.items[index];
+                      if (index == 0) {
+                        return const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                          child: Row(
+                            children: [
+                              AdminRowNumberHeader(),
+                              AdminTableHeaderCell(label: 'Matrix code', flex: 3),
+                              AdminTableHeaderCell(label: 'Name', flex: 4),
+                              AdminTableHeaderCell(label: 'Parser / sheet', flex: 4),
+                              AdminTableHeaderCell(label: 'Status', flex: 2),
+                            ],
+                          ),
+                        );
+                      }
+
+                      final rowIndex = index - 1;
+                      final matrix = response.items[rowIndex];
                       final isSelected = browserState.selectedMatrixId == matrix.id;
                       return InkWell(
                         borderRadius: BorderRadius.circular(16),
@@ -263,9 +275,15 @@ class _MatrixListCard extends ConsumerWidget {
                             ),
                           ),
                           padding: const EdgeInsets.all(12),
-                          child: Column(
+                          child: Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
+                              AdminRowNumberCell(index: rowIndex, offset: browserState.offset),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
                               Row(
                                 children: [
                                   Expanded(
@@ -295,6 +313,9 @@ class _MatrixListCard extends ConsumerWidget {
                                     _MetaChip(icon: Icons.segment_rounded, label: matrix.sectionCode!),
                                 ],
                               ),
+                                  ],
+                                ),
+                              ),
                             ],
                           ),
                         ),
@@ -303,18 +324,20 @@ class _MatrixListCard extends ConsumerWidget {
                   ),
                 ),
                 const SizedBox(height: 12),
-                Row(
-                  children: [
-                    OutlinedButton(
-                      onPressed: browserState.offset == 0 ? null : browser.previousPage,
-                      child: const Text('Prev'),
-                    ),
-                    const SizedBox(width: 8),
-                    OutlinedButton(
-                      onPressed: response.items.length < browserState.limit ? null : browser.nextPage,
-                      child: const Text('Next'),
-                    ),
-                  ],
+                AdminListFooter(
+                  offset: browserState.offset,
+                  limit: browserState.limit,
+                  pageItemCount: response.items.length,
+                  total: response.total,
+                  onPrevious: browserState.offset == 0 ? null : browser.previousPage,
+                  onNext: adminListHasNextPage(
+                    offset: browserState.offset,
+                    limit: browserState.limit,
+                    pageItemCount: response.items.length,
+                    total: response.total,
+                  )
+                      ? browser.nextPage
+                      : null,
                 ),
               ],
             );
@@ -719,15 +742,39 @@ class _CellTable extends StatelessWidget {
             Expanded(
               child: HorizontalScrollArea(
                 child: SizedBox(
-                  width: 980,
+                  width: adminRowNumberColumnWidth + 980,
                   child: ListView.separated(
                     key: PageStorageKey<String>(
                       'price-matrix-cell-list-${cells.isEmpty ? "empty" : cells.first.priceMatrixId}',
                     ),
-                    itemCount: cells.length,
-                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemCount: cells.length + 1,
+                    separatorBuilder: (_, index) => index == 0
+                        ? const Divider(height: 2)
+                        : const Divider(height: 1),
                     itemBuilder: (context, index) {
-                      final cell = cells[index];
+                      if (index == 0) {
+                        return const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          child: Row(
+                            children: [
+                              AdminRowNumberHeader(),
+                              AdminTableHeaderCell(width: 90, label: 'Cell'),
+                              AdminTableHeaderCell(width: 80, label: 'Row'),
+                              AdminTableHeaderCell(width: 80, label: 'Col'),
+                              AdminTableHeaderCell(width: 120, label: 'Width mm'),
+                              AdminTableHeaderCell(width: 120, label: 'Height mm'),
+                              AdminTableHeaderCell(width: 120, label: 'Depth mm'),
+                              AdminTableHeaderCell(width: 100, label: 'Width bucket'),
+                              AdminTableHeaderCell(width: 80, label: 'Beams'),
+                              AdminTableHeaderCell(width: 80, label: 'Posts'),
+                              AdminTableHeaderCell(width: 140, label: 'Unit price'),
+                            ],
+                          ),
+                        );
+                      }
+
+                      final rowIndex = index - 1;
+                      final cell = cells[rowIndex];
                       final isSelected = selectedCellId == cell.id;
                       return InkWell(
                         onTap: () => onSelect(cell.id),
@@ -736,6 +783,7 @@ class _CellTable extends StatelessWidget {
                           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                           child: Row(
                             children: [
+                              AdminRowNumberCell(index: rowIndex),
                               _TableValue(width: 90, value: cell.cellRef, strong: true),
                               _TableValue(width: 80, value: '${cell.rowNo}'),
                               _TableValue(width: 80, value: '${cell.colNo}'),

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/navigation/admin_providers.dart';
 import '../../../core/navigation/admin_registry.dart';
+import '../../../core/ui/admin_list_table.dart';
 import '../../../core/ui/json_view_card.dart';
 import '../../../core/ui/resizable_split_pane.dart';
 import '../../../core/ui/scrollable_areas.dart';
@@ -234,21 +235,32 @@ class _DomainListCard extends ConsumerWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text('Domains', style: Theme.of(context).textTheme.titleLarge),
-                const SizedBox(height: 4),
-                Text(
-                  'Rows: ${response.items.length} / total: ${response.total}',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
                 const SizedBox(height: 12),
                 Expanded(
                   child: ListView.separated(
                     key: PageStorageKey<String>(
                       'reference-domain-list-${state.domainQuery}-${state.offset}-${state.limit}',
                     ),
-                    itemCount: response.items.length,
+                    itemCount: response.items.length + 1,
                     separatorBuilder: (_, __) => const SizedBox(height: 8),
                     itemBuilder: (context, index) {
-                      final domain = response.items[index];
+                      if (index == 0) {
+                        return const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                          child: Row(
+                            children: [
+                              AdminRowNumberHeader(),
+                              AdminTableHeaderCell(label: 'Code', flex: 3),
+                              AdminTableHeaderCell(label: 'Name', flex: 4),
+                              AdminTableHeaderCell(label: 'Kind', flex: 2),
+                              AdminTableHeaderCell(label: 'Status', flex: 2),
+                            ],
+                          ),
+                        );
+                      }
+
+                      final rowIndex = index - 1;
+                      final domain = response.items[rowIndex];
                       final isSelected = state.selectedDomainId == domain.id;
                       return InkWell(
                         borderRadius: BorderRadius.circular(16),
@@ -271,6 +283,8 @@ class _DomainListCard extends ConsumerWidget {
                             children: [
                               Row(
                                 children: [
+                                  AdminRowNumberCell(index: rowIndex, offset: state.offset),
+                                  const SizedBox(width: 8),
                                   Expanded(
                                     child: Text(
                                       domain.code,
@@ -303,18 +317,20 @@ class _DomainListCard extends ConsumerWidget {
                   ),
                 ),
                 const SizedBox(height: 12),
-                Row(
-                  children: [
-                    OutlinedButton(
-                      onPressed: state.offset == 0 ? null : browser.previousPage,
-                      child: const Text('Prev'),
-                    ),
-                    const SizedBox(width: 8),
-                    OutlinedButton(
-                      onPressed: response.items.length < state.limit ? null : browser.nextPage,
-                      child: const Text('Next'),
-                    ),
-                  ],
+                AdminListFooter(
+                  offset: state.offset,
+                  limit: state.limit,
+                  pageItemCount: response.items.length,
+                  total: response.total,
+                  onPrevious: state.offset == 0 ? null : browser.previousPage,
+                  onNext: adminListHasNextPage(
+                    offset: state.offset,
+                    limit: state.limit,
+                    pageItemCount: response.items.length,
+                    total: response.total,
+                  )
+                      ? browser.nextPage
+                      : null,
                 ),
               ],
             );
@@ -677,15 +693,35 @@ class _ValueTable extends StatelessWidget {
             Expanded(
               child: HorizontalScrollArea(
                 child: SizedBox(
-                  width: 880,
+                  width: adminRowNumberColumnWidth + 880,
                   child: ListView.separated(
                     key: PageStorageKey<String>(
                       'reference-value-list-${values.isEmpty ? "empty" : values.first.domainId}',
                     ),
-                    itemCount: values.length,
-                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemCount: values.length + 1,
+                    separatorBuilder: (_, index) => index == 0
+                        ? const Divider(height: 2)
+                        : const Divider(height: 1),
                     itemBuilder: (context, index) {
-                      final value = values[index];
+                      if (index == 0) {
+                        return const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          child: Row(
+                            children: [
+                              AdminRowNumberHeader(),
+                              AdminTableHeaderCell(width: 70, label: 'Sort'),
+                              AdminTableHeaderCell(width: 180, label: 'Code'),
+                              AdminTableHeaderCell(width: 220, label: 'Label'),
+                              AdminTableHeaderCell(width: 160, label: 'Alt label'),
+                              AdminTableHeaderCell(width: 120, label: 'Color HEX'),
+                              AdminTableHeaderCell(width: 90, label: 'Status'),
+                            ],
+                          ),
+                        );
+                      }
+
+                      final rowIndex = index - 1;
+                      final value = values[rowIndex];
                       final isSelected = selectedValueId == value.id;
                       return InkWell(
                         onTap: () => onSelect(value.id),
@@ -694,6 +730,7 @@ class _ValueTable extends StatelessWidget {
                           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                           child: Row(
                             children: [
+                              AdminRowNumberCell(index: rowIndex),
                               _TableValue(width: 70, value: '${value.sortOrder}'),
                               _TableValue(width: 180, value: value.code, strong: true),
                               _TableValue(width: 220, value: value.label),

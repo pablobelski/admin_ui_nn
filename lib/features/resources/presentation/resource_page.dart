@@ -9,6 +9,7 @@ import '../../../core/models/admin_resource.dart';
 import '../../../core/models/admin_state.dart';
 import '../../../core/navigation/admin_providers.dart';
 import '../../../core/navigation/admin_registry.dart';
+import '../../../core/ui/admin_list_table.dart';
 import '../../../core/ui/json_view_card.dart';
 import '../../../core/ui/resizable_split_pane.dart';
 import '../../../core/ui/scrollable_areas.dart';
@@ -335,15 +336,34 @@ class _ListCard extends ConsumerWidget {
                 Expanded(
                   child: HorizontalScrollArea(
                     child: SizedBox(
-                      width: resource.columns.fold<double>(0, (sum, col) => sum + (col.flex * 180.0)),
+                      width: adminRowNumberColumnWidth + resource.columns.fold<double>(0, (sum, col) => sum + (col.flex * 180.0)),
                       child: ListView.separated(
                         key: PageStorageKey<String>(
                           'resource-list-${resource.key}-${browserState.query}-$filtersKey-${browserState.offset}-${browserState.limit}',
                         ),
-                        itemCount: response.items.length,
-                        separatorBuilder: (_, __) => const Divider(height: 1),
+                        itemCount: response.items.length + 1,
+                        separatorBuilder: (_, index) => index == 0
+                            ? const Divider(height: 2)
+                            : const Divider(height: 1),
                         itemBuilder: (context, index) {
-                          final row = response.items[index];
+                          if (index == 0) {
+                            return Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                              child: Row(
+                                children: [
+                                  const AdminRowNumberHeader(),
+                                  for (final column in resource.columns)
+                                    AdminTableHeaderCell(
+                                      label: column.label,
+                                      flex: column.flex,
+                                    ),
+                                ],
+                              ),
+                            );
+                          }
+
+                          final rowIndex = index - 1;
+                          final row = response.items[rowIndex];
                           final rowId = row['id']?.toString();
                           final isSelected = browserState.selectedId == rowId;
                           return InkWell(
@@ -353,22 +373,15 @@ class _ListCard extends ConsumerWidget {
                               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                               child: Row(
                                 children: [
+                                  AdminRowNumberCell(index: rowIndex, offset: browserState.offset),
                                   for (final column in resource.columns)
-                                    Expanded(
-                                      flex: column.flex,
-                                      child: Text(
-                                        _displayValue(
-                                          row[column.key],
-                                          lookupLabels: lookupLabelsByColumn[column.key],
-                                        ),
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: column.isPrimary
-                                            ? Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                          fontWeight: FontWeight.w600,
-                                        )
-                                            : null,
+                                    AdminTableValueCell(
+                                      value: _displayValue(
+                                        row[column.key],
+                                        lookupLabels: lookupLabelsByColumn[column.key],
                                       ),
+                                      flex: column.flex,
+                                      strong: column.isPrimary,
                                     ),
                                 ],
                               ),
@@ -380,20 +393,20 @@ class _ListCard extends ConsumerWidget {
                   ),
                 ),
                 const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Text('Rows: ${response.items.length} / total: ${response.total}'),
-                    const Spacer(),
-                    OutlinedButton(
-                      onPressed: browserState.offset == 0 ? null : browser.previousPage,
-                      child: const Text('Prev'),
-                    ),
-                    const SizedBox(width: 8),
-                    OutlinedButton(
-                      onPressed: response.items.length < browserState.limit ? null : browser.nextPage,
-                      child: const Text('Next'),
-                    ),
-                  ],
+                AdminListFooter(
+                  offset: browserState.offset,
+                  limit: browserState.limit,
+                  pageItemCount: response.items.length,
+                  total: response.total,
+                  onPrevious: browserState.offset == 0 ? null : browser.previousPage,
+                  onNext: adminListHasNextPage(
+                    offset: browserState.offset,
+                    limit: browserState.limit,
+                    pageItemCount: response.items.length,
+                    total: response.total,
+                  )
+                      ? browser.nextPage
+                      : null,
                 ),
               ],
             );

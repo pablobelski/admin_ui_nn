@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../../../core/navigation/admin_registry.dart';
+import '../../../core/ui/admin_list_table.dart';
 import '../../../core/ui/json_view_card.dart';
 import '../../../core/ui/resizable_split_pane.dart';
 import '../../../core/ui/resource_editor_dialog.dart';
@@ -220,19 +221,30 @@ class _RuleSetListCard extends ConsumerWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text('Rule sets', style: Theme.of(context).textTheme.titleLarge),
-                const SizedBox(height: 4),
-                Text(
-                  'Rows: ${response.items.length} / total: ${response.total}',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
                 const SizedBox(height: 12),
                 Expanded(
                   child: ListView.separated(
                     key: const PageStorageKey<String>('rule-set-list'),
-                    itemCount: response.items.length,
+                    itemCount: response.items.length + 1,
                     separatorBuilder: (_, __) => const SizedBox(height: 8),
                     itemBuilder: (context, index) {
-                      final ruleSet = response.items[index];
+                      if (index == 0) {
+                        return const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                          child: Row(
+                            children: [
+                              AdminRowNumberHeader(),
+                              AdminTableHeaderCell(label: 'Version', flex: 2),
+                              AdminTableHeaderCell(label: 'Template / notes', flex: 5),
+                              AdminTableHeaderCell(label: 'Valid from', flex: 3),
+                              AdminTableHeaderCell(label: 'Status', flex: 2),
+                            ],
+                          ),
+                        );
+                      }
+
+                      final rowIndex = index - 1;
+                      final ruleSet = response.items[rowIndex];
                       final isSelected = browserState.selectedRuleSetId == ruleSet.id;
                       return InkWell(
                         borderRadius: BorderRadius.circular(16),
@@ -255,6 +267,8 @@ class _RuleSetListCard extends ConsumerWidget {
                             children: [
                               Row(
                                 children: [
+                                  AdminRowNumberCell(index: rowIndex, offset: browserState.offset),
+                                  const SizedBox(width: 8),
                                   Expanded(
                                     child: Text(
                                       'v${ruleSet.version}',
@@ -297,18 +311,20 @@ class _RuleSetListCard extends ConsumerWidget {
                   ),
                 ),
                 const SizedBox(height: 12),
-                Row(
-                  children: [
-                    OutlinedButton(
-                      onPressed: browserState.offset == 0 ? null : browser.previousPage,
-                      child: const Text('Prev'),
-                    ),
-                    const SizedBox(width: 8),
-                    OutlinedButton(
-                      onPressed: response.items.length < browserState.limit ? null : browser.nextPage,
-                      child: const Text('Next'),
-                    ),
-                  ],
+                AdminListFooter(
+                  offset: browserState.offset,
+                  limit: browserState.limit,
+                  pageItemCount: response.items.length,
+                  total: response.total,
+                  onPrevious: browserState.offset == 0 ? null : browser.previousPage,
+                  onNext: adminListHasNextPage(
+                    offset: browserState.offset,
+                    limit: browserState.limit,
+                    pageItemCount: response.items.length,
+                    total: response.total,
+                  )
+                      ? browser.nextPage
+                      : null,
                 ),
               ],
             );
@@ -686,21 +702,32 @@ class _RuleMatrixListCard extends ConsumerWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text('Rule matrices', style: Theme.of(context).textTheme.titleLarge),
-                const SizedBox(height: 4),
-                Text(
-                  'Rows: ${response.items.length} / total: ${response.total}',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
                 const SizedBox(height: 12),
                 Expanded(
                   child: ListView.separated(
                     key: PageStorageKey<String>(
                       'rule-matrix-list-${browserState.selectedRuleSetId ?? "none"}',
                     ),
-                    itemCount: response.items.length,
+                    itemCount: response.items.length + 1,
                     separatorBuilder: (_, __) => const SizedBox(height: 8),
                     itemBuilder: (context, index) {
-                      final matrix = response.items[index];
+                      if (index == 0) {
+                        return const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                          child: Row(
+                            children: [
+                              AdminRowNumberHeader(),
+                              AdminTableHeaderCell(label: 'Matrix code', flex: 3),
+                              AdminTableHeaderCell(label: 'Name', flex: 4),
+                              AdminTableHeaderCell(label: 'Sheet / axes', flex: 4),
+                              AdminTableHeaderCell(label: 'Status', flex: 2),
+                            ],
+                          ),
+                        );
+                      }
+
+                      final rowIndex = index - 1;
+                      final matrix = response.items[rowIndex];
                       final isSelected = browserState.selectedRuleMatrixId == matrix.id;
                       return InkWell(
                         borderRadius: BorderRadius.circular(16),
@@ -723,6 +750,8 @@ class _RuleMatrixListCard extends ConsumerWidget {
                             children: [
                               Row(
                                 children: [
+                                  AdminRowNumberCell(index: rowIndex),
+                                  const SizedBox(width: 8),
                                   Expanded(
                                     child: Text(
                                       matrix.matrixCode,
@@ -826,15 +855,33 @@ class _RuleRowsTab extends ConsumerWidget {
                             //'rule-row-list-${matrixId ?? "none"}',
                             'rule-row-list-$matrixId',
                           ),
-                          itemCount: response.items.length,
-                          separatorBuilder: (_, __) => const Divider(height: 1),
+                          itemCount: response.items.length + 1,
+                          separatorBuilder: (_, index) => index == 0
+                              ? const Divider(height: 2)
+                              : const Divider(height: 1),
                           itemBuilder: (context, index) {
-                            final row = response.items[index];
+                            if (index == 0) {
+                              return const Padding(
+                                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                child: Row(
+                                  children: [
+                                    AdminRowNumberHeader(),
+                                    AdminTableHeaderCell(label: 'Row no', flex: 2),
+                                    AdminTableHeaderCell(label: 'Key JSON', flex: 5),
+                                    AdminTableHeaderCell(label: 'Result JSON', flex: 4),
+                                  ],
+                                ),
+                              );
+                            }
+
+                            final rowIndex = index - 1;
+                            final row = response.items[rowIndex];
                             final isSelected = row.id == selectedRow!.id;
                             return ListTile(
                               selected: isSelected,
                               selectedTileColor: Theme.of(context).colorScheme.primaryContainer,
                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              leading: AdminRowNumberCell(index: rowIndex),
                               title: Text('Row ${row.rowNo}'),
                               subtitle: Text(
                                 _jsonSummary(row.keyJson),

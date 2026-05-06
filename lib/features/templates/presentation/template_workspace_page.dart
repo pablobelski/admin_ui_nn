@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../../../core/navigation/admin_registry.dart';
+import '../../../core/ui/admin_list_table.dart';
 import '../../../core/ui/json_view_card.dart';
 import '../../../core/ui/resizable_split_pane.dart';
 import '../../../core/ui/resource_editor_dialog.dart';
@@ -240,19 +241,30 @@ class _TemplateListCard extends ConsumerWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text('Templates', style: Theme.of(context).textTheme.titleLarge),
-                const SizedBox(height: 4),
-                Text(
-                  'Rows: ${response.items.length} / total: ${response.total}',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
                 const SizedBox(height: 12),
                 Expanded(
                   child: ListView.separated(
                     key: const PageStorageKey<String>('template-list'),
-                    itemCount: response.items.length,
+                    itemCount: response.items.length + 1,
                     separatorBuilder: (_, __) => const SizedBox(height: 8),
                     itemBuilder: (context, index) {
-                      final template = response.items[index];
+                      if (index == 0) {
+                        return const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                          child: Row(
+                            children: [
+                              AdminRowNumberHeader(),
+                              AdminTableHeaderCell(label: 'Code', flex: 3),
+                              AdminTableHeaderCell(label: 'Name', flex: 4),
+                              AdminTableHeaderCell(label: 'Workbook / family', flex: 4),
+                              AdminTableHeaderCell(label: 'Status', flex: 2),
+                            ],
+                          ),
+                        );
+                      }
+
+                      final rowIndex = index - 1;
+                      final template = response.items[rowIndex];
                       final isSelected = browserState.selectedTemplateId == template.id;
                       return InkWell(
                         borderRadius: BorderRadius.circular(16),
@@ -275,6 +287,8 @@ class _TemplateListCard extends ConsumerWidget {
                             children: [
                               Row(
                                 children: [
+                                  AdminRowNumberCell(index: rowIndex, offset: browserState.offset),
+                                  const SizedBox(width: 8),
                                   Expanded(
                                     child: Text(
                                       template.code,
@@ -316,18 +330,20 @@ class _TemplateListCard extends ConsumerWidget {
                   ),
                 ),
                 const SizedBox(height: 12),
-                Row(
-                  children: [
-                    OutlinedButton(
-                      onPressed: browserState.offset == 0 ? null : browser.previousPage,
-                      child: const Text('Prev'),
-                    ),
-                    const SizedBox(width: 8),
-                    OutlinedButton(
-                      onPressed: response.items.length < browserState.limit ? null : browser.nextPage,
-                      child: const Text('Next'),
-                    ),
-                  ],
+                AdminListFooter(
+                  offset: browserState.offset,
+                  limit: browserState.limit,
+                  pageItemCount: response.items.length,
+                  total: response.total,
+                  onPrevious: browserState.offset == 0 ? null : browser.previousPage,
+                  onNext: adminListHasNextPage(
+                    offset: browserState.offset,
+                    limit: browserState.limit,
+                    pageItemCount: response.items.length,
+                    total: response.total,
+                  )
+                      ? browser.nextPage
+                      : null,
                 ),
               ],
             );
@@ -705,10 +721,26 @@ class _ModuleListCard extends ConsumerWidget {
                 key: PageStorageKey<String>(
                   'template-module-list-${browserState.selectedTemplateId ?? "none"}',
                 ),
-                itemCount: response.items.length,
+                itemCount: response.items.length + 1,
                 separatorBuilder: (_, __) => const SizedBox(height: 8),
                 itemBuilder: (context, index) {
-                  final module = response.items[index];
+                  if (index == 0) {
+                    return const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                      child: Row(
+                        children: [
+                          AdminRowNumberHeader(),
+                          AdminTableHeaderCell(label: 'Module code', flex: 3),
+                          AdminTableHeaderCell(label: 'Name', flex: 4),
+                          AdminTableHeaderCell(label: 'Type / sheet', flex: 4),
+                          AdminTableHeaderCell(label: 'Flags', flex: 3),
+                        ],
+                      ),
+                    );
+                  }
+
+                  final rowIndex = index - 1;
+                  final module = response.items[rowIndex];
                   final isSelected = browserState.selectedModuleId == module.id;
                   return InkWell(
                     borderRadius: BorderRadius.circular(16),
@@ -731,6 +763,8 @@ class _ModuleListCard extends ConsumerWidget {
                         children: [
                           Row(
                             children: [
+                              AdminRowNumberCell(index: rowIndex),
+                              const SizedBox(width: 8),
                               Expanded(
                                 child: Text(
                                   module.moduleCode,
