@@ -10,6 +10,7 @@ class PriceMatrixRepository {
 
   Future<PriceMatrixListResponse> fetchMatrices({
     String query = '',
+    String priceListId = '',
     int limit = 30,
     int offset = 0,
   }) async {
@@ -17,6 +18,7 @@ class PriceMatrixRepository {
       _matricesEndpoint,
       query: {
         if (query.isNotEmpty) 'q': query,
+        if (priceListId.isNotEmpty) 'price_list_id': priceListId,
         'limit': '$limit',
         'offset': '$offset',
       },

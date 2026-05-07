@@ -1,12 +1,15 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/navigation/admin_providers.dart';
+import '../../../core/navigation/admin_registry.dart';
+import '../../../core/navigation/browser_navigation.dart';
 import '../data/price_matrix_repository.dart';
 
 class PriceMatrixBrowserState {
   const PriceMatrixBrowserState({
     this.matrixQuery = '',
     this.cellQuery = '',
+    this.priceListId = '',
     this.selectedMatrixId,
     this.selectedCellId,
     this.offset = 0,
@@ -15,6 +18,7 @@ class PriceMatrixBrowserState {
 
   final String matrixQuery;
   final String cellQuery;
+  final String priceListId;
   final String? selectedMatrixId;
   final String? selectedCellId;
   final int offset;
@@ -23,6 +27,7 @@ class PriceMatrixBrowserState {
   PriceMatrixBrowserState copyWith({
     String? matrixQuery,
     String? cellQuery,
+    String? priceListId,
     String? selectedMatrixId,
     String? selectedCellId,
     int? offset,
@@ -33,6 +38,7 @@ class PriceMatrixBrowserState {
     return PriceMatrixBrowserState(
       matrixQuery: matrixQuery ?? this.matrixQuery,
       cellQuery: cellQuery ?? this.cellQuery,
+      priceListId: priceListId ?? this.priceListId,
       selectedMatrixId: clearMatrix ? null : (selectedMatrixId ?? this.selectedMatrixId),
       selectedCellId: clearCell ? null : (selectedCellId ?? this.selectedCellId),
       offset: offset ?? this.offset,
@@ -43,7 +49,10 @@ class PriceMatrixBrowserState {
 
 class PriceMatrixBrowserNotifier extends Notifier<PriceMatrixBrowserState> {
   @override
-  PriceMatrixBrowserState build() => const PriceMatrixBrowserState();
+  PriceMatrixBrowserState build() {
+    final filters = currentAdminResourceFilters(findResourceByKey('price_matrices'));
+    return PriceMatrixBrowserState(priceListId: filters['price_list_id'] ?? '');
+  }
 
   void setMatrixQuery(String value) {
     state = state.copyWith(matrixQuery: value, offset: 0, clearMatrix: true, clearCell: true);
@@ -51,6 +60,20 @@ class PriceMatrixBrowserNotifier extends Notifier<PriceMatrixBrowserState> {
 
   void setCellQuery(String value) {
     state = state.copyWith(cellQuery: value, clearCell: true);
+  }
+
+  void setPriceListFilter(String? value) {
+    final nextValue = value?.trim() ?? '';
+    state = state.copyWith(
+      priceListId: nextValue,
+      offset: 0,
+      clearMatrix: true,
+      clearCell: true,
+    );
+    pushAdminResourceUrl(
+      'price_matrices',
+      filters: nextValue.isEmpty ? const <String, String>{} : {'price_list_id': nextValue},
+    );
   }
 
   void selectMatrix(String? id) {
@@ -89,6 +112,7 @@ final priceMatrixListProvider = FutureProvider.autoDispose<PriceMatrixListRespon
   final repository = ref.watch(priceMatrixRepositoryProvider);
   return repository.fetchMatrices(
     query: browser.matrixQuery,
+    priceListId: browser.priceListId,
     limit: browser.limit,
     offset: browser.offset,
   );

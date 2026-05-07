@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import '../../../core/navigation/admin_providers.dart';
 import '../../../core/navigation/admin_registry.dart';
 import '../../../core/ui/admin_list_table.dart';
 import '../../../core/ui/json_view_card.dart';
@@ -135,8 +136,11 @@ class _MatrixToolbarState extends ConsumerState<_MatrixToolbar> {
   Widget build(BuildContext context) {
     final browser = ref.read(priceMatrixBrowserProvider.notifier);
     final repository = ref.read(priceMatrixRepositoryProvider);
+    final adminResourceRepository = ref.read(resourceRepositoryProvider);
     final matrixResource = findResourceByKey('price_matrices');
-    final selectedMatrixId = ref.watch(priceMatrixBrowserProvider.select((value) => value.selectedMatrixId));
+    final browserState = ref.watch(priceMatrixBrowserProvider);
+    final selectedMatrixId = browserState.selectedMatrixId;
+    final priceListOptions = ref.watch(adminLookupProvider(priceListLookup));
 
     return Wrap(
       spacing: 8,
@@ -152,6 +156,14 @@ class _MatrixToolbarState extends ConsumerState<_MatrixToolbar> {
               hintText: 'Search matrix code / name / section',
             ),
             onSubmitted: browser.setMatrixQuery,
+          ),
+        ),
+        SizedBox(
+          width: 300,
+          child: _PriceListFilter(
+            value: browserState.priceListId,
+            options: priceListOptions,
+            onChanged: browser.setPriceListFilter,
           ),
         ),
         FilledButton.tonalIcon(
@@ -190,7 +202,10 @@ class _MatrixToolbarState extends ConsumerState<_MatrixToolbar> {
           onPressed: () async {
             final payload = await showDialog<Map<String, dynamic>>(
               context: context,
-              builder: (_) => ResourceEditorDialog(resource: matrixResource),
+              builder: (_) => ResourceEditorDialog(
+                resource: matrixResource,
+                repository: adminResourceRepository,
+              ),
             );
             if (payload == null) return;
             await repository.createMatrix(payload);
@@ -204,6 +219,74 @@ class _MatrixToolbarState extends ConsumerState<_MatrixToolbar> {
   }
 }
 
+
+class _PriceListFilter extends StatelessWidget {
+  const _PriceListFilter({
+    required this.value,
+    required this.options,
+    required this.onChanged,
+  });
+
+  final String value;
+  final AsyncValue<List<Map<String, dynamic>>> options;
+  final ValueChanged<String?> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return options.when(
+      loading: () => DropdownButtonFormField<String>(
+        initialValue: value.isEmpty ? '' : value,
+        isExpanded: true,
+        items: [
+          const DropdownMenuItem(value: '', child: Text('— All price lists —')),
+          if (value.isNotEmpty) DropdownMenuItem(value: value, child: Text(value)),
+        ],
+        onChanged: null,
+        decoration: const InputDecoration(
+          labelText: 'Price list',
+          helperText: 'Loading options...',
+        ),
+      ),
+      error: (_, __) => TextFormField(
+        initialValue: value,
+        decoration: const InputDecoration(
+          labelText: 'Price list',
+          helperText: 'Lookup failed; paste id manually',
+        ),
+        onFieldSubmitted: onChanged,
+      ),
+      data: (rows) {
+        final items = <DropdownMenuItem<String>>[
+          const DropdownMenuItem(value: '', child: Text('— All price lists —')),
+        ];
+        var hasValue = value.isEmpty;
+        for (final row in rows) {
+          final id = row['id']?.toString();
+          if (id == null || id.isEmpty) continue;
+          hasValue = hasValue || id == value;
+          items.add(
+            DropdownMenuItem(
+              value: id,
+              child: Text(_priceListLabel(row), overflow: TextOverflow.ellipsis),
+            ),
+          );
+        }
+        if (!hasValue) {
+          items.add(DropdownMenuItem(value: value, child: Text(value, overflow: TextOverflow.ellipsis)));
+        }
+
+        return DropdownButtonFormField<String>(
+          initialValue: value.isEmpty ? '' : value,
+          isExpanded: true,
+          items: items,
+          onChanged: onChanged,
+          decoration: const InputDecoration(labelText: 'Price list'),
+        );
+      },
+    );
+  }
+}
+
 class _MatrixListCard extends ConsumerWidget {
   const _MatrixListCard();
 
@@ -212,6 +295,10 @@ class _MatrixListCard extends ConsumerWidget {
     final listAsync = ref.watch(priceMatrixListProvider);
     final browserState = ref.watch(priceMatrixBrowserProvider);
     final browser = ref.read(priceMatrixBrowserProvider.notifier);
+    final priceListLabels = ref.watch(adminLookupProvider(priceListLookup)).maybeWhen(
+      data: _lookupLabelMap,
+      orElse: () => const <String, String>{},
+    );
 
     return Card(
       child: Padding(
@@ -249,6 +336,7 @@ class _MatrixListCard extends ConsumerWidget {
                               AdminRowNumberHeader(),
                               AdminTableHeaderCell(label: 'Matrix code', flex: 3),
                               AdminTableHeaderCell(label: 'Name', flex: 4),
+                              AdminTableHeaderCell(label: 'Price list', flex: 3),
                               AdminTableHeaderCell(label: 'Parser / sheet', flex: 4),
                               AdminTableHeaderCell(label: 'Status', flex: 2),
                             ],
@@ -258,6 +346,7 @@ class _MatrixListCard extends ConsumerWidget {
 
                       final rowIndex = index - 1;
                       final matrix = response.items[rowIndex];
+                      final priceListName = _lookupLabelForId(matrix.priceListId, priceListLabels);
                       final isSelected = browserState.selectedMatrixId == matrix.id;
                       return InkWell(
                         borderRadius: BorderRadius.circular(16),
@@ -307,6 +396,8 @@ class _MatrixListCard extends ConsumerWidget {
                                 spacing: 8,
                                 runSpacing: 8,
                                 children: [
+                                  if (priceListName.isNotEmpty)
+                                    _MetaChip(icon: Icons.request_quote_outlined, label: priceListName),
                                   _MetaChip(icon: Icons.tune, label: matrix.parserKind),
                                   _MetaChip(icon: Icons.table_chart_outlined, label: matrix.sourceSheetName),
                                   if ((matrix.sectionCode ?? '').isNotEmpty)
@@ -356,9 +447,14 @@ class _MatrixDetailsCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final repository = ref.read(priceMatrixRepositoryProvider);
+    final adminResourceRepository = ref.read(resourceRepositoryProvider);
     final browser = ref.read(priceMatrixBrowserProvider.notifier);
     final selectedMatrixId = ref.watch(priceMatrixBrowserProvider.select((value) => value.selectedMatrixId));
     final matrixResource = findResourceByKey('price_matrices');
+    final priceListLabels = ref.watch(adminLookupProvider(priceListLookup)).maybeWhen(
+      data: _lookupLabelMap,
+      orElse: () => const <String, String>{},
+    );
 
     return detailsAsync.when(
       loading: () => const Card(child: Center(child: CircularProgressIndicator())),
@@ -398,6 +494,7 @@ class _MatrixDetailsCard extends ConsumerWidget {
                           context: context,
                           builder: (_) => ResourceEditorDialog(
                             resource: matrixResource,
+                            repository: adminResourceRepository,
                             initialData: matrix.raw,
                           ),
                         );
@@ -455,7 +552,10 @@ class _MatrixDetailsCard extends ConsumerWidget {
                             label: 'Source anchor',
                             value: 'row ${matrix.sourceRowNo ?? '—'} / col ${matrix.sourceColNo ?? '—'}',
                           ),
-                          _InfoTile(label: 'Price list', value: matrix.priceListId ?? '—'),
+                          _InfoTile(
+                            label: 'Price list',
+                            value: _lookupLabelForId(matrix.priceListId, priceListLabels).ifEmpty('—'),
+                          ),
                           _InfoTile(label: 'Sort order', value: '${matrix.sortOrder ?? 0}'),
                         ],
                       ),
@@ -1120,6 +1220,32 @@ class _ErrorState extends StatelessWidget {
       ),
     );
   }
+}
+
+
+Map<String, String> _lookupLabelMap(List<Map<String, dynamic>> rows) {
+  return {
+    for (final row in rows)
+      if ((row['id']?.toString().trim() ?? '').isNotEmpty) row['id']!.toString(): _priceListLabel(row),
+  };
+}
+
+String _priceListLabel(Map<String, dynamic> row) {
+  final name = row['name']?.toString().trim();
+  if (name != null && name.isNotEmpty) return name;
+  final code = row['code']?.toString().trim();
+  if (code != null && code.isNotEmpty) return code;
+  return row['id']?.toString() ?? '';
+}
+
+String _lookupLabelForId(String? id, Map<String, String> labels) {
+  final safeId = id?.trim() ?? '';
+  if (safeId.isEmpty) return '';
+  return labels[safeId] ?? safeId;
+}
+
+extension _EmptyStringFallback on String {
+  String ifEmpty(String fallback) => isEmpty ? fallback : this;
 }
 
 String _formatNumber(Object? value) {

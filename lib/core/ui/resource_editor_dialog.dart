@@ -44,7 +44,7 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
     _lookupFutures = {
       for (final field in widget.resource.formFields)
         if (field.lookup != null)
-          field.key: widget.repository?.fetchLookup(field.lookup!) ??
+          field.key: widget.repository?.fetchLookup(field.lookup!, limit: field.lookup!.limit) ??
               Future<List<Map<String, dynamic>>>.value(const <Map<String, dynamic>>[]),
     };
   }
@@ -219,7 +219,7 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
 
     final id = row[lookup.idKey]?.toString() ?? '';
     if (labels.isEmpty) return id;
-    if (id.isEmpty) return labels.join(' · ');
+    if (id.isEmpty || !lookup.showIdInDropdown) return labels.join(' · ');
     return '${labels.join(' · ')} ($id)';
   }
 

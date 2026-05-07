@@ -8,12 +8,14 @@ class AdminLookup {
     this.idKey = 'id',
     this.labelKeys = const ['display_name', 'legal_name', 'name', 'code'],
     this.limit = 500,
+    this.showIdInDropdown = true,
   });
 
   final String endpoint;
   final String idKey;
   final List<String> labelKeys;
   final int limit;
+  final bool showIdInDropdown;
 }
 
 class AdminField {

@@ -23,6 +23,27 @@ const catalogItemLookup = AdminLookup(
   limit: 2000,
 );
 
+const catalogItemNameLookup = AdminLookup(
+  endpoint: '/api/admin/catalog-items',
+  labelKeys: ['name'],
+  limit: 2000,
+  showIdInDropdown: false,
+);
+
+const catalogVariantLookup = AdminLookup(
+  endpoint: '/api/admin/catalog-variants',
+  labelKeys: ['system_name', 'color_name', 'length_mm', 'article_no'],
+  limit: 3000,
+  showIdInDropdown: false,
+);
+
+const priceListLookup = AdminLookup(
+  endpoint: '/api/admin/price-lists',
+  labelKeys: ['name'],
+  limit: 1000,
+  showIdInDropdown: false,
+);
+
 const dashboardResource = AdminResourceDefinition(
   key: 'dashboard',
   title: 'Dashboard',
@@ -80,6 +101,13 @@ const adminNavGroups = <AdminNavGroup>[
             sourceValueKey: 'id',
             icon: Icons.tune_rounded,
           ),
+          AdminDetailAction(
+            label: 'Show price list items',
+            targetResourceKey: 'price_list_items',
+            filterKey: 'catalog_item_id',
+            sourceValueKey: 'id',
+            icon: Icons.table_rows_outlined,
+          ),
         ],
       ),
       AdminResourceDefinition(
@@ -110,6 +138,15 @@ const adminNavGroups = <AdminNavGroup>[
           AdminField(key: 'coating_type_code', label: 'Coating type'),
           AdminField(key: 'is_active', label: 'Active', type: AdminFieldType.boolType),
           AdminField(key: 'attributes_json', label: 'Attributes JSON', type: AdminFieldType.json),
+        ],
+        detailActions: [
+          AdminDetailAction(
+            label: 'Show price list items',
+            targetResourceKey: 'price_list_items',
+            filterKey: 'catalog_variant_id',
+            sourceValueKey: 'id',
+            icon: Icons.table_rows_outlined,
+          ),
         ],
       ),
       AdminResourceDefinition(
@@ -166,6 +203,22 @@ const adminNavGroups = <AdminNavGroup>[
           AdminField(key: 'is_active', label: 'Active', type: AdminFieldType.boolType),
           AdminField(key: 'metadata_json', label: 'Metadata JSON', type: AdminFieldType.json),
         ],
+        detailActions: [
+          AdminDetailAction(
+            label: 'Show price matrices',
+            targetResourceKey: 'price_matrices',
+            filterKey: 'price_list_id',
+            sourceValueKey: 'id',
+            icon: Icons.grid_on_rounded,
+          ),
+          AdminDetailAction(
+            label: 'Show price list items',
+            targetResourceKey: 'price_list_items',
+            filterKey: 'price_list_id',
+            sourceValueKey: 'id',
+            icon: Icons.table_rows_outlined,
+          ),
+        ],
       ),
       AdminResourceDefinition(
         key: 'price_list_items',
@@ -173,16 +226,24 @@ const adminNavGroups = <AdminNavGroup>[
         endpoint: '/api/admin/price-list-items',
         icon: Icons.table_rows_outlined,
         columns: [
-          AdminColumn(key: 'target_code', label: 'Target', isPrimary: true),
+          AdminColumn(key: 'target_code', label: 'Target', isPrimary: true, flex: 2),
+          AdminColumn(key: 'price_list_id', label: 'Price list', flex: 2, lookup: priceListLookup),
+          AdminColumn(key: 'catalog_item_id', label: 'Catalog item', flex: 2, lookup: catalogItemNameLookup),
+          AdminColumn(key: 'catalog_variant_id', label: 'Catalog variant', flex: 2, lookup: catalogVariantLookup),
           AdminColumn(key: 'unit_code', label: 'Unit'),
           AdminColumn(key: 'unit_price', label: 'Price'),
           AdminColumn(key: 'discount_pct', label: 'Discount'),
           AdminColumn(key: 'lead_time_code', label: 'Lead time'),
         ],
+        listFilters: [
+          AdminResourceFilter(key: 'price_list_id', label: 'Price list', lookup: priceListLookup),
+          AdminResourceFilter(key: 'catalog_item_id', label: 'Catalog item', lookup: catalogItemNameLookup),
+          AdminResourceFilter(key: 'catalog_variant_id', label: 'Catalog variant', lookup: catalogVariantLookup),
+        ],
         formFields: [
-          AdminField(key: 'price_list_id', label: 'Price list id'),
-          AdminField(key: 'catalog_item_id', label: 'Catalog item id'),
-          AdminField(key: 'catalog_variant_id', label: 'Catalog variant id'),
+          AdminField(key: 'price_list_id', label: 'Price list', lookup: priceListLookup),
+          AdminField(key: 'catalog_item_id', label: 'Catalog item', lookup: catalogItemNameLookup),
+          AdminField(key: 'catalog_variant_id', label: 'Catalog variant', lookup: catalogVariantLookup),
           AdminField(key: 'material_price_dimension_id', label: 'Material price dimension id'),
           AdminField(key: 'target_code', label: 'Target code'),
           AdminField(key: 'unit_code', label: 'Unit code'),
@@ -202,13 +263,17 @@ const adminNavGroups = <AdminNavGroup>[
         columns: [
           AdminColumn(key: 'matrix_code', label: 'Matrix code', isPrimary: true),
           AdminColumn(key: 'name', label: 'Name', flex: 2),
+          AdminColumn(key: 'price_list_id', label: 'Price list', flex: 2, lookup: priceListLookup),
           AdminColumn(key: 'parser_kind', label: 'Parser'),
           AdminColumn(key: 'section_code', label: 'Section'),
           AdminColumn(key: 'source_sheet_name', label: 'Sheet', flex: 2),
           AdminColumn(key: 'is_active', label: 'Active'),
         ],
+        listFilters: [
+          AdminResourceFilter(key: 'price_list_id', label: 'Price list', lookup: priceListLookup),
+        ],
         formFields: [
-          AdminField(key: 'price_list_id', label: 'Price list id'),
+          AdminField(key: 'price_list_id', label: 'Price list', lookup: priceListLookup),
           AdminField(key: 'matrix_code', label: 'Matrix code'),
           AdminField(key: 'name', label: 'Name'),
           AdminField(key: 'parser_kind', label: 'Parser kind'),

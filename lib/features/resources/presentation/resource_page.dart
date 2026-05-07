@@ -623,7 +623,7 @@ String _lookupLabel(AdminLookup lookup, Map<String, dynamic> row) {
   final compactLabel = _lookupCompactLabel(lookup, row);
   final id = row[lookup.idKey]?.toString() ?? '';
   if (compactLabel.isEmpty) return id;
-  if (id.isEmpty) return compactLabel;
+  if (id.isEmpty || !lookup.showIdInDropdown) return compactLabel;
   return '$compactLabel ($id)';
 }
 
