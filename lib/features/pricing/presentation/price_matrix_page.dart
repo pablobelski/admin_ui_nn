@@ -9,6 +9,7 @@ import '../../../core/ui/json_view_card.dart';
 import '../../../core/ui/resizable_split_pane.dart';
 import '../../../core/ui/scrollable_areas.dart';
 import '../../../core/ui/resource_editor_dialog.dart';
+import '../../../core/ui/searchable_select_form_field.dart';
 import '../data/price_matrix_repository.dart';
 import 'price_matrix_providers.dart';
 
@@ -234,18 +235,16 @@ class _PriceListFilter extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return options.when(
-      loading: () => DropdownButtonFormField<String>(
-        initialValue: value.isEmpty ? '' : value,
-        isExpanded: true,
-        items: [
-          const DropdownMenuItem(value: '', child: Text('— All price lists —')),
-          if (value.isNotEmpty) DropdownMenuItem(value: value, child: Text(value)),
+      loading: () => SearchableSelectFormField(
+        value: value,
+        options: [
+          if (value.isNotEmpty) SearchableSelectOption(value: value, label: value),
         ],
         onChanged: null,
-        decoration: const InputDecoration(
-          labelText: 'Price list',
-          helperText: 'Loading options...',
-        ),
+        labelText: 'Price list',
+        emptyLabel: '— All price lists —',
+        helperText: 'Loading options...',
+        enabled: false,
       ),
       error: (_, __) => TextFormField(
         initialValue: value,
@@ -256,31 +255,24 @@ class _PriceListFilter extends StatelessWidget {
         onFieldSubmitted: onChanged,
       ),
       data: (rows) {
-        final items = <DropdownMenuItem<String>>[
-          const DropdownMenuItem(value: '', child: Text('— All price lists —')),
-        ];
+        final items = <SearchableSelectOption>[];
         var hasValue = value.isEmpty;
         for (final row in rows) {
           final id = row['id']?.toString();
           if (id == null || id.isEmpty) continue;
           hasValue = hasValue || id == value;
-          items.add(
-            DropdownMenuItem(
-              value: id,
-              child: Text(_priceListLabel(row), overflow: TextOverflow.ellipsis),
-            ),
-          );
+          items.add(SearchableSelectOption(value: id, label: _priceListLabel(row)));
         }
         if (!hasValue) {
-          items.add(DropdownMenuItem(value: value, child: Text(value, overflow: TextOverflow.ellipsis)));
+          items.add(SearchableSelectOption(value: value, label: value));
         }
 
-        return DropdownButtonFormField<String>(
-          initialValue: value.isEmpty ? '' : value,
-          isExpanded: true,
-          items: items,
+        return SearchableSelectFormField(
+          value: value,
+          options: items,
           onChanged: onChanged,
-          decoration: const InputDecoration(labelText: 'Price list'),
+          labelText: 'Price list',
+          emptyLabel: '— All price lists —',
         );
       },
     );

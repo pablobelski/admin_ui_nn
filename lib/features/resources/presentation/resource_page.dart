@@ -14,6 +14,7 @@ import '../../../core/ui/json_view_card.dart';
 import '../../../core/ui/resizable_split_pane.dart';
 import '../../../core/ui/scrollable_areas.dart';
 import '../../../core/ui/resource_editor_dialog.dart';
+import '../../../core/ui/searchable_select_form_field.dart';
 
 class ResourcePage extends ConsumerWidget {
   const ResourcePage({
@@ -230,20 +231,17 @@ class _ListFilterField extends ConsumerWidget {
 
     final lookupAsync = ref.watch(adminLookupProvider(lookup));
     return lookupAsync.when(
-      loading: () => DropdownButtonFormField<String>(
+      loading: () => SearchableSelectFormField(
         key: ValueKey('filter-${resource.key}-${filter.key}-$value-loading'),
-        initialValue: value.isEmpty ? '' : value,
-        isExpanded: true,
-        items: [
-          const DropdownMenuItem(value: '', child: Text('— Not selected —')),
-          if (value.isNotEmpty)
-            DropdownMenuItem(value: value, child: Text(value, overflow: TextOverflow.ellipsis)),
+        value: value,
+        options: [
+          if (value.isNotEmpty) SearchableSelectOption(value: value, label: value),
         ],
         onChanged: null,
-        decoration: InputDecoration(
-          labelText: filter.label,
-          helperText: 'Loading options...',
-        ),
+        labelText: filter.label,
+        emptyLabel: '— All —',
+        helperText: 'Loading options...',
+        enabled: false,
       ),
       error: (_, __) => TextFormField(
         key: ValueKey('filter-${resource.key}-${filter.key}-$value-error'),
@@ -255,42 +253,27 @@ class _ListFilterField extends ConsumerWidget {
         onFieldSubmitted: (nextValue) => browser.setFilter(filter.key, nextValue),
       ),
       data: (rows) {
-        final options = <DropdownMenuItem<String>>[
-          const DropdownMenuItem(value: '', child: Text('— All —')),
-        ];
+        final options = <SearchableSelectOption>[];
         var hasCurrentValue = value.isEmpty;
 
         for (final row in rows) {
           final id = row[lookup.idKey]?.toString();
           if (id == null || id.isEmpty) continue;
           hasCurrentValue = hasCurrentValue || id == value;
-          options.add(
-            DropdownMenuItem(
-              value: id,
-              child: Text(
-                _lookupLabel(lookup, row),
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          );
+          options.add(SearchableSelectOption(value: id, label: _lookupLabel(lookup, row)));
         }
 
         if (!hasCurrentValue) {
-          options.add(
-            DropdownMenuItem(
-              value: value,
-              child: Text(value, overflow: TextOverflow.ellipsis),
-            ),
-          );
+          options.add(SearchableSelectOption(value: value, label: value));
         }
 
-        return DropdownButtonFormField<String>(
+        return SearchableSelectFormField(
           key: ValueKey('filter-${resource.key}-${filter.key}-$value'),
-          initialValue: value.isEmpty ? '' : value,
-          isExpanded: true,
-          items: options,
+          value: value,
+          options: options,
           onChanged: (nextValue) => browser.setFilter(filter.key, nextValue),
-          decoration: InputDecoration(labelText: filter.label),
+          labelText: filter.label,
+          emptyLabel: '— All —',
         );
       },
     );

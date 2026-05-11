@@ -1,7 +1,10 @@
 import 'dart:convert';
-import '../http/admin_resource_repository.dart';
+
 import 'package:flutter/material.dart';
+
+import '../http/admin_resource_repository.dart';
 import '../models/admin_resource.dart';
+import 'searchable_select_form_field.dart';
 
 class ResourceEditorDialog extends StatefulWidget {
   const ResourceEditorDialog({
@@ -135,52 +138,33 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
           final controller = _controllers[field.key]!;
           final currentValue = controller.text.trim();
           final rows = snapshot.data ?? const <Map<String, dynamic>>[];
-          final options = <DropdownMenuItem<String>>[
-            const DropdownMenuItem(value: '', child: Text('— Not selected —')),
-          ];
+          final options = <SearchableSelectOption>[];
           var hasCurrentValue = currentValue.isEmpty;
 
           for (final row in rows) {
             final id = row[lookup.idKey]?.toString();
             if (id == null || id.isEmpty) continue;
             hasCurrentValue = hasCurrentValue || id == currentValue;
-            options.add(
-              DropdownMenuItem(
-                value: id,
-                child: Text(
-                  _lookupLabel(lookup, row),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            );
+            options.add(SearchableSelectOption(value: id, label: _lookupLabel(lookup, row)));
           }
 
           if (!hasCurrentValue) {
-            options.add(
-              DropdownMenuItem(
-                value: currentValue,
-                child: Text(currentValue, overflow: TextOverflow.ellipsis),
-              ),
-            );
+            options.add(SearchableSelectOption(value: currentValue, label: currentValue));
           }
 
-          return DropdownButtonFormField<String>(
-            initialValue: currentValue.isEmpty ? '' : currentValue,
-            isExpanded: true,
-            items: options,
-            onChanged: field.readOnly
-                ? null
-                : (value) {
+          return SearchableSelectFormField(
+            value: currentValue,
+            options: options,
+            enabled: !field.readOnly && snapshot.connectionState != ConnectionState.waiting,
+            labelText: field.label,
+            helperText: snapshot.connectionState == ConnectionState.waiting
+                ? 'Loading options...'
+                : snapshot.hasError
+                ? 'Failed to load; keep existing value or leave empty'
+                : null,
+            onChanged: (value) {
               controller.text = value ?? '';
             },
-            decoration: InputDecoration(
-              labelText: field.label,
-              helperText: snapshot.connectionState == ConnectionState.waiting
-                  ? 'Loading options...'
-                  : snapshot.hasError
-                  ? 'Failed to load; keep existing value or leave empty'
-                  : null,
-            ),
           );
         },
       );
