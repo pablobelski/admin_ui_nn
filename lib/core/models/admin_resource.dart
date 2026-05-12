@@ -83,6 +83,7 @@ class AdminDetailAction {
     required this.filterKey,
     required this.sourceValueKey,
     this.icon = Icons.open_in_new_rounded,
+    this.selectTargetRow = false,
   });
 
   final String label;
@@ -91,6 +92,12 @@ class AdminDetailAction {
   final String sourceValueKey;
   final IconData icon;
 
+  /// Select the target row after opening the target resource.
+  ///
+  /// Use this for exact child -> parent navigation, for example
+  /// Catalog Variant -> Catalog Item, where [filterKey] is usually `id` and
+  /// [sourceValueKey] is a foreign-key field from the source record.
+  final bool selectTargetRow;
 }
 
 class AdminResourceDefinition {

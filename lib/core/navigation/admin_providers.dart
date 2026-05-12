@@ -76,7 +76,23 @@ class ResourceBrowserNotifier extends Notifier<ResourceBrowserState> {
     } else {
       nextFilters[key] = normalizedValue;
     }
-    state = state.copyWith(filters: nextFilters, offset: 0, clearSelected: true);
+    openWithFilters(nextFilters);
+  }
+
+  void openWithFilters(
+    Map<String, String> filters, {
+    String? selectedId,
+  }) {
+    final nextFilters = <String, String>{
+      for (final entry in filters.entries)
+        if (entry.value.trim().isNotEmpty) entry.key: entry.value.trim(),
+    };
+    state = state.copyWith(
+      filters: nextFilters,
+      selectedId: selectedId,
+      offset: 0,
+      clearSelected: selectedId == null || selectedId.isEmpty,
+    );
     pushAdminResourceUrl(resourceKey, filters: nextFilters);
   }
 

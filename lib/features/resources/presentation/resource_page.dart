@@ -468,14 +468,16 @@ class _DetailsCard extends ConsumerWidget {
                             final targetResource = findResourceByKey(action.targetResourceKey);
                             final filterValue = _detailActionValue(action, data)!;
                             final filters = {action.filterKey: filterValue};
+                            final selectedId = action.selectTargetRow ? filterValue : null;
                             ref
                                 .read(resourceBrowserProvider(action.targetResourceKey).notifier)
-                                .setFilter(action.filterKey, filterValue);
+                                .openWithFilters(filters, selectedId: selectedId);
                             ref.read(selectedResourceProvider.notifier).select(
                               action.targetResourceKey,
                               filters: filters,
                             );
                             ref.invalidate(resourceListProvider(targetResource));
+                            ref.invalidate(resourceDetailsProvider(targetResource));
                           },
                           icon: Icon(action.icon, size: 18),
                           label: Text(action.label),
@@ -693,7 +695,19 @@ class _ErrorState extends StatelessWidget {
 String? _detailActionValue(AdminDetailAction action, Map<String, dynamic> data) {
   final value = data[action.sourceValueKey]?.toString().trim();
   if (value == null || value.isEmpty) return null;
-  return value;
+  return _extractRelationId(value);
+}
+
+String _extractRelationId(String value) {
+  final trimmed = value.trim();
+  final uuidPattern = RegExp(
+    r'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}',
+  );
+  final matches = uuidPattern.allMatches(trimmed).toList(growable: false);
+  if (matches.isNotEmpty) {
+    return matches.last.group(0)!;
+  }
+  return trimmed;
 }
 
 String _filtersStorageKey(Map<String, String> filters) {

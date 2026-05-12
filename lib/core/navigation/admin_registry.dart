@@ -204,6 +204,7 @@ const adminNavGroups = <AdminNavGroup>[
           AdminColumn(key: 'is_active', label: 'Active'),
         ],
         listFilters: [
+          AdminResourceFilter(key: 'id', label: 'Catalog item', lookup: catalogItemLookup),
           AdminResourceFilter(key: 'product_family_id', label: 'Product family', lookup: productFamilyLookup),
         ],
         formFields: [
@@ -267,6 +268,14 @@ const adminNavGroups = <AdminNavGroup>[
           AdminField(key: 'attributes_json', label: 'Attributes JSON', type: AdminFieldType.json),
         ],
         detailActions: [
+          AdminDetailAction(
+            label: 'Show catalog item',
+            targetResourceKey: 'catalog_items',
+            filterKey: 'id',
+            sourceValueKey: 'catalog_item_id',
+            selectTargetRow: true,
+            icon: Icons.view_list_rounded,
+          ),
           AdminDetailAction(
             label: 'Show price list items',
             targetResourceKey: 'price_list_items',
@@ -886,6 +895,7 @@ const adminNavGroups = <AdminNavGroup>[
             targetResourceKey: 'organizations',
             filterKey: 'id',
             sourceValueKey: 'organization_id',
+            selectTargetRow: true,
             icon: Icons.domain_rounded,
           ),
         ],
@@ -929,6 +939,7 @@ const adminNavGroups = <AdminNavGroup>[
             targetResourceKey: 'organizations',
             filterKey: 'id',
             sourceValueKey: 'organization_id',
+            selectTargetRow: true,
             icon: Icons.domain_rounded,
           ),
           AdminDetailAction(
@@ -1019,6 +1030,7 @@ const adminNavGroups = <AdminNavGroup>[
             targetResourceKey: 'users',
             filterKey: 'id',
             sourceValueKey: 'user_id',
+            selectTargetRow: true,
             icon: Icons.person_outline_rounded,
           ),
           AdminDetailAction(
@@ -1026,6 +1038,7 @@ const adminNavGroups = <AdminNavGroup>[
             targetResourceKey: 'organizations',
             filterKey: 'id',
             sourceValueKey: 'organization_id',
+            selectTargetRow: true,
             icon: Icons.domain_rounded,
           ),
         ],
