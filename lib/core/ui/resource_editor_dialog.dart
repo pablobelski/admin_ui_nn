@@ -130,6 +130,23 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
       );
     }
 
+    if (field.options.isNotEmpty) {
+      final controller = _controllers[field.key]!;
+      final currentValue = controller.text.trim();
+      return SearchableSelectFormField(
+        value: currentValue,
+        options: [
+          for (final option in field.options)
+            SearchableSelectOption(value: option.value, label: option.label),
+        ],
+        enabled: !field.readOnly,
+        labelText: field.label,
+        onChanged: (value) {
+          controller.text = value ?? '';
+        },
+      );
+    }
+
     if (field.lookup != null) {
       return FutureBuilder<List<Map<String, dynamic>>>(
         future: _lookupFutures[field.key],
@@ -175,6 +192,7 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
       readOnly: field.readOnly,
       maxLines: field.type == AdminFieldType.longText || field.type == AdminFieldType.json ? 8 : 1,
       keyboardType: field.type == AdminFieldType.number ? TextInputType.number : TextInputType.text,
+      obscureText: field.type == AdminFieldType.password,
       decoration: InputDecoration(labelText: field.label),
       validator: (value) {
         if (!field.readOnly && (value == null || value.trim().isEmpty) && field.key != 'id') {

@@ -60,6 +60,11 @@ class _AdminShellState extends ConsumerState<AdminShell> {
             ),
           ),
           IconButton(
+            tooltip: 'Change password',
+            onPressed: () => _showChangeOwnPasswordDialog(context),
+            icon: const Icon(Icons.password_rounded),
+          ),
+          IconButton(
             tooltip: 'Logout',
             onPressed: () => ref.read(authSessionProvider.notifier).signOut(),
             icon: const Icon(Icons.logout_rounded),
@@ -141,6 +146,125 @@ class _AdminShellState extends ConsumerState<AdminShell> {
       return const TemplateWorkspacePage(initialMode: TemplateWorkspaceMode.modules);
     }
     return ResourcePage(resource: resource);
+  }
+
+  Future<void> _showChangeOwnPasswordDialog(BuildContext context) async {
+    final payload = await showDialog<Map<String, String>>(
+      context: context,
+      builder: (_) => const _ChangeOwnPasswordDialog(),
+    );
+    if (payload == null) return;
+
+    try {
+      await ref.read(apiClientProvider).postJson(
+        '/api/auth/change-password',
+        body: {
+          'current_password': payload['current_password'],
+          'new_password': payload['new_password'],
+        },
+      );
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Password changed')),
+      );
+    } catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Password change failed: $error')),
+      );
+    }
+  }
+}
+
+class _ChangeOwnPasswordDialog extends StatefulWidget {
+  const _ChangeOwnPasswordDialog();
+
+  @override
+  State<_ChangeOwnPasswordDialog> createState() => _ChangeOwnPasswordDialogState();
+}
+
+class _ChangeOwnPasswordDialogState extends State<_ChangeOwnPasswordDialog> {
+  final _formKey = GlobalKey<FormState>();
+  final _currentPasswordController = TextEditingController();
+  final _newPasswordController = TextEditingController();
+  final _repeatPasswordController = TextEditingController();
+
+  @override
+  void dispose() {
+    _currentPasswordController.dispose();
+    _newPasswordController.dispose();
+    _repeatPasswordController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Change password'),
+      content: SizedBox(
+        width: 420,
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                controller: _currentPasswordController,
+                obscureText: true,
+                decoration: const InputDecoration(labelText: 'Current password'),
+                validator: _required,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _newPasswordController,
+                obscureText: true,
+                decoration: const InputDecoration(labelText: 'New password'),
+                validator: _required,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _repeatPasswordController,
+                obscureText: true,
+                decoration: const InputDecoration(labelText: 'Repeat new password'),
+                validator: (value) {
+                  final requiredMessage = _required(value);
+                  if (requiredMessage != null) return requiredMessage;
+                  if (value != _newPasswordController.text) {
+                    return 'Passwords do not match';
+                  }
+                  return null;
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _submit,
+          child: const Text('Save'),
+        ),
+      ],
+    );
+  }
+
+  String? _required(String? value) {
+    if (value == null || value.isEmpty) {
+      return 'Required';
+    }
+    return null;
+  }
+
+  void _submit() {
+    if (!_formKey.currentState!.validate()) return;
+    Navigator.of(context).pop({
+      'current_password': _currentPasswordController.text,
+      'new_password': _newPasswordController.text,
+    });
   }
 }
 

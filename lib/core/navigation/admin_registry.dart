@@ -7,6 +7,20 @@ const organizationLookup = AdminLookup(
   labelKeys: ['display_name', 'legal_name', 'organization_type'],
 );
 
+const userLookup = AdminLookup(
+  endpoint: '/api/admin/users',
+  labelKeys: ['email', 'full_name', 'role_code'],
+  limit: 1000,
+  showIdInDropdown: false,
+);
+
+const organizationContactLookup = AdminLookup(
+  endpoint: '/api/admin/organization-contacts',
+  labelKeys: ['full_name', 'email', 'contact_type'],
+  limit: 2000,
+  showIdInDropdown: false,
+);
+
 const referenceDomainLookup = AdminLookup(
   endpoint: '/api/admin/reference-domains',
   labelKeys: ['code', 'name'],
@@ -43,6 +57,119 @@ const priceListLookup = AdminLookup(
   limit: 1000,
   showIdInDropdown: false,
 );
+
+const activeFilterOptions = <AdminSelectOption>[
+  AdminSelectOption(value: 'true', label: 'Yes'),
+  AdminSelectOption(value: 'false', label: 'No'),
+];
+
+const globalRoleOptions = <AdminSelectOption>[
+  AdminSelectOption(value: 'sysadmin', label: 'Sysadmin'),
+  AdminSelectOption(value: 'admin', label: 'Admin'),
+  AdminSelectOption(value: 'manager', label: 'Manager'),
+  AdminSelectOption(value: 'viewer', label: 'Viewer'),
+];
+
+const organizationRoleOptions = <AdminSelectOption>[
+  AdminSelectOption(value: 'sysadmin', label: 'Sysadmin (VD only)'),
+  AdminSelectOption(value: 'admin', label: 'Admin'),
+  AdminSelectOption(value: 'manager', label: 'Manager'),
+  AdminSelectOption(value: 'sales', label: 'Sales'),
+  AdminSelectOption(value: 'partner', label: 'Partner'),
+  AdminSelectOption(value: 'viewer', label: 'Viewer'),
+];
+
+const contactTypeOptions = <AdminSelectOption>[
+  AdminSelectOption(value: 'general', label: 'General'),
+  AdminSelectOption(value: 'owner', label: 'Owner'),
+  AdminSelectOption(value: 'sales', label: 'Sales'),
+  AdminSelectOption(value: 'office', label: 'Office'),
+  AdminSelectOption(value: 'configurator', label: 'Configurator'),
+  AdminSelectOption(value: 'billing', label: 'Billing'),
+  AdminSelectOption(value: 'delivery', label: 'Delivery'),
+  AdminSelectOption(value: 'service', label: 'Service'),
+  AdminSelectOption(value: 'other', label: 'Other'),
+];
+
+const organizationTypeOptions = <AdminSelectOption>[
+  AdminSelectOption(value: 'internal', label: 'Internal'),
+  AdminSelectOption(value: 'dealer', label: 'Dealer'),
+  AdminSelectOption(value: 'b2b_customer', label: 'B2B customer'),
+  AdminSelectOption(value: 'end_customer', label: 'End customer'),
+  AdminSelectOption(value: 'supplier', label: 'Supplier'),
+  AdminSelectOption(value: 'brand', label: 'Brand'),
+  AdminSelectOption(value: 'other', label: 'Other'),
+];
+
+const catalogItemTypeOptions = <AdminSelectOption>[
+  AdminSelectOption(value: 'profile', label: 'Profile'),
+  AdminSelectOption(value: 'glass', label: 'Glass'),
+  AdminSelectOption(value: 'polycarbonate', label: 'Polycarbonate'),
+  AdminSelectOption(value: 'accessory', label: 'Accessory'),
+  AdminSelectOption(value: 'service', label: 'Service'),
+  AdminSelectOption(value: 'set', label: 'Set'),
+  AdminSelectOption(value: 'awning', label: 'Awning'),
+  AdminSelectOption(value: 'coating', label: 'Coating'),
+  AdminSelectOption(value: 'other', label: 'Other'),
+];
+
+const mediaKindOptions = <AdminSelectOption>[
+  AdminSelectOption(value: 'image', label: 'Image'),
+  AdminSelectOption(value: 'pdf', label: 'PDF'),
+  AdminSelectOption(value: 'drawing', label: 'Drawing'),
+  AdminSelectOption(value: 'datasheet', label: 'Datasheet'),
+  AdminSelectOption(value: 'barcode', label: 'Barcode'),
+  AdminSelectOption(value: 'other', label: 'Other'),
+];
+
+const unitOptions = <AdminSelectOption>[
+  AdminSelectOption(value: 'piece', label: 'Piece'),
+  AdminSelectOption(value: 'meter', label: 'Meter'),
+  AdminSelectOption(value: 'sqm', label: 'Square meter'),
+  AdminSelectOption(value: 'kg', label: 'Kilogram'),
+  AdminSelectOption(value: 'hour', label: 'Hour'),
+  AdminSelectOption(value: 'month', label: 'Month'),
+];
+
+const statusOptions = <AdminSelectOption>[
+  AdminSelectOption(value: 'draft', label: 'Draft'),
+  AdminSelectOption(value: 'published', label: 'Published'),
+  AdminSelectOption(value: 'archived', label: 'Archived'),
+];
+
+const scopeOptions = <AdminSelectOption>[
+  AdminSelectOption(value: 'customer', label: 'Customer'),
+  AdminSelectOption(value: 'b2b', label: 'B2B'),
+  AdminSelectOption(value: 'internal', label: 'Internal'),
+  AdminSelectOption(value: 'supplier', label: 'Supplier'),
+  AdminSelectOption(value: 'other', label: 'Other'),
+];
+
+const templateTypeOptions = <AdminSelectOption>[
+  AdminSelectOption(value: 'pdf', label: 'PDF'),
+  AdminSelectOption(value: 'html', label: 'HTML'),
+  AdminSelectOption(value: 'spreadsheet', label: 'Spreadsheet'),
+  AdminSelectOption(value: 'docx', label: 'DOCX'),
+  AdminSelectOption(value: 'other', label: 'Other'),
+];
+
+const moduleTypeOptions = <AdminSelectOption>[
+  AdminSelectOption(value: 'form_section', label: 'Form section'),
+  AdminSelectOption(value: 'range_editor', label: 'Range editor'),
+  AdminSelectOption(value: 'matrix', label: 'Matrix'),
+  AdminSelectOption(value: 'output_block', label: 'Output block'),
+  AdminSelectOption(value: 'document_data', label: 'Document data'),
+  AdminSelectOption(value: 'other', label: 'Other'),
+];
+
+const parserKindOptions = <AdminSelectOption>[
+  AdminSelectOption(value: 'roof_matrix', label: 'Roof matrix'),
+  AdminSelectOption(value: 'height_width_grid', label: 'Height × width grid'),
+  AdminSelectOption(value: 'width_bucket_depth_grid', label: 'Width bucket × depth grid'),
+  AdminSelectOption(value: 'fly_matrix', label: 'Fly matrix'),
+  AdminSelectOption(value: 'simple_depth_width_grid', label: 'Simple depth × width grid'),
+  AdminSelectOption(value: 'unknown', label: 'Unknown'),
+];
 
 const dashboardResource = AdminResourceDefinition(
   key: 'dashboard',
@@ -85,9 +212,9 @@ const adminNavGroups = <AdminNavGroup>[
           AdminField(key: 'name', label: 'Name'),
           AdminField(key: 'short_name', label: 'Short name'),
           AdminField(key: 'category_code', label: 'Category code'),
-          AdminField(key: 'item_type_code', label: 'Item type code'),
+          AdminField(key: 'item_type_code', label: 'Item type', options: catalogItemTypeOptions),
           AdminField(key: 'system_code', label: 'System code'),
-          AdminField(key: 'measure_type_code', label: 'Measure type'),
+          AdminField(key: 'measure_type_code', label: 'Measure type', options: unitOptions),
           AdminField(key: 'default_length_mm', label: 'Default length', type: AdminFieldType.number),
           AdminField(key: 'default_color_code', label: 'Default color'),
           AdminField(key: 'is_active', label: 'Active', type: AdminFieldType.boolType),
@@ -164,7 +291,7 @@ const adminNavGroups = <AdminNavGroup>[
         formFields: [
           AdminField(key: 'catalog_item_id', label: 'Catalog item id'),
           AdminField(key: 'catalog_variant_id', label: 'Catalog variant id'),
-          AdminField(key: 'kind', label: 'Kind'),
+          AdminField(key: 'kind', label: 'Kind', options: mediaKindOptions),
           AdminField(key: 'file_id', label: 'File id'),
           AdminField(key: 'sort_order', label: 'Sort order', type: AdminFieldType.number),
           AdminField(key: 'is_primary', label: 'Primary', type: AdminFieldType.boolType),
@@ -194,7 +321,7 @@ const adminNavGroups = <AdminNavGroup>[
         formFields: [
           AdminField(key: 'code', label: 'Code'),
           AdminField(key: 'name', label: 'Name'),
-          AdminField(key: 'scope_code', label: 'Scope code'),
+          AdminField(key: 'scope_code', label: 'Scope', options: scopeOptions),
           AdminField(key: 'currency', label: 'Currency'),
           AdminField(key: 'organization_id', label: 'Organization', lookup: organizationLookup),
           AdminField(key: 'product_family_id', label: 'Product family id'),
@@ -246,7 +373,7 @@ const adminNavGroups = <AdminNavGroup>[
           AdminField(key: 'catalog_variant_id', label: 'Catalog variant', lookup: catalogVariantLookup),
           AdminField(key: 'material_price_dimension_id', label: 'Material price dimension id'),
           AdminField(key: 'target_code', label: 'Target code'),
-          AdminField(key: 'unit_code', label: 'Unit code'),
+          AdminField(key: 'unit_code', label: 'Unit', options: unitOptions),
           AdminField(key: 'unit_price', label: 'Unit price', type: AdminFieldType.number),
           AdminField(key: 'purchase_price', label: 'Purchase price', type: AdminFieldType.number),
           AdminField(key: 'discount_pct', label: 'Discount %', type: AdminFieldType.number),
@@ -276,7 +403,7 @@ const adminNavGroups = <AdminNavGroup>[
           AdminField(key: 'price_list_id', label: 'Price list', lookup: priceListLookup),
           AdminField(key: 'matrix_code', label: 'Matrix code'),
           AdminField(key: 'name', label: 'Name'),
-          AdminField(key: 'parser_kind', label: 'Parser kind'),
+          AdminField(key: 'parser_kind', label: 'Parser kind', options: parserKindOptions),
           AdminField(key: 'phase_label', label: 'Phase label'),
           AdminField(key: 'product_label', label: 'Product label'),
           AdminField(key: 'subtitle_label', label: 'Subtitle label'),
@@ -344,7 +471,7 @@ const adminNavGroups = <AdminNavGroup>[
           AdminField(key: 'catalog_variant_id', label: 'Catalog variant id'),
           AdminField(key: 'target_code', label: 'Target code'),
           AdminField(key: 'currency', label: 'Currency'),
-          AdminField(key: 'unit_code', label: 'Unit code'),
+          AdminField(key: 'unit_code', label: 'Unit', options: unitOptions),
           AdminField(key: 'unit_price', label: 'Unit price', type: AdminFieldType.number),
           AdminField(key: 'discount_pct', label: 'Discount %', type: AdminFieldType.number),
           AdminField(key: 'valid_from', label: 'Valid from', type: AdminFieldType.date),
@@ -432,7 +559,7 @@ const adminNavGroups = <AdminNavGroup>[
           AdminField(key: 'source_sheet_name', label: 'Source sheet name'),
           AdminField(key: 'source_range', label: 'Source range'),
           AdminField(key: 'version', label: 'Version', type: AdminFieldType.number),
-          AdminField(key: 'status_code', label: 'Status code'),
+          AdminField(key: 'status_code', label: 'Status', options: statusOptions),
           AdminField(key: 'ui_schema_json', label: 'UI schema JSON', type: AdminFieldType.json),
           AdminField(key: 'default_values_json', label: 'Default values JSON', type: AdminFieldType.json),
           AdminField(key: 'metadata_json', label: 'Metadata JSON', type: AdminFieldType.json),
@@ -454,7 +581,7 @@ const adminNavGroups = <AdminNavGroup>[
           AdminField(key: 'configurator_template_id', label: 'Template id'),
           AdminField(key: 'module_code', label: 'Module code'),
           AdminField(key: 'name', label: 'Name'),
-          AdminField(key: 'module_type_code', label: 'Module type'),
+          AdminField(key: 'module_type_code', label: 'Module type', options: moduleTypeOptions),
           AdminField(key: 'source_sheet_name', label: 'Source sheet name'),
           AdminField(key: 'source_range', label: 'Source range'),
           AdminField(key: 'target_range', label: 'Target range'),
@@ -484,7 +611,7 @@ const adminNavGroups = <AdminNavGroup>[
           AdminField(key: 'version', label: 'Version', type: AdminFieldType.number),
           AdminField(key: 'valid_from', label: 'Valid from', type: AdminFieldType.date),
           AdminField(key: 'valid_to', label: 'Valid to', type: AdminFieldType.date),
-          AdminField(key: 'status_code', label: 'Status code'),
+          AdminField(key: 'status_code', label: 'Status', options: statusOptions),
           AdminField(key: 'notes', label: 'Notes', type: AdminFieldType.longText),
           AdminField(key: 'rules_json', label: 'Rules JSON', type: AdminFieldType.json),
         ],
@@ -648,7 +775,7 @@ const adminNavGroups = <AdminNavGroup>[
         formFields: [
           AdminField(key: 'code', label: 'Code'),
           AdminField(key: 'name', label: 'Name'),
-          AdminField(key: 'unit_code', label: 'Unit code'),
+          AdminField(key: 'unit_code', label: 'Unit', options: unitOptions),
           AdminField(key: 'product_family_id', label: 'Product family id'),
           AdminField(key: 'metadata_json', label: 'Metadata JSON', type: AdminFieldType.json),
           AdminField(key: 'is_active', label: 'Active', type: AdminFieldType.boolType),
@@ -676,8 +803,8 @@ const adminNavGroups = <AdminNavGroup>[
         formFields: [
           AdminField(key: 'display_name', label: 'Display name'),
           AdminField(key: 'legal_name', label: 'Legal name'),
-          AdminField(key: 'organization_type', label: 'Organization type'),
-          AdminField(key: 'parent_organization_id', label: 'Parent organization id'),
+          AdminField(key: 'organization_type', label: 'Organization type', options: organizationTypeOptions),
+          AdminField(key: 'parent_organization_id', label: 'Parent organization id', lookup: organizationLookup),
           AdminField(key: 'tax_no', label: 'Tax no'),
           AdminField(key: 'vat_no', label: 'VAT no'),
           AdminField(key: 'website', label: 'Website'),
@@ -687,6 +814,35 @@ const adminNavGroups = <AdminNavGroup>[
           AdminField(key: 'is_internal', label: 'Internal', type: AdminFieldType.boolType),
           AdminField(key: 'is_active', label: 'Active', type: AdminFieldType.boolType),
         ],
+        listFilters: [
+          AdminResourceFilter(key: 'id', label: 'Organization', lookup: organizationLookup),
+          AdminResourceFilter(key: 'parent_organization_id', label: 'Parent organization', lookup: organizationLookup),
+          AdminResourceFilter(key: 'organization_type', label: 'Organization type', options: organizationTypeOptions),
+          AdminResourceFilter(key: 'is_active', label: 'Active', options: activeFilterOptions),
+        ],
+        detailActions: [
+          AdminDetailAction(
+            label: 'Show contacts',
+            targetResourceKey: 'organization_contacts',
+            filterKey: 'organization_id',
+            sourceValueKey: 'id',
+            icon: Icons.contacts_outlined,
+          ),
+          AdminDetailAction(
+            label: 'Show users',
+            targetResourceKey: 'user_organizations',
+            filterKey: 'organization_id',
+            sourceValueKey: 'id',
+            icon: Icons.group_outlined,
+          ),
+          AdminDetailAction(
+            label: 'Show branding',
+            targetResourceKey: 'organization_branding',
+            filterKey: 'organization_id',
+            sourceValueKey: 'id',
+            icon: Icons.palette_outlined,
+          ),
+        ],
       ),
       AdminResourceDefinition(
         key: 'organization_branding',
@@ -695,10 +851,15 @@ const adminNavGroups = <AdminNavGroup>[
         icon: Icons.palette_outlined,
         columns: [
           AdminColumn(key: 'brand_name', label: 'Brand name', isPrimary: true, flex: 2),
-          AdminColumn(key: 'organization_id', label: 'Organization'),
+          AdminColumn(key: 'organization_id', label: 'Organization', flex: 2, lookup: organizationLookup),
           AdminColumn(key: 'email_from_name', label: 'Email from'),
           AdminColumn(key: 'is_default', label: 'Default'),
           AdminColumn(key: 'is_active', label: 'Active'),
+        ],
+        listFilters: [
+          AdminResourceFilter(key: 'organization_id', label: 'Organization', lookup: organizationLookup),
+          AdminResourceFilter(key: 'is_default', label: 'Default', options: activeFilterOptions),
+          AdminResourceFilter(key: 'is_active', label: 'Active', options: activeFilterOptions),
         ],
         formFields: [
           AdminField(
@@ -718,6 +879,155 @@ const adminNavGroups = <AdminNavGroup>[
           AdminField(key: 'branding_json', label: 'Branding JSON', type: AdminFieldType.json),
           AdminField(key: 'is_default', label: 'Default', type: AdminFieldType.boolType),
           AdminField(key: 'is_active', label: 'Active', type: AdminFieldType.boolType),
+        ],
+        detailActions: [
+          AdminDetailAction(
+            label: 'Show organization',
+            targetResourceKey: 'organizations',
+            filterKey: 'id',
+            sourceValueKey: 'organization_id',
+            icon: Icons.domain_rounded,
+          ),
+        ],
+      ),
+      AdminResourceDefinition(
+        key: 'organization_contacts',
+        title: 'Contacts',
+        endpoint: '/api/admin/organization-contacts',
+        icon: Icons.contacts_outlined,
+        columns: [
+          AdminColumn(key: 'full_name', label: 'Full name', isPrimary: true, flex: 2),
+          AdminColumn(key: 'organization_id', label: 'Organization', flex: 2, lookup: organizationLookup),
+          AdminColumn(key: 'contact_type', label: 'Type'),
+          AdminColumn(key: 'email', label: 'Email', flex: 2),
+          AdminColumn(key: 'phone', label: 'Phone'),
+          AdminColumn(key: 'is_primary', label: 'Primary'),
+          AdminColumn(key: 'is_active', label: 'Active'),
+        ],
+        listFilters: [
+          AdminResourceFilter(key: 'organization_id', label: 'Organization', lookup: organizationLookup),
+          AdminResourceFilter(key: 'user_id', label: 'Linked user', lookup: userLookup),
+          AdminResourceFilter(key: 'contact_type', label: 'Contact type', options: contactTypeOptions),
+          AdminResourceFilter(key: 'is_active', label: 'Active', options: activeFilterOptions),
+        ],
+        formFields: [
+          AdminField(key: 'organization_id', label: 'Organization', lookup: organizationLookup),
+          AdminField(key: 'contact_type', label: 'Contact type', options: contactTypeOptions),
+          AdminField(key: 'full_name', label: 'Full name'),
+          AdminField(key: 'department', label: 'Department'),
+          AdminField(key: 'email', label: 'Email'),
+          AdminField(key: 'phone', label: 'Phone'),
+          AdminField(key: 'mobile_phone', label: 'Mobile phone'),
+          AdminField(key: 'is_primary', label: 'Primary', type: AdminFieldType.boolType),
+          AdminField(key: 'notes', label: 'Notes', type: AdminFieldType.longText),
+          AdminField(key: 'metadata_json', label: 'Metadata JSON', type: AdminFieldType.json),
+          AdminField(key: 'is_active', label: 'Active', type: AdminFieldType.boolType),
+        ],
+        detailActions: [
+          AdminDetailAction(
+            label: 'Show organization',
+            targetResourceKey: 'organizations',
+            filterKey: 'id',
+            sourceValueKey: 'organization_id',
+            icon: Icons.domain_rounded,
+          ),
+          AdminDetailAction(
+            label: 'Show linked users',
+            targetResourceKey: 'user_organizations',
+            filterKey: 'contact_id',
+            sourceValueKey: 'id',
+            icon: Icons.link_rounded,
+          ),
+        ],
+      ),
+      AdminResourceDefinition(
+        key: 'users',
+        title: 'Users',
+        endpoint: '/api/admin/users',
+        icon: Icons.person_outline_rounded,
+        columns: [
+          AdminColumn(key: 'email', label: 'Email', isPrimary: true, flex: 2),
+          AdminColumn(key: 'full_name', label: 'Full name', flex: 2),
+          AdminColumn(key: 'role_code', label: 'Global role'),
+          AdminColumn(key: 'locale_code', label: 'Locale'),
+          AdminColumn(key: 'is_active', label: 'Active'),
+        ],
+        listFilters: [
+          AdminResourceFilter(key: 'id', label: 'User', lookup: userLookup),
+          AdminResourceFilter(key: 'role_code', label: 'Global role', options: globalRoleOptions),
+          AdminResourceFilter(key: 'is_active', label: 'Active', options: activeFilterOptions),
+        ],
+        formFields: [
+          AdminField(key: 'email', label: 'Email'),
+          AdminField(key: 'full_name', label: 'Full name'),
+          AdminField(key: 'role_code', label: 'Global role', options: globalRoleOptions),
+          AdminField(key: 'initial_password', label: 'Initial password (required for new users; sysadmin only)', type: AdminFieldType.password),
+          AdminField(key: 'locale_code', label: 'Locale code'),
+          AdminField(key: 'timezone_name', label: 'Timezone name'),
+          AdminField(key: 'settings_json', label: 'Settings JSON', type: AdminFieldType.json),
+          AdminField(key: 'is_active', label: 'Active', type: AdminFieldType.boolType),
+        ],
+        detailActions: [
+          AdminDetailAction(
+            label: 'Show linked contacts',
+            targetResourceKey: 'organization_contacts',
+            filterKey: 'user_id',
+            sourceValueKey: 'id',
+            icon: Icons.contacts_outlined,
+          ),
+          AdminDetailAction(
+            label: 'Show organization links',
+            targetResourceKey: 'user_organizations',
+            filterKey: 'user_id',
+            sourceValueKey: 'id',
+            icon: Icons.link_rounded,
+          ),
+        ],
+      ),
+      AdminResourceDefinition(
+        key: 'user_organizations',
+        title: 'User Organizations',
+        endpoint: '/api/admin/user-organizations',
+        icon: Icons.group_outlined,
+        columns: [
+          AdminColumn(key: 'user_id', label: 'User', isPrimary: true, flex: 2, lookup: userLookup),
+          AdminColumn(key: 'organization_id', label: 'Organization', flex: 2, lookup: organizationLookup),
+          AdminColumn(key: 'contact_id', label: 'Contact', flex: 2, lookup: organizationContactLookup),
+          AdminColumn(key: 'role_code', label: 'Org role'),
+          AdminColumn(key: 'is_default', label: 'Default'),
+          AdminColumn(key: 'is_active', label: 'Active'),
+        ],
+        listFilters: [
+          AdminResourceFilter(key: 'organization_id', label: 'Organization', lookup: organizationLookup),
+          AdminResourceFilter(key: 'user_id', label: 'User', lookup: userLookup),
+          AdminResourceFilter(key: 'contact_id', label: 'Contact', lookup: organizationContactLookup),
+          AdminResourceFilter(key: 'role_code', label: 'Organization role', options: organizationRoleOptions),
+          AdminResourceFilter(key: 'is_active', label: 'Active', options: activeFilterOptions),
+        ],
+        formFields: [
+          AdminField(key: 'user_id', label: 'User', lookup: userLookup),
+          AdminField(key: 'organization_id', label: 'Organization', lookup: organizationLookup),
+          AdminField(key: 'contact_id', label: 'Contact', lookup: organizationContactLookup),
+          AdminField(key: 'role_code', label: 'Organization role', options: organizationRoleOptions),
+          AdminField(key: 'is_default', label: 'Default for user', type: AdminFieldType.boolType),
+          AdminField(key: 'permissions_json', label: 'Permissions JSON', type: AdminFieldType.json),
+          AdminField(key: 'is_active', label: 'Active', type: AdminFieldType.boolType),
+        ],
+        detailActions: [
+          AdminDetailAction(
+            label: 'Show user',
+            targetResourceKey: 'users',
+            filterKey: 'id',
+            sourceValueKey: 'user_id',
+            icon: Icons.person_outline_rounded,
+          ),
+          AdminDetailAction(
+            label: 'Show organization',
+            targetResourceKey: 'organizations',
+            filterKey: 'id',
+            sourceValueKey: 'organization_id',
+            icon: Icons.domain_rounded,
+          ),
         ],
       ),
     ],
@@ -743,8 +1053,8 @@ const adminNavGroups = <AdminNavGroup>[
           AdminField(key: 'code', label: 'Code'),
           AdminField(key: 'name', label: 'Name'),
           AdminField(key: 'document_type_code', label: 'Document type'),
-          AdminField(key: 'template_type_code', label: 'Template type'),
-          AdminField(key: 'scope_code', label: 'Scope code'),
+          AdminField(key: 'template_type_code', label: 'Template type', options: templateTypeOptions),
+          AdminField(key: 'scope_code', label: 'Scope', options: scopeOptions),
           AdminField(key: 'version', label: 'Version', type: AdminFieldType.number),
           AdminField(key: 'source_asset_file_id', label: 'Source asset file id'),
           AdminField(key: 'template_body', label: 'Template body', type: AdminFieldType.longText),
@@ -768,7 +1078,7 @@ const adminNavGroups = <AdminNavGroup>[
           AdminField(key: 'code', label: 'Code'),
           AdminField(key: 'name', label: 'Name'),
           AdminField(key: 'message_type_code', label: 'Message type'),
-          AdminField(key: 'scope_code', label: 'Scope code'),
+          AdminField(key: 'scope_code', label: 'Scope', options: scopeOptions),
           AdminField(key: 'subject_template', label: 'Subject template'),
           AdminField(key: 'body_text_template', label: 'Body text', type: AdminFieldType.longText),
           AdminField(key: 'body_html_template', label: 'Body HTML', type: AdminFieldType.longText),
@@ -825,7 +1135,7 @@ const adminNavGroups = <AdminNavGroup>[
           AdminField(key: 'operation_code', label: 'Operation code'),
           AdminField(key: 'external_key', label: 'External key'),
           AdminField(key: 'payload_json', label: 'Payload JSON', type: AdminFieldType.json),
-          AdminField(key: 'status_code', label: 'Status code'),
+          AdminField(key: 'status_code', label: 'Status', options: statusOptions),
         ],
         supportsCreate: false,
         supportsEdit: false,

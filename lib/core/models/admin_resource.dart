@@ -1,6 +1,16 @@
 import 'package:flutter/material.dart';
 
-enum AdminFieldType { text, longText, number, boolType, date, json }
+enum AdminFieldType { text, longText, number, boolType, date, json, password }
+
+class AdminSelectOption {
+  const AdminSelectOption({
+    required this.value,
+    required this.label,
+  });
+
+  final String value;
+  final String label;
+}
 
 class AdminLookup {
   const AdminLookup({
@@ -25,6 +35,7 @@ class AdminField {
     this.type = AdminFieldType.text,
     this.readOnly = false,
     this.lookup,
+    this.options = const [],
   });
 
   final String key;
@@ -32,6 +43,7 @@ class AdminField {
   final AdminFieldType type;
   final bool readOnly;
   final AdminLookup? lookup;
+  final List<AdminSelectOption> options;
 }
 
 class AdminColumn {
@@ -55,11 +67,13 @@ class AdminResourceFilter {
     required this.key,
     required this.label,
     this.lookup,
+    this.options = const [],
   });
 
   final String key;
   final String label;
   final AdminLookup? lookup;
+  final List<AdminSelectOption> options;
 }
 
 class AdminDetailAction {

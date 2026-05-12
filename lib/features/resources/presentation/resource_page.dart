@@ -220,6 +220,20 @@ class _ListFilterField extends ConsumerWidget {
     final browser = ref.read(resourceBrowserProvider(resource.key).notifier);
     final lookup = filter.lookup;
 
+    if (filter.options.isNotEmpty) {
+      return SearchableSelectFormField(
+        key: ValueKey('filter-${resource.key}-${filter.key}-$value-options'),
+        value: value,
+        options: [
+          for (final option in filter.options)
+            SearchableSelectOption(value: option.value, label: option.label),
+        ],
+        onChanged: (nextValue) => browser.setFilter(filter.key, nextValue),
+        labelText: filter.label,
+        emptyLabel: '— All —',
+      );
+    }
+
     if (lookup == null) {
       return TextFormField(
         key: ValueKey('filter-${resource.key}-${filter.key}-$value'),
@@ -467,6 +481,38 @@ class _DetailsCard extends ConsumerWidget {
                           label: Text(action.label),
                         ),
                       ),
+                    if (resource.key == 'users')
+                      Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: OutlinedButton.icon(
+                          onPressed: () async {
+                            final password = await showDialog<String>(
+                              context: context,
+                              builder: (_) => const _SetUserPasswordDialog(),
+                            );
+                            if (password == null) return;
+                            try {
+                              await ref.read(apiClientProvider).postJson(
+                                '/api/admin/users/${browserState.selectedId}/password',
+                                body: {'password': password},
+                              );
+                              ref.invalidate(resourceListProvider(resource));
+                              ref.invalidate(resourceDetailsProvider(resource));
+                              if (!context.mounted) return;
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('Password changed')),
+                              );
+                            } catch (error) {
+                              if (!context.mounted) return;
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('Password change failed: $error')),
+                              );
+                            }
+                          },
+                          icon: const Icon(Icons.password_rounded, size: 18),
+                          label: const Text('Set password'),
+                        ),
+                      ),
                     if (resource.supportsEdit)
                       IconButton(
                         tooltip: 'Edit',
@@ -546,6 +592,85 @@ class _DetailsCard extends ConsumerWidget {
         );
       },
     );
+  }
+}
+
+
+class _SetUserPasswordDialog extends StatefulWidget {
+  const _SetUserPasswordDialog();
+
+  @override
+  State<_SetUserPasswordDialog> createState() => _SetUserPasswordDialogState();
+}
+
+class _SetUserPasswordDialogState extends State<_SetUserPasswordDialog> {
+  final _formKey = GlobalKey<FormState>();
+  final _passwordController = TextEditingController();
+  final _repeatPasswordController = TextEditingController();
+
+  @override
+  void dispose() {
+    _passwordController.dispose();
+    _repeatPasswordController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Set user password'),
+      content: SizedBox(
+        width: 420,
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                controller: _passwordController,
+                obscureText: true,
+                decoration: const InputDecoration(labelText: 'New password'),
+                validator: _required,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _repeatPasswordController,
+                obscureText: true,
+                decoration: const InputDecoration(labelText: 'Repeat new password'),
+                validator: (value) {
+                  final requiredMessage = _required(value);
+                  if (requiredMessage != null) return requiredMessage;
+                  if (value != _passwordController.text) {
+                    return 'Passwords do not match';
+                  }
+                  return null;
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () {
+            if (!_formKey.currentState!.validate()) return;
+            Navigator.of(context).pop(_passwordController.text);
+          },
+          child: const Text('Save'),
+        ),
+      ],
+    );
+  }
+
+  String? _required(String? value) {
+    if (value == null || value.isEmpty) {
+      return 'Required';
+    }
+    return null;
   }
 }
 
