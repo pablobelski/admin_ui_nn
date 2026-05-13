@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../features/dashboard/presentation/dashboard_page.dart';
+import '../../features/calculator/presentation/calculator_workspace_page.dart';
 import '../../features/pricing/presentation/price_matrix_page.dart';
 import '../../features/references/presentation/reference_workspace_page.dart';
 import '../../features/resources/presentation/resource_page.dart';
@@ -117,6 +118,9 @@ class _AdminShellState extends ConsumerState<AdminShell> {
   Widget _buildPage(AdminResourceDefinition resource) {
     if (resource.key == dashboardResource.key) {
       return const DashboardPage();
+    }
+    if (resource.key == 'calculator_workspace') {
+      return const CalculatorWorkspacePage();
     }
     if (resource.key == 'price_matrices') {
       return const PriceMatrixPage(initialMode: PriceMatrixPageMode.matrices);

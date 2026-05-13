@@ -183,7 +183,28 @@ const dashboardResource = AdminResourceDefinition(
   description: 'Обзор доменных модулей configurator и быстрые переходы в справочники.',
 );
 
+const calculatorWorkspaceResource = AdminResourceDefinition(
+      key: 'calculator_workspace',
+      title: 'Calculator Workspace',
+      endpoint: '/api/internal/calculator',
+      icon: Icons.calculate_outlined,
+      supportsCreate: false,
+      supportsEdit: false,
+      supportsDelete: false,
+      columns: [],
+      formFields: [],
+      description: 'Внутренний пошаговый конфигуратор и workspace для отладки расчетов.',
+    );
+
 const adminNavGroups = <AdminNavGroup>[
+
+  AdminNavGroup(
+      key: 'calculator',
+      title: 'Calculator',
+      icon: Icons.calculate_outlined,
+      resources: [calculatorWorkspaceResource],
+      ),
+
   AdminNavGroup(
     key: 'catalog',
     title: 'Catalog',
