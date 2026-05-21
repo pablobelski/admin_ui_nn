@@ -53,7 +53,7 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
   }
 
   bool _defaultBoolValue(String key) {
-    return key == 'is_active' || key == 'is_default';
+    return key == 'is_active' || key == 'is_default' || key == 'enabled';
   }
 
   String _initialText(String key) {
@@ -130,6 +130,10 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
       );
     }
 
+    if (field.type == AdminFieldType.date) {
+      return _buildDateField(field);
+    }
+
     if (field.options.isNotEmpty) {
       final controller = _controllers[field.key]!;
       final currentValue = controller.text.trim();
@@ -141,6 +145,7 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
         ],
         enabled: !field.readOnly,
         labelText: field.label,
+        helperText: field.helperText,
         onChanged: (value) {
           controller.text = value ?? '';
         },
@@ -178,7 +183,7 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
                 ? 'Loading options...'
                 : snapshot.hasError
                 ? 'Failed to load; keep existing value or leave empty'
-                : null,
+                : field.helperText,
             onChanged: (value) {
               controller.text = value ?? '';
             },
@@ -193,7 +198,7 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
       maxLines: field.type == AdminFieldType.longText || field.type == AdminFieldType.json ? 8 : 1,
       keyboardType: field.type == AdminFieldType.number ? TextInputType.number : TextInputType.text,
       obscureText: field.type == AdminFieldType.password,
-      decoration: InputDecoration(labelText: field.label),
+      decoration: InputDecoration(labelText: field.label, helperText: field.helperText),
       validator: (value) {
         if (!field.readOnly && (value == null || value.trim().isEmpty) && field.key != 'id') {
           return null;
@@ -208,6 +213,54 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
         return null;
       },
     );
+  }
+
+  Widget _buildDateField(AdminField field) {
+    final controller = _controllers[field.key]!;
+
+    return TextFormField(
+      controller: controller,
+      readOnly: true,
+      enabled: !field.readOnly,
+      decoration: InputDecoration(
+        labelText: field.label,
+        helperText: field.helperText,
+        suffixIcon: IconButton(
+          tooltip: 'Select date',
+          icon: const Icon(Icons.calendar_today_outlined),
+          onPressed: field.readOnly ? null : () => _selectDate(field),
+        ),
+      ),
+      onTap: field.readOnly ? null : () => _selectDate(field),
+    );
+  }
+
+  Future<void> _selectDate(AdminField field) async {
+    final controller = _controllers[field.key]!;
+    final now = DateTime.now();
+    final initialDate = _parseDate(controller.text) ?? now;
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initialDate,
+      firstDate: DateTime(1900),
+      lastDate: DateTime(now.year + 50),
+    );
+
+    if (picked == null) return;
+    controller.text = _formatDate(picked);
+  }
+
+  DateTime? _parseDate(String value) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) return null;
+    final normalized = trimmed.length >= 10 ? trimmed.substring(0, 10) : trimmed;
+    return DateTime.tryParse(normalized);
+  }
+
+  String _formatDate(DateTime value) {
+    final month = value.month.toString().padLeft(2, '0');
+    final day = value.day.toString().padLeft(2, '0');
+    return '${value.year}-$month-$day';
   }
 
   String _lookupLabel(AdminLookup lookup, Map<String, dynamic> row) {
@@ -233,6 +286,8 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
     final payload = <String, dynamic>{};
 
     for (final field in widget.resource.formFields) {
+      if (!field.includeInPayload) continue;
+
       if (field.type == AdminFieldType.boolType) {
         payload[field.key] = _boolValues[field.key] ?? false;
         continue;

@@ -60,7 +60,11 @@ class ResourceBrowserNotifier extends Notifier<ResourceBrowserState> {
   @override
   ResourceBrowserState build() {
     final resource = findResourceByKey(resourceKey);
-    return ResourceBrowserState(filters: currentAdminResourceFilters(resource));
+    final filters = currentAdminResourceFilters(resource);
+    return ResourceBrowserState(
+      filters: filters,
+      selectedId: filters['id'],
+    );
   }
 
   void setQuery(String value) {
@@ -82,6 +86,7 @@ class ResourceBrowserNotifier extends Notifier<ResourceBrowserState> {
   void openWithFilters(
     Map<String, String> filters, {
     String? selectedId,
+    bool updateUrl = true,
   }) {
     final nextFilters = <String, String>{
       for (final entry in filters.entries)
@@ -93,7 +98,9 @@ class ResourceBrowserNotifier extends Notifier<ResourceBrowserState> {
       offset: 0,
       clearSelected: selectedId == null || selectedId.isEmpty,
     );
-    pushAdminResourceUrl(resourceKey, filters: nextFilters);
+    if (updateUrl) {
+      pushAdminResourceUrl(resourceKey, filters: nextFilters);
+    }
   }
 
   void clearFilters() {

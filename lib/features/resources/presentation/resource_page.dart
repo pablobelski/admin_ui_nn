@@ -458,29 +458,13 @@ class _DetailsCard extends ConsumerWidget {
                   children: [
                     Text('Details', style: Theme.of(context).textTheme.titleLarge),
                     const Spacer(),
-                    for (final action in resource.detailActions)
+                    if (resource.detailActions.isNotEmpty)
                       Padding(
                         padding: const EdgeInsets.only(right: 8),
-                        child: OutlinedButton.icon(
-                          onPressed: _detailActionValue(action, data) == null
-                              ? null
-                              : () {
-                            final targetResource = findResourceByKey(action.targetResourceKey);
-                            final filterValue = _detailActionValue(action, data)!;
-                            final filters = {action.filterKey: filterValue};
-                            final selectedId = action.selectTargetRow ? filterValue : null;
-                            ref
-                                .read(resourceBrowserProvider(action.targetResourceKey).notifier)
-                                .openWithFilters(filters, selectedId: selectedId);
-                            ref.read(selectedResourceProvider.notifier).select(
-                              action.targetResourceKey,
-                              filters: filters,
-                            );
-                            ref.invalidate(resourceListProvider(targetResource));
-                            ref.invalidate(resourceDetailsProvider(targetResource));
-                          },
-                          icon: Icon(action.icon, size: 18),
-                          label: Text(action.label),
+                        child: _DetailActionsMenu(
+                          actions: resource.detailActions,
+                          data: data,
+                          onSelected: (action) => _openDetailAction(ref, action, data),
                         ),
                       ),
                     if (resource.key == 'users')
@@ -595,6 +579,72 @@ class _DetailsCard extends ConsumerWidget {
       },
     );
   }
+}
+
+class _DetailActionsMenu extends StatelessWidget {
+  const _DetailActionsMenu({
+    required this.actions,
+    required this.data,
+    required this.onSelected,
+  });
+
+  final List<AdminDetailAction> actions;
+  final Map<String, dynamic> data;
+  final ValueChanged<AdminDetailAction> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasAvailableActions = actions.any((action) => _detailActionValue(action, data) != null);
+
+    return PopupMenuButton<AdminDetailAction>(
+      tooltip: 'Open related section',
+      enabled: hasAvailableActions,
+      onSelected: onSelected,
+      itemBuilder: (context) => [
+        for (final action in actions)
+          PopupMenuItem<AdminDetailAction>(
+            value: action,
+            enabled: _detailActionValue(action, data) != null,
+            child: Row(
+              children: [
+                Icon(action.icon, size: 18),
+                const SizedBox(width: 12),
+                Flexible(child: Text(action.label)),
+              ],
+            ),
+          ),
+      ],
+      child: IgnorePointer(
+        child: OutlinedButton.icon(
+          onPressed: hasAvailableActions ? () {} : null,
+          icon: const Icon(Icons.account_tree_outlined, size: 18),
+          label: const Text('Related'),
+        ),
+      ),
+    );
+  }
+}
+
+void _openDetailAction(WidgetRef ref, AdminDetailAction action, Map<String, dynamic> data) {
+  final targetResource = findResourceByKey(action.targetResourceKey);
+  final filterValue = _detailActionValue(action, data);
+  if (filterValue == null) return;
+
+  final filters = {action.filterKey: filterValue};
+  final selectedId = action.selectTargetRow && action.filterKey == 'id' ? filterValue : null;
+  ref.read(selectedResourceProvider.notifier).select(
+    action.targetResourceKey,
+    filters: filters,
+  );
+  ref
+      .read(resourceBrowserProvider(action.targetResourceKey).notifier)
+      .openWithFilters(
+        filters,
+        selectedId: selectedId,
+        updateUrl: false,
+      );
+  ref.invalidate(resourceListProvider(targetResource));
+  ref.invalidate(resourceDetailsProvider(targetResource));
 }
 
 

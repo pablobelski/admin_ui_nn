@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 
 import '../../../core/navigation/admin_registry.dart';
 import '../../../core/ui/admin_list_table.dart';
+import '../../../core/ui/header_focus_icon_button.dart';
 import '../../../core/ui/json_view_card.dart';
 import '../../../core/ui/resizable_split_pane.dart';
 import '../../../core/ui/resource_editor_dialog.dart';
@@ -27,6 +28,7 @@ class RuleWorkspacePage extends ConsumerWidget {
     final matricesAsync = ref.watch(ruleMatricesProvider);
     final rowsAsync = ref.watch(ruleMatrixRowsProvider);
     final isWide = MediaQuery.sizeOf(context).width >= 1440;
+    final focusDependentLayer = ref.watch(ruleDependentLayerFocusProvider);
 
     return DefaultTabController(
       initialIndex: switch (initialMode) {
@@ -46,14 +48,14 @@ class RuleWorkspacePage extends ConsumerWidget {
             child: isWide
                 ? ResizableSplitPane(
                     axis: Axis.horizontal,
-                    initialFraction: 0.3,
-                    minFirstFraction: 0.2,
+                    initialFraction: focusDependentLayer ? 0.0 : 0.3,
+                    minFirstFraction: focusDependentLayer ? 0.0 : 0.2,
                     minSecondFraction: 0.45,
                     first: const _RuleSetListCard(),
                     second: ResizableSplitPane(
                       axis: Axis.vertical,
-                      initialFraction: 0.32,
-                      minFirstFraction: 0.18,
+                      initialFraction: focusDependentLayer ? 0.12 : 0.32,
+                      minFirstFraction: focusDependentLayer ? 0.10 : 0.18,
                       minSecondFraction: 0.35,
                       first: _RuleSetDetailsCard(detailsAsync: selectedRuleSetAsync),
                       second: _RuleWorkspace(
@@ -66,14 +68,14 @@ class RuleWorkspacePage extends ConsumerWidget {
                   )
                 : ResizableSplitPane(
                     axis: Axis.vertical,
-                    initialFraction: 0.3,
-                    minFirstFraction: 0.2,
+                    initialFraction: focusDependentLayer ? 0.0 : 0.3,
+                    minFirstFraction: focusDependentLayer ? 0.0 : 0.2,
                     minSecondFraction: 0.45,
                     first: const _RuleSetListCard(),
                     second: ResizableSplitPane(
                       axis: Axis.vertical,
-                      initialFraction: 0.32,
-                      minFirstFraction: 0.18,
+                      initialFraction: focusDependentLayer ? 0.12 : 0.32,
+                      minFirstFraction: focusDependentLayer ? 0.10 : 0.18,
                       minSecondFraction: 0.35,
                       first: _RuleSetDetailsCard(detailsAsync: selectedRuleSetAsync),
                       second: _RuleWorkspace(
@@ -346,6 +348,7 @@ class _RuleSetDetailsCard extends ConsumerWidget {
     final browser = ref.read(ruleWorkspaceProvider.notifier);
     final selectedRuleSetId = ref.watch(ruleWorkspaceProvider.select((value) => value.selectedRuleSetId));
     final ruleSetResource = findResourceByKey('rule_sets');
+    final focusDependentLayer = ref.watch(ruleDependentLayerFocusProvider);
 
     return detailsAsync.when(
       loading: () => const Card(child: Center(child: CircularProgressIndicator())),
@@ -366,13 +369,27 @@ class _RuleSetDetailsCard extends ConsumerWidget {
               children: [
                 Row(
                   children: [
+                    HeaderFocusIconButton(
+                      focused: focusDependentLayer,
+                      onPressed: () => ref.read(ruleDependentLayerFocusProvider.notifier).toggle(),
+                    ),
+                    const SizedBox(width: 6),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('Rule set v${ruleSet.version}', style: Theme.of(context).textTheme.headlineSmall),
+                          Text(
+                            'Rule set v${ruleSet.version}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.headlineSmall,
+                          ),
                           const SizedBox(height: 4),
-                          Text('Template ${ruleSet.configuratorTemplateId}'),
+                          Text(
+                            'Template ${ruleSet.configuratorTemplateId}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ],
                       ),
                     ),
@@ -432,11 +449,12 @@ class _RuleSetDetailsCard extends ConsumerWidget {
                     ),
                   ],
                 ),
-                const SizedBox(height: 16),
-                Expanded(
-                  child: ListView(
-                    children: [
-                      Wrap(
+                if (!focusDependentLayer) ...[
+                  const SizedBox(height: 16),
+                  Expanded(
+                    child: ListView(
+                      children: [
+                        Wrap(
                         spacing: 12,
                         runSpacing: 12,
                         children: [
@@ -453,9 +471,10 @@ class _RuleSetDetailsCard extends ConsumerWidget {
                         title: 'Notes',
                         child: Text(ruleSet.notes?.isNotEmpty == true ? ruleSet.notes! : 'No notes'),
                       ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
+                ],
               ],
             ),
           ),

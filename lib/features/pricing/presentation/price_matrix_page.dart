@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import '../../../core/navigation/admin_providers.dart';
 import '../../../core/navigation/admin_registry.dart';
 import '../../../core/ui/admin_list_table.dart';
+import '../../../core/ui/header_focus_icon_button.dart';
 import '../../../core/ui/json_view_card.dart';
 import '../../../core/ui/resizable_split_pane.dart';
 import '../../../core/ui/scrollable_areas.dart';
@@ -26,6 +27,7 @@ class PriceMatrixPage extends ConsumerWidget {
     final selectedMatrixAsync = ref.watch(selectedPriceMatrixProvider);
     final cellsAsync = ref.watch(priceMatrixCellsProvider);
     final isWide = MediaQuery.sizeOf(context).width >= 1360;
+    final focusDependentLayer = ref.watch(priceMatrixDependentLayerFocusProvider);
 
     return DefaultTabController(
       initialIndex: initialMode == PriceMatrixPageMode.cells ? 1 : 0,
@@ -41,14 +43,14 @@ class PriceMatrixPage extends ConsumerWidget {
             child: isWide
                 ? ResizableSplitPane(
                     axis: Axis.horizontal,
-                    initialFraction: 0.4,
-                    minFirstFraction: 0.25,
+                    initialFraction: focusDependentLayer ? 0.0 : 0.4,
+                    minFirstFraction: focusDependentLayer ? 0.0 : 0.25,
                     minSecondFraction: 0.35,
                     first: const _MatrixListCard(),
                     second: ResizableSplitPane(
                       axis: Axis.vertical,
-                      initialFraction: 0.34,
-                      minFirstFraction: 0.18,
+                      initialFraction: focusDependentLayer ? 0.12 : 0.34,
+                      minFirstFraction: focusDependentLayer ? 0.10 : 0.18,
                       minSecondFraction: 0.35,
                       first: _MatrixDetailsCard(detailsAsync: selectedMatrixAsync),
                       second: _CellsWorkspace(cellsAsync: cellsAsync),
@@ -56,14 +58,14 @@ class PriceMatrixPage extends ConsumerWidget {
                   )
                 : ResizableSplitPane(
                     axis: Axis.vertical,
-                    initialFraction: 0.35,
-                    minFirstFraction: 0.2,
+                    initialFraction: focusDependentLayer ? 0.0 : 0.35,
+                    minFirstFraction: focusDependentLayer ? 0.0 : 0.2,
                     minSecondFraction: 0.35,
                     first: const _MatrixListCard(),
                     second: ResizableSplitPane(
                       axis: Axis.vertical,
-                      initialFraction: 0.34,
-                      minFirstFraction: 0.18,
+                      initialFraction: focusDependentLayer ? 0.12 : 0.34,
+                      minFirstFraction: focusDependentLayer ? 0.10 : 0.18,
                       minSecondFraction: 0.35,
                       first: _MatrixDetailsCard(detailsAsync: selectedMatrixAsync),
                       second: _CellsWorkspace(cellsAsync: cellsAsync),
@@ -447,6 +449,7 @@ class _MatrixDetailsCard extends ConsumerWidget {
       data: _lookupLabelMap,
       orElse: () => const <String, String>{},
     );
+    final focusDependentLayer = ref.watch(priceMatrixDependentLayerFocusProvider);
 
     return detailsAsync.when(
       loading: () => const Card(child: Center(child: CircularProgressIndicator())),
@@ -467,13 +470,23 @@ class _MatrixDetailsCard extends ConsumerWidget {
               children: [
                 Row(
                   children: [
+                    HeaderFocusIconButton(
+                      focused: focusDependentLayer,
+                      onPressed: () => ref.read(priceMatrixDependentLayerFocusProvider.notifier).toggle(),
+                    ),
+                    const SizedBox(width: 6),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(matrix.matrixCode, style: Theme.of(context).textTheme.headlineSmall),
+                          Text(
+                            matrix.matrixCode,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.headlineSmall,
+                          ),
                           const SizedBox(height: 4),
-                          Text(matrix.name),
+                          Text(matrix.name, maxLines: 1, overflow: TextOverflow.ellipsis),
                         ],
                       ),
                     ),
@@ -529,11 +542,12 @@ class _MatrixDetailsCard extends ConsumerWidget {
                     ),
                   ],
                 ),
-                const SizedBox(height: 16),
-                Expanded(
-                  child: ListView(
-                    children: [
-                      Wrap(
+                if (!focusDependentLayer) ...[
+                  const SizedBox(height: 16),
+                  Expanded(
+                    child: ListView(
+                      children: [
+                        Wrap(
                         spacing: 12,
                         runSpacing: 12,
                         children: [
@@ -576,9 +590,10 @@ class _MatrixDetailsCard extends ConsumerWidget {
                       JsonViewCard(title: 'Header JSON', data: matrix.headerJson ?? const {}),
                       const SizedBox(height: 16),
                       JsonViewCard(title: 'Metadata JSON', data: matrix.metadataJson ?? const {}),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
+                ],
               ],
             ),
           ),

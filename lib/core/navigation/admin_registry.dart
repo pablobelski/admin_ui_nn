@@ -39,21 +39,44 @@ const catalogItemLookup = AdminLookup(
 
 const catalogItemNameLookup = AdminLookup(
   endpoint: '/api/admin/catalog-items',
-  labelKeys: ['name'],
+  // Several catalog items legitimately share the same human name.
+  // Keep UUID hidden, but include the business code so lookup dropdowns are not ambiguous.
+  labelKeys: ['base_code', 'name'],
   limit: 2000,
   showIdInDropdown: false,
 );
 
 const catalogVariantLookup = AdminLookup(
   endpoint: '/api/admin/catalog-variants',
-  labelKeys: ['system_name', 'color_name', 'length_mm', 'article_no'],
+  labelKeys: ['variant_sku', 'system_name', 'color_name', 'length_mm', 'article_no'],
   limit: 3000,
   showIdInDropdown: false,
 );
 
 const priceListLookup = AdminLookup(
   endpoint: '/api/admin/price-lists',
-  labelKeys: ['name'],
+  labelKeys: ['code', 'name', 'scope_code', 'currency'],
+  limit: 1000,
+  showIdInDropdown: false,
+);
+
+const configuratorTemplateLookup = AdminLookup(
+  endpoint: '/api/admin/configurator-templates',
+  labelKeys: ['code', 'name', 'version', 'status_code'],
+  limit: 1000,
+  showIdInDropdown: false,
+);
+
+const roofModelLookup = AdminLookup(
+  endpoint: '/api/admin/roof-models',
+  labelKeys: ['code', 'name'],
+  limit: 1000,
+  showIdInDropdown: false,
+);
+
+const materialPriceDimensionLookup = AdminLookup(
+  endpoint: '/api/admin/material-price-dimensions',
+  labelKeys: ['code', 'name', 'unit_code'],
   limit: 1000,
   showIdInDropdown: false,
 );
@@ -145,6 +168,21 @@ const scopeOptions = <AdminSelectOption>[
   AdminSelectOption(value: 'other', label: 'Other'),
 ];
 
+const priceListScopeOptions = <AdminSelectOption>[
+  AdminSelectOption(value: 'sales', label: 'Sales'),
+  AdminSelectOption(value: 'retail_sales', label: 'Retail sales'),
+  AdminSelectOption(value: 'dealer_sales', label: 'Dealer sales'),
+  AdminSelectOption(value: 'discounted_sales', label: 'Discounted sales'),
+  AdminSelectOption(value: 'internal_margin', label: 'Internal margin'),
+  AdminSelectOption(value: 'installation_cost', label: 'Installation cost'),
+  AdminSelectOption(value: 'purchase', label: 'Purchase'),
+  AdminSelectOption(value: 'customer', label: 'Customer'),
+  AdminSelectOption(value: 'b2b', label: 'B2B'),
+  AdminSelectOption(value: 'internal', label: 'Internal'),
+  AdminSelectOption(value: 'supplier', label: 'Supplier'),
+  AdminSelectOption(value: 'other', label: 'Other'),
+];
+
 const templateTypeOptions = <AdminSelectOption>[
   AdminSelectOption(value: 'pdf', label: 'PDF'),
   AdminSelectOption(value: 'html', label: 'HTML'),
@@ -227,8 +265,17 @@ const adminNavGroups = <AdminNavGroup>[
         listFilters: [
           AdminResourceFilter(key: 'id', label: 'Catalog item', lookup: catalogItemLookup),
           AdminResourceFilter(key: 'product_family_id', label: 'Product family', lookup: productFamilyLookup),
+          AdminResourceFilter(key: 'price_list_id', label: 'Price list', lookup: priceListLookup),
+          AdminResourceFilter(key: 'item_type_code', label: 'Item type', options: catalogItemTypeOptions),
         ],
         formFields: [
+          AdminField(
+            key: 'price_list_id',
+            label: 'Related price list',
+            lookup: priceListLookup,
+            includeInPayload: false,
+            helperText: 'Relation is stored in Price List Items; this field is not saved here.',
+          ),
           AdminField(key: 'product_family_id', label: 'Product family', lookup: productFamilyLookup),
           AdminField(key: 'base_code', label: 'Base code'),
           AdminField(key: 'name', label: 'Name'),
@@ -257,6 +304,21 @@ const adminNavGroups = <AdminNavGroup>[
             sourceValueKey: 'id',
             icon: Icons.table_rows_outlined,
           ),
+          AdminDetailAction(
+            label: 'Show price lists',
+            targetResourceKey: 'price_lists',
+            filterKey: 'catalog_item_id',
+            sourceValueKey: 'id',
+            icon: Icons.request_quote_outlined,
+          ),
+          AdminDetailAction(
+            label: 'Show product family',
+            targetResourceKey: 'product_families',
+            filterKey: 'id',
+            sourceValueKey: 'product_family_id',
+            selectTargetRow: true,
+            icon: Icons.category_outlined,
+          ),
         ],
       ),
       AdminResourceDefinition(
@@ -275,8 +337,16 @@ const adminNavGroups = <AdminNavGroup>[
         ],
         listFilters: [
           AdminResourceFilter(key: 'catalog_item_id', label: 'Catalog item', lookup: catalogItemLookup),
+          AdminResourceFilter(key: 'price_list_id', label: 'Price list', lookup: priceListLookup),
         ],
         formFields: [
+          AdminField(
+            key: 'price_list_id',
+            label: 'Related price list',
+            lookup: priceListLookup,
+            includeInPayload: false,
+            helperText: 'Relation is stored in Price List Items; this field is not saved here.',
+          ),
           AdminField(key: 'catalog_item_id', label: 'Catalog item', lookup: catalogItemLookup),
           AdminField(key: 'variant_sku', label: 'Variant SKU'),
           AdminField(key: 'article_no', label: 'Article no'),
@@ -303,6 +373,13 @@ const adminNavGroups = <AdminNavGroup>[
             filterKey: 'catalog_variant_id',
             sourceValueKey: 'id',
             icon: Icons.table_rows_outlined,
+          ),
+          AdminDetailAction(
+            label: 'Show price lists',
+            targetResourceKey: 'price_lists',
+            filterKey: 'catalog_variant_id',
+            sourceValueKey: 'id',
+            icon: Icons.request_quote_outlined,
           ),
         ],
       ),
@@ -345,16 +422,24 @@ const adminNavGroups = <AdminNavGroup>[
           AdminColumn(key: 'name', label: 'Name', flex: 2),
           AdminColumn(key: 'scope_code', label: 'Scope'),
           AdminColumn(key: 'currency', label: 'Currency'),
+          AdminColumn(key: 'organization_id', label: 'Organization', flex: 2, lookup: organizationLookup),
+          AdminColumn(key: 'product_family_id', label: 'Family', flex: 2, lookup: productFamilyLookup),
           AdminColumn(key: 'valid_from', label: 'Valid from'),
           AdminColumn(key: 'is_active', label: 'Active'),
+        ],
+        listFilters: [
+          AdminResourceFilter(key: 'organization_id', label: 'Organization', lookup: organizationLookup),
+          AdminResourceFilter(key: 'product_family_id', label: 'Product family', lookup: productFamilyLookup),
+          AdminResourceFilter(key: 'scope_code', label: 'Scope', options: priceListScopeOptions),
+          AdminResourceFilter(key: 'is_active', label: 'Active', options: activeFilterOptions),
         ],
         formFields: [
           AdminField(key: 'code', label: 'Code'),
           AdminField(key: 'name', label: 'Name'),
-          AdminField(key: 'scope_code', label: 'Scope', options: scopeOptions),
+          AdminField(key: 'scope_code', label: 'Scope', options: priceListScopeOptions),
           AdminField(key: 'currency', label: 'Currency'),
           AdminField(key: 'organization_id', label: 'Organization', lookup: organizationLookup),
-          AdminField(key: 'product_family_id', label: 'Product family id'),
+          AdminField(key: 'product_family_id', label: 'Product family', lookup: productFamilyLookup),
           AdminField(key: 'valid_from', label: 'Valid from', type: AdminFieldType.date),
           AdminField(key: 'valid_to', label: 'Valid to', type: AdminFieldType.date),
           AdminField(key: 'is_active', label: 'Active', type: AdminFieldType.boolType),
@@ -374,6 +459,22 @@ const adminNavGroups = <AdminNavGroup>[
             filterKey: 'price_list_id',
             sourceValueKey: 'id',
             icon: Icons.table_rows_outlined,
+          ),
+          AdminDetailAction(
+            label: 'Show organization',
+            targetResourceKey: 'organizations',
+            filterKey: 'id',
+            sourceValueKey: 'organization_id',
+            selectTargetRow: true,
+            icon: Icons.domain_rounded,
+          ),
+          AdminDetailAction(
+            label: 'Show product family',
+            targetResourceKey: 'product_families',
+            filterKey: 'id',
+            sourceValueKey: 'product_family_id',
+            selectTargetRow: true,
+            icon: Icons.category_outlined,
           ),
         ],
       ),
@@ -401,7 +502,7 @@ const adminNavGroups = <AdminNavGroup>[
           AdminField(key: 'price_list_id', label: 'Price list', lookup: priceListLookup),
           AdminField(key: 'catalog_item_id', label: 'Catalog item', lookup: catalogItemNameLookup),
           AdminField(key: 'catalog_variant_id', label: 'Catalog variant', lookup: catalogVariantLookup),
-          AdminField(key: 'material_price_dimension_id', label: 'Material price dimension id'),
+          AdminField(key: 'material_price_dimension_id', label: 'Material price dimension', lookup: materialPriceDimensionLookup),
           AdminField(key: 'target_code', label: 'Target code'),
           AdminField(key: 'unit_code', label: 'Unit', options: unitOptions),
           AdminField(key: 'unit_price', label: 'Unit price', type: AdminFieldType.number),
@@ -410,6 +511,40 @@ const adminNavGroups = <AdminNavGroup>[
           AdminField(key: 'min_qty', label: 'Min qty', type: AdminFieldType.number),
           AdminField(key: 'variant_match_json', label: 'Variant match JSON', type: AdminFieldType.json),
           AdminField(key: 'metadata_json', label: 'Metadata JSON', type: AdminFieldType.json),
+        ],
+        detailActions: [
+          AdminDetailAction(
+            label: 'Show price list',
+            targetResourceKey: 'price_lists',
+            filterKey: 'id',
+            sourceValueKey: 'price_list_id',
+            selectTargetRow: true,
+            icon: Icons.request_quote_outlined,
+          ),
+          AdminDetailAction(
+            label: 'Show catalog item',
+            targetResourceKey: 'catalog_items',
+            filterKey: 'id',
+            sourceValueKey: 'catalog_item_id',
+            selectTargetRow: true,
+            icon: Icons.view_list_rounded,
+          ),
+          AdminDetailAction(
+            label: 'Show catalog variant',
+            targetResourceKey: 'catalog_variants',
+            filterKey: 'id',
+            sourceValueKey: 'catalog_variant_id',
+            selectTargetRow: true,
+            icon: Icons.inventory_2_outlined,
+          ),
+          AdminDetailAction(
+            label: 'Show material dimension',
+            targetResourceKey: 'material_price_dimensions',
+            filterKey: 'id',
+            sourceValueKey: 'material_price_dimension_id',
+            selectTargetRow: true,
+            icon: Icons.straighten_outlined,
+          ),
         ],
       ),
       AdminResourceDefinition(
@@ -577,15 +712,22 @@ const adminNavGroups = <AdminNavGroup>[
         columns: [
           AdminColumn(key: 'code', label: 'Code', isPrimary: true),
           AdminColumn(key: 'name', label: 'Name', flex: 2),
+          AdminColumn(key: 'product_family_id', label: 'Family', flex: 2, lookup: productFamilyLookup),
+          AdminColumn(key: 'roof_model_id', label: 'Roof model', flex: 2, lookup: roofModelLookup),
           AdminColumn(key: 'version', label: 'Version'),
           AdminColumn(key: 'status_code', label: 'Status'),
           AdminColumn(key: 'source_sheet_name', label: 'Source sheet'),
         ],
+        listFilters: [
+          AdminResourceFilter(key: 'product_family_id', label: 'Product family', lookup: productFamilyLookup),
+          AdminResourceFilter(key: 'roof_model_id', label: 'Roof model', lookup: roofModelLookup),
+          AdminResourceFilter(key: 'status_code', label: 'Status', options: statusOptions),
+        ],
         formFields: [
           AdminField(key: 'code', label: 'Code'),
           AdminField(key: 'name', label: 'Name'),
-          AdminField(key: 'product_family_id', label: 'Product family id'),
-          AdminField(key: 'roof_model_id', label: 'Roof model id'),
+          AdminField(key: 'product_family_id', label: 'Product family', lookup: productFamilyLookup),
+          AdminField(key: 'roof_model_id', label: 'Roof model', lookup: roofModelLookup),
           AdminField(key: 'source_sheet_name', label: 'Source sheet name'),
           AdminField(key: 'source_range', label: 'Source range'),
           AdminField(key: 'version', label: 'Version', type: AdminFieldType.number),
@@ -593,6 +735,24 @@ const adminNavGroups = <AdminNavGroup>[
           AdminField(key: 'ui_schema_json', label: 'UI schema JSON', type: AdminFieldType.json),
           AdminField(key: 'default_values_json', label: 'Default values JSON', type: AdminFieldType.json),
           AdminField(key: 'metadata_json', label: 'Metadata JSON', type: AdminFieldType.json),
+        ],
+        detailActions: [
+          AdminDetailAction(
+            label: 'Show product family',
+            targetResourceKey: 'product_families',
+            filterKey: 'id',
+            sourceValueKey: 'product_family_id',
+            selectTargetRow: true,
+            icon: Icons.category_outlined,
+          ),
+          AdminDetailAction(
+            label: 'Show roof model',
+            targetResourceKey: 'roof_models',
+            filterKey: 'id',
+            sourceValueKey: 'roof_model_id',
+            selectTargetRow: true,
+            icon: Icons.roofing_outlined,
+          ),
         ],
       ),
       AdminResourceDefinition(
@@ -752,7 +912,50 @@ const adminNavGroups = <AdminNavGroup>[
           AdminColumn(key: 'sort_order', label: 'Sort'),
           AdminColumn(key: 'is_active', label: 'Active'),
         ],
+        listFilters: [
+          AdminResourceFilter(key: 'price_list_id', label: 'Price list', lookup: priceListLookup),
+          AdminResourceFilter(key: 'configurator_template_id', label: 'Configurator template', lookup: configuratorTemplateLookup),
+          AdminResourceFilter(key: 'organization_id', label: 'Organization access', lookup: organizationLookup),
+          AdminResourceFilter(key: 'roof_model_id', label: 'Roof model', lookup: roofModelLookup),
+          AdminResourceFilter(key: 'material_price_dimension_id', label: 'Material price dimension', lookup: materialPriceDimensionLookup),
+          AdminResourceFilter(key: 'is_active', label: 'Active', options: activeFilterOptions),
+        ],
         formFields: [
+          AdminField(
+            key: 'price_list_id',
+            label: 'Related price list',
+            lookup: priceListLookup,
+            includeInPayload: false,
+            helperText: 'Reverse relation; edit the selected row in Price Lists.',
+          ),
+          AdminField(
+            key: 'configurator_template_id',
+            label: 'Related configurator template',
+            lookup: configuratorTemplateLookup,
+            includeInPayload: false,
+            helperText: 'Reverse relation; edit the selected row in Configurator Templates.',
+          ),
+          AdminField(
+            key: 'organization_id',
+            label: 'Related organization access',
+            lookup: organizationLookup,
+            includeInPayload: false,
+            helperText: 'Relation is stored in Organization Product Access.',
+          ),
+          AdminField(
+            key: 'roof_model_id',
+            label: 'Related roof model',
+            lookup: roofModelLookup,
+            includeInPayload: false,
+            helperText: 'Reverse relation; edit the selected row in Roof Models.',
+          ),
+          AdminField(
+            key: 'material_price_dimension_id',
+            label: 'Related material price dimension',
+            lookup: materialPriceDimensionLookup,
+            includeInPayload: false,
+            helperText: 'Reverse relation; edit the selected row in Material Price Dimensions.',
+          ),
           AdminField(key: 'code', label: 'Code'),
           AdminField(key: 'name', label: 'Name'),
           AdminField(key: 'sort_order', label: 'Sort order', type: AdminFieldType.number),
@@ -767,6 +970,41 @@ const adminNavGroups = <AdminNavGroup>[
             sourceValueKey: 'id',
             icon: Icons.view_list_rounded,
           ),
+          AdminDetailAction(
+            label: 'Show price lists',
+            targetResourceKey: 'price_lists',
+            filterKey: 'product_family_id',
+            sourceValueKey: 'id',
+            icon: Icons.request_quote_outlined,
+          ),
+          AdminDetailAction(
+            label: 'Show templates',
+            targetResourceKey: 'configurator_templates',
+            filterKey: 'product_family_id',
+            sourceValueKey: 'id',
+            icon: Icons.webhook_rounded,
+          ),
+          AdminDetailAction(
+            label: 'Show organization access',
+            targetResourceKey: 'organization_product_access',
+            filterKey: 'product_family_id',
+            sourceValueKey: 'id',
+            icon: Icons.link_rounded,
+          ),
+          AdminDetailAction(
+            label: 'Show roof models',
+            targetResourceKey: 'roof_models',
+            filterKey: 'product_family_id',
+            sourceValueKey: 'id',
+            icon: Icons.roofing_outlined,
+          ),
+          AdminDetailAction(
+            label: 'Show material dimensions',
+            targetResourceKey: 'material_price_dimensions',
+            filterKey: 'product_family_id',
+            sourceValueKey: 'id',
+            icon: Icons.straighten_outlined,
+          ),
         ],
       ),
       AdminResourceDefinition(
@@ -777,17 +1015,31 @@ const adminNavGroups = <AdminNavGroup>[
         columns: [
           AdminColumn(key: 'code', label: 'Code', isPrimary: true),
           AdminColumn(key: 'name', label: 'Name', flex: 2),
-          AdminColumn(key: 'product_family_id', label: 'Family'),
+          AdminColumn(key: 'product_family_id', label: 'Family', flex: 2, lookup: productFamilyLookup),
           AdminColumn(key: 'sort_order', label: 'Sort'),
           AdminColumn(key: 'is_active', label: 'Active'),
         ],
+        listFilters: [
+          AdminResourceFilter(key: 'product_family_id', label: 'Product family', lookup: productFamilyLookup),
+          AdminResourceFilter(key: 'is_active', label: 'Active', options: activeFilterOptions),
+        ],
         formFields: [
-          AdminField(key: 'product_family_id', label: 'Product family id'),
+          AdminField(key: 'product_family_id', label: 'Product family', lookup: productFamilyLookup),
           AdminField(key: 'code', label: 'Code'),
           AdminField(key: 'name', label: 'Name'),
           AdminField(key: 'sort_order', label: 'Sort order', type: AdminFieldType.number),
           AdminField(key: 'metadata_json', label: 'Metadata JSON', type: AdminFieldType.json),
           AdminField(key: 'is_active', label: 'Active', type: AdminFieldType.boolType),
+        ],
+        detailActions: [
+          AdminDetailAction(
+            label: 'Show product family',
+            targetResourceKey: 'product_families',
+            filterKey: 'id',
+            sourceValueKey: 'product_family_id',
+            selectTargetRow: true,
+            icon: Icons.category_outlined,
+          ),
         ],
       ),
       AdminResourceDefinition(
@@ -799,16 +1051,30 @@ const adminNavGroups = <AdminNavGroup>[
           AdminColumn(key: 'code', label: 'Code', isPrimary: true),
           AdminColumn(key: 'name', label: 'Name', flex: 2),
           AdminColumn(key: 'unit_code', label: 'Unit'),
-          AdminColumn(key: 'product_family_id', label: 'Family'),
+          AdminColumn(key: 'product_family_id', label: 'Family', flex: 2, lookup: productFamilyLookup),
           AdminColumn(key: 'is_active', label: 'Active'),
+        ],
+        listFilters: [
+          AdminResourceFilter(key: 'product_family_id', label: 'Product family', lookup: productFamilyLookup),
+          AdminResourceFilter(key: 'is_active', label: 'Active', options: activeFilterOptions),
         ],
         formFields: [
           AdminField(key: 'code', label: 'Code'),
           AdminField(key: 'name', label: 'Name'),
           AdminField(key: 'unit_code', label: 'Unit', options: unitOptions),
-          AdminField(key: 'product_family_id', label: 'Product family id'),
+          AdminField(key: 'product_family_id', label: 'Product family', lookup: productFamilyLookup),
           AdminField(key: 'metadata_json', label: 'Metadata JSON', type: AdminFieldType.json),
           AdminField(key: 'is_active', label: 'Active', type: AdminFieldType.boolType),
+        ],
+        detailActions: [
+          AdminDetailAction(
+            label: 'Show product family',
+            targetResourceKey: 'product_families',
+            filterKey: 'id',
+            sourceValueKey: 'product_family_id',
+            selectTargetRow: true,
+            icon: Icons.category_outlined,
+          ),
         ],
       ),
     ],
@@ -831,6 +1097,20 @@ const adminNavGroups = <AdminNavGroup>[
           AdminColumn(key: 'is_active', label: 'Active'),
         ],
         formFields: [
+          AdminField(
+            key: 'price_list_id',
+            label: 'Related price list',
+            lookup: priceListLookup,
+            includeInPayload: false,
+            helperText: 'Reverse relation; edit the selected row in Price Lists.',
+          ),
+          AdminField(
+            key: 'product_family_id',
+            label: 'Product family access',
+            lookup: productFamilyLookup,
+            includeInPayload: false,
+            helperText: 'Relation is stored in Organization Product Access.',
+          ),
           AdminField(key: 'display_name', label: 'Display name'),
           AdminField(key: 'legal_name', label: 'Legal name'),
           AdminField(key: 'organization_type', label: 'Organization type', options: organizationTypeOptions),
@@ -846,6 +1126,7 @@ const adminNavGroups = <AdminNavGroup>[
         ],
         listFilters: [
           AdminResourceFilter(key: 'id', label: 'Organization', lookup: organizationLookup),
+          AdminResourceFilter(key: 'price_list_id', label: 'Price list', lookup: priceListLookup),
           AdminResourceFilter(key: 'parent_organization_id', label: 'Parent organization', lookup: organizationLookup),
           AdminResourceFilter(key: 'organization_type', label: 'Organization type', options: organizationTypeOptions),
           AdminResourceFilter(key: 'is_active', label: 'Active', options: activeFilterOptions),
@@ -871,6 +1152,60 @@ const adminNavGroups = <AdminNavGroup>[
             filterKey: 'organization_id',
             sourceValueKey: 'id',
             icon: Icons.palette_outlined,
+          ),
+          AdminDetailAction(
+            label: 'Show price lists',
+            targetResourceKey: 'price_lists',
+            filterKey: 'organization_id',
+            sourceValueKey: 'id',
+            icon: Icons.request_quote_outlined,
+          ),
+          AdminDetailAction(
+            label: 'Show product access',
+            targetResourceKey: 'organization_product_access',
+            filterKey: 'organization_id',
+            sourceValueKey: 'id',
+            icon: Icons.category_outlined,
+          ),
+        ],
+      ),
+      AdminResourceDefinition(
+        key: 'organization_product_access',
+        title: 'Organization Product Access',
+        endpoint: '/api/admin/organization-product-access',
+        icon: Icons.link_rounded,
+        columns: [
+          AdminColumn(key: 'organization_id', label: 'Organization', isPrimary: true, flex: 2, lookup: organizationLookup),
+          AdminColumn(key: 'product_family_id', label: 'Product family', flex: 2, lookup: productFamilyLookup),
+          AdminColumn(key: 'enabled', label: 'Enabled'),
+        ],
+        listFilters: [
+          AdminResourceFilter(key: 'organization_id', label: 'Organization', lookup: organizationLookup),
+          AdminResourceFilter(key: 'product_family_id', label: 'Product family', lookup: productFamilyLookup),
+          AdminResourceFilter(key: 'enabled', label: 'Enabled', options: activeFilterOptions),
+        ],
+        formFields: [
+          AdminField(key: 'organization_id', label: 'Organization', lookup: organizationLookup),
+          AdminField(key: 'product_family_id', label: 'Product family', lookup: productFamilyLookup),
+          AdminField(key: 'enabled', label: 'Enabled', type: AdminFieldType.boolType),
+          AdminField(key: 'settings_json', label: 'Settings JSON', type: AdminFieldType.json),
+        ],
+        detailActions: [
+          AdminDetailAction(
+            label: 'Show organization',
+            targetResourceKey: 'organizations',
+            filterKey: 'id',
+            sourceValueKey: 'organization_id',
+            selectTargetRow: true,
+            icon: Icons.domain_rounded,
+          ),
+          AdminDetailAction(
+            label: 'Show product family',
+            targetResourceKey: 'product_families',
+            filterKey: 'id',
+            sourceValueKey: 'product_family_id',
+            selectTargetRow: true,
+            icon: Icons.category_outlined,
           ),
         ],
       ),

@@ -121,3 +121,17 @@ final referenceValuesProvider = FutureProvider.autoDispose<ReferenceValueListRes
     query: state.valueQuery,
   );
 });
+
+class ReferenceDependentLayerFocusNotifier extends Notifier<bool> {
+  @override
+  bool build() => false;
+
+  void toggle() {
+    state = !state;
+  }
+}
+
+final referenceDependentLayerFocusProvider =
+    NotifierProvider.autoDispose<ReferenceDependentLayerFocusNotifier, bool>(
+  ReferenceDependentLayerFocusNotifier.new,
+);

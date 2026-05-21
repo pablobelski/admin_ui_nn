@@ -4,11 +4,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import '../../../core/models/admin_resource.dart';
+import '../../../core/navigation/admin_providers.dart';
 import '../../../core/navigation/admin_registry.dart';
+import '../../../core/navigation/browser_navigation.dart';
 import '../../../core/ui/admin_list_table.dart';
+import '../../../core/ui/header_focus_icon_button.dart';
 import '../../../core/ui/json_view_card.dart';
 import '../../../core/ui/resizable_split_pane.dart';
 import '../../../core/ui/resource_editor_dialog.dart';
+import '../../../core/ui/searchable_select_form_field.dart';
 import '../data/configurator_template_repository.dart';
 import 'template_workspace_providers.dart';
 
@@ -24,7 +29,18 @@ class TemplateWorkspacePage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final selectedTemplateAsync = ref.watch(selectedConfiguratorTemplateProvider);
     final selectedModuleAsync = ref.watch(selectedTemplateModuleProvider);
+    final templateResource = findResourceByKey('configurator_templates');
+    final navigationFilters = _templateNavigationFilters(currentAdminResourceFilters(templateResource));
+    final workspaceFilters = ref.watch(
+      templateWorkspaceProvider.select((state) => state.activeFilters),
+    );
+    if (!_sameStringMap(navigationFilters, workspaceFilters)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        ref.read(templateWorkspaceProvider.notifier).applyNavigationFilters(navigationFilters);
+      });
+    }
     final isWide = MediaQuery.sizeOf(context).width >= 1360;
+    final focusDependentLayer = ref.watch(templateDependentLayerFocusProvider);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -37,14 +53,14 @@ class TemplateWorkspacePage extends ConsumerWidget {
           child: isWide
               ? ResizableSplitPane(
                   axis: Axis.horizontal,
-                  initialFraction: 0.4,
-                  minFirstFraction: 0.25,
+                  initialFraction: focusDependentLayer ? 0.0 : 0.4,
+                  minFirstFraction: focusDependentLayer ? 0.0 : 0.25,
                   minSecondFraction: 0.35,
                   first: const _TemplateListCard(),
                   second: ResizableSplitPane(
                     axis: Axis.vertical,
-                    initialFraction: 0.32,
-                    minFirstFraction: 0.18,
+                    initialFraction: focusDependentLayer ? 0.12 : 0.32,
+                    minFirstFraction: focusDependentLayer ? 0.10 : 0.18,
                     minSecondFraction: 0.35,
                     first: _TemplateDetailsCard(detailsAsync: selectedTemplateAsync),
                     second: _TemplateModuleWorkspace(
@@ -56,14 +72,14 @@ class TemplateWorkspacePage extends ConsumerWidget {
                 )
               : ResizableSplitPane(
                   axis: Axis.vertical,
-                  initialFraction: 0.35,
-                  minFirstFraction: 0.2,
+                  initialFraction: focusDependentLayer ? 0.0 : 0.35,
+                  minFirstFraction: focusDependentLayer ? 0.0 : 0.2,
                   minSecondFraction: 0.35,
                   first: const _TemplateListCard(),
                   second: ResizableSplitPane(
                     axis: Axis.vertical,
-                    initialFraction: 0.32,
-                    minFirstFraction: 0.18,
+                    initialFraction: focusDependentLayer ? 0.12 : 0.32,
+                    minFirstFraction: focusDependentLayer ? 0.10 : 0.18,
                     minSecondFraction: 0.35,
                     first: _TemplateDetailsCard(detailsAsync: selectedTemplateAsync),
                     second: _TemplateModuleWorkspace(
@@ -140,9 +156,11 @@ class _TemplateToolbarState extends ConsumerState<_TemplateToolbar> {
   Widget build(BuildContext context) {
     final browser = ref.read(templateWorkspaceProvider.notifier);
     final repository = ref.read(configuratorTemplateRepositoryProvider);
+    final adminRepository = ref.read(resourceRepositoryProvider);
     final templateResource = findResourceByKey('configurator_templates');
-    final selectedTemplateId =
-        ref.watch(templateWorkspaceProvider.select((value) => value.selectedTemplateId));
+    final workspaceState = ref.watch(templateWorkspaceProvider);
+    final selectedTemplateId = workspaceState.selectedTemplateId;
+    final hasActiveFilters = workspaceState.activeFilters.isNotEmpty;
 
     return Wrap(
       spacing: 8,
@@ -165,6 +183,30 @@ class _TemplateToolbarState extends ConsumerState<_TemplateToolbar> {
           icon: const Icon(Icons.filter_alt_outlined),
           label: const Text('Apply template filter'),
         ),
+        SizedBox(
+          width: 280,
+          child: _TemplateLookupFilterField(
+            lookup: productFamilyLookup,
+            value: workspaceState.productFamilyId,
+            labelText: 'Product family',
+            onChanged: (value) => browser.setTemplateFilter('product_family_id', value),
+          ),
+        ),
+        SizedBox(
+          width: 280,
+          child: _TemplateLookupFilterField(
+            lookup: roofModelLookup,
+            value: workspaceState.roofModelId,
+            labelText: 'Roof model',
+            onChanged: (value) => browser.setTemplateFilter('roof_model_id', value),
+          ),
+        ),
+        if (hasActiveFilters)
+          TextButton.icon(
+            onPressed: browser.clearTemplateFilters,
+            icon: const Icon(Icons.clear),
+            label: const Text('Clear template filters'),
+          ),
         SizedBox(
           width: 280,
           child: TextField(
@@ -197,7 +239,10 @@ class _TemplateToolbarState extends ConsumerState<_TemplateToolbar> {
           onPressed: () async {
             final payload = await showDialog<Map<String, dynamic>>(
               context: context,
-              builder: (_) => ResourceEditorDialog(resource: templateResource),
+              builder: (_) => ResourceEditorDialog(
+                resource: templateResource,
+                repository: adminRepository,
+              ),
             );
             if (payload == null) return;
             await repository.createTemplate(payload);
@@ -207,6 +252,73 @@ class _TemplateToolbarState extends ConsumerState<_TemplateToolbar> {
           label: const Text('Create template'),
         ),
       ],
+    );
+  }
+}
+
+
+class _TemplateLookupFilterField extends ConsumerWidget {
+  const _TemplateLookupFilterField({
+    required this.lookup,
+    required this.value,
+    required this.labelText,
+    required this.onChanged,
+  });
+
+  final AdminLookup lookup;
+  final String value;
+  final String labelText;
+  final ValueChanged<String?> onChanged;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final lookupAsync = ref.watch(adminLookupProvider(lookup));
+    return lookupAsync.when(
+      loading: () => SearchableSelectFormField(
+        key: ValueKey('template-filter-$labelText-$value-loading'),
+        value: value,
+        options: [
+          if (value.isNotEmpty) SearchableSelectOption(value: value, label: value),
+        ],
+        onChanged: null,
+        labelText: labelText,
+        emptyLabel: '— All —',
+        helperText: 'Loading options...',
+        enabled: false,
+      ),
+      error: (_, __) => TextFormField(
+        key: ValueKey('template-filter-$labelText-$value-error'),
+        initialValue: value,
+        decoration: InputDecoration(
+          labelText: labelText,
+          helperText: 'Lookup failed; paste id manually',
+        ),
+        onFieldSubmitted: (nextValue) => onChanged(nextValue),
+      ),
+      data: (rows) {
+        final options = <SearchableSelectOption>[];
+        var hasCurrentValue = value.isEmpty;
+
+        for (final row in rows) {
+          final id = row[lookup.idKey]?.toString();
+          if (id == null || id.isEmpty) continue;
+          hasCurrentValue = hasCurrentValue || id == value;
+          options.add(SearchableSelectOption(value: id, label: _lookupLabel(lookup, row)));
+        }
+
+        if (!hasCurrentValue) {
+          options.add(SearchableSelectOption(value: value, label: value));
+        }
+
+        return SearchableSelectFormField(
+          key: ValueKey('template-filter-$labelText-$value'),
+          value: value,
+          options: options,
+          onChanged: onChanged,
+          labelText: labelText,
+          emptyLabel: '— All —',
+        );
+      },
     );
   }
 }
@@ -362,7 +474,9 @@ class _TemplateDetailsCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final repository = ref.read(configuratorTemplateRepositoryProvider);
+    final adminRepository = ref.read(resourceRepositoryProvider);
     final templateResource = findResourceByKey('configurator_templates');
+    final focusDependentLayer = ref.watch(templateDependentLayerFocusProvider);
 
     return Card(
       child: Padding(
@@ -380,23 +494,41 @@ class _TemplateDetailsCard extends ConsumerWidget {
               children: [
                 Row(
                   children: [
+                    HeaderFocusIconButton(
+                      focused: focusDependentLayer,
+                      onPressed: () => ref.read(templateDependentLayerFocusProvider.notifier).toggle(),
+                    ),
+                    const SizedBox(width: 6),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(template.name, style: Theme.of(context).textTheme.headlineSmall),
+                          Text(
+                            template.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.headlineSmall,
+                          ),
                           const SizedBox(height: 6),
-                          Text(template.code, style: Theme.of(context).textTheme.bodyMedium),
+                          Text(
+                            template.code,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.bodyMedium,
+                          ),
                         ],
                       ),
                     ),
                     const SizedBox(width: 12),
+                    _TemplateRelatedMenu(template: template),
+                    const SizedBox(width: 8),
                     FilledButton.tonalIcon(
                       onPressed: () async {
                         final payload = await showDialog<Map<String, dynamic>>(
                           context: context,
                           builder: (_) => ResourceEditorDialog(
                             resource: templateResource,
+                            repository: adminRepository,
                             initialData: template.raw,
                           ),
                         );
@@ -429,11 +561,12 @@ class _TemplateDetailsCard extends ConsumerWidget {
                     ),
                   ],
                 ),
-                const SizedBox(height: 16),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
+                if (!focusDependentLayer) ...[
+                  const SizedBox(height: 16),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
                     _MetaChip(icon: Icons.layers_outlined, label: 'Version ${template.version}'),
                     _StatusChip(label: template.statusCode),
                     _MetaChip(
@@ -469,6 +602,7 @@ class _TemplateDetailsCard extends ConsumerWidget {
                     ],
                   ),
                 ),
+                ],
               ],
             );
           },
@@ -476,6 +610,94 @@ class _TemplateDetailsCard extends ConsumerWidget {
       ),
     );
   }
+}
+
+
+class _TemplateRelatedMenu extends ConsumerWidget {
+  const _TemplateRelatedMenu({required this.template});
+
+  final ConfiguratorTemplate template;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final actions = <_TemplateRelatedAction>[
+      _TemplateRelatedAction(
+        label: 'Show product family',
+        targetResourceKey: 'product_families',
+        targetId: template.productFamilyId,
+        icon: Icons.category_outlined,
+      ),
+      _TemplateRelatedAction(
+        label: 'Show roof model',
+        targetResourceKey: 'roof_models',
+        targetId: template.roofModelId,
+        icon: Icons.roofing_outlined,
+      ),
+    ];
+    final hasAvailableActions = actions.any((action) => action.targetId != null && action.targetId!.isNotEmpty);
+
+    return PopupMenuButton<_TemplateRelatedAction>(
+      tooltip: 'Open related section',
+      enabled: hasAvailableActions,
+      onSelected: (action) => _openTemplateRelated(ref, action),
+      itemBuilder: (context) => [
+        for (final action in actions)
+          PopupMenuItem<_TemplateRelatedAction>(
+            value: action,
+            enabled: action.targetId != null && action.targetId!.isNotEmpty,
+            child: Row(
+              children: [
+                Icon(action.icon, size: 18),
+                const SizedBox(width: 12),
+                Flexible(child: Text(action.label)),
+              ],
+            ),
+          ),
+      ],
+      child: IgnorePointer(
+        child: OutlinedButton.icon(
+          onPressed: hasAvailableActions ? () {} : null,
+          icon: const Icon(Icons.account_tree_outlined, size: 18),
+          label: const Text('Related'),
+        ),
+      ),
+    );
+  }
+}
+
+class _TemplateRelatedAction {
+  const _TemplateRelatedAction({
+    required this.label,
+    required this.targetResourceKey,
+    required this.targetId,
+    required this.icon,
+  });
+
+  final String label;
+  final String targetResourceKey;
+  final String? targetId;
+  final IconData icon;
+}
+
+void _openTemplateRelated(WidgetRef ref, _TemplateRelatedAction action) {
+  final targetId = action.targetId?.trim();
+  if (targetId == null || targetId.isEmpty) return;
+
+  final filters = {'id': targetId};
+  final targetResource = findResourceByKey(action.targetResourceKey);
+  ref.read(selectedResourceProvider.notifier).select(
+    action.targetResourceKey,
+    filters: filters,
+  );
+  ref
+      .read(resourceBrowserProvider(action.targetResourceKey).notifier)
+      .openWithFilters(
+        filters,
+        selectedId: targetId,
+        updateUrl: false,
+      );
+  ref.invalidate(resourceListProvider(targetResource));
+  ref.invalidate(resourceDetailsProvider(targetResource));
 }
 
 class _TemplateModuleWorkspace extends ConsumerWidget {
@@ -635,6 +857,7 @@ class _ModuleToolbarState extends ConsumerState<_ModuleToolbar> {
   Widget build(BuildContext context) {
     final browser = ref.read(templateWorkspaceProvider.notifier);
     final repository = ref.read(configuratorTemplateRepositoryProvider);
+    final adminRepository = ref.read(resourceRepositoryProvider);
     final moduleResource = findResourceByKey('template_modules');
     final templateId = ref.watch(templateWorkspaceProvider.select((value) => value.selectedTemplateId));
 
@@ -667,6 +890,7 @@ class _ModuleToolbarState extends ConsumerState<_ModuleToolbar> {
                     context: context,
                     builder: (_) => ResourceEditorDialog(
                       resource: moduleResource,
+                      repository: adminRepository,
                       initialData: {'configurator_template_id': templateId},
                     ),
                   );
@@ -850,6 +1074,7 @@ class _ModuleDetailTab extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final repository = ref.read(configuratorTemplateRepositoryProvider);
+    final adminRepository = ref.read(resourceRepositoryProvider);
     final moduleResource = findResourceByKey('template_modules');
 
     return moduleAsync.when(
@@ -880,6 +1105,7 @@ class _ModuleDetailTab extends ConsumerWidget {
                       context: context,
                       builder: (_) => ResourceEditorDialog(
                         resource: moduleResource,
+                        repository: adminRepository,
                         initialData: module.raw,
                       ),
                     );
@@ -1153,4 +1379,36 @@ String _shortValue(Object? value) {
   if (value is List) return 'List(${value.length})';
   if (value is Map) return 'Map(${value.length})';
   return jsonEncode(value);
+}
+
+
+
+Map<String, String> _templateNavigationFilters(Map<String, String> filters) {
+  return <String, String>{
+    if ((filters['product_family_id'] ?? '').isNotEmpty)
+      'product_family_id': filters['product_family_id']!,
+    if ((filters['roof_model_id'] ?? '').isNotEmpty) 'roof_model_id': filters['roof_model_id']!,
+  };
+}
+
+bool _sameStringMap(Map<String, String> left, Map<String, String> right) {
+  if (left.length != right.length) return false;
+  for (final entry in left.entries) {
+    if (right[entry.key] != entry.value) return false;
+  }
+  return true;
+}
+
+String _lookupLabel(AdminLookup lookup, Map<String, dynamic> row) {
+  final labels = <String>[];
+  for (final key in lookup.labelKeys) {
+    final value = row[key];
+    if (value != null && value.toString().trim().isNotEmpty) {
+      labels.add(value.toString());
+    }
+  }
+  if (labels.isEmpty) {
+    return row[lookup.idKey]?.toString() ?? '—';
+  }
+  return labels.join(' · ');
 }

@@ -10,6 +10,8 @@ class ConfiguratorTemplateRepository {
 
   Future<ConfiguratorTemplateListResponse> fetchTemplates({
     String query = '',
+    String productFamilyId = '',
+    String roofModelId = '',
     int limit = 30,
     int offset = 0,
   }) async {
@@ -17,6 +19,8 @@ class ConfiguratorTemplateRepository {
       _templatesEndpoint,
       query: {
         if (query.isNotEmpty) 'q': query,
+        if (productFamilyId.isNotEmpty) 'product_family_id': productFamilyId,
+        if (roofModelId.isNotEmpty) 'roof_model_id': roofModelId,
         'limit': '$limit',
         'offset': '$offset',
       },

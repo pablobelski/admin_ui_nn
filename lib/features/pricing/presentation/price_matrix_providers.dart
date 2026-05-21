@@ -142,3 +142,17 @@ final priceMatrixCellsProvider = FutureProvider.autoDispose<PriceMatrixCellListR
     query: browser.cellQuery,
   );
 });
+
+class PriceMatrixDependentLayerFocusNotifier extends Notifier<bool> {
+  @override
+  bool build() => false;
+
+  void toggle() {
+    state = !state;
+  }
+}
+
+final priceMatrixDependentLayerFocusProvider =
+    NotifierProvider.autoDispose<PriceMatrixDependentLayerFocusNotifier, bool>(
+  PriceMatrixDependentLayerFocusNotifier.new,
+);

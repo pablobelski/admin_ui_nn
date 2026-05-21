@@ -156,3 +156,17 @@ final ruleMatrixRowsProvider =
   final repository = ref.watch(ruleSetRepositoryProvider);
   return repository.fetchRuleMatrixRows(ruleMatrixId: matrixId, query: browser.rowQuery);
 });
+
+class RuleDependentLayerFocusNotifier extends Notifier<bool> {
+  @override
+  bool build() => false;
+
+  void toggle() {
+    state = !state;
+  }
+}
+
+final ruleDependentLayerFocusProvider =
+    NotifierProvider.autoDispose<RuleDependentLayerFocusNotifier, bool>(
+  RuleDependentLayerFocusNotifier.new,
+);

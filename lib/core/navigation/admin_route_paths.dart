@@ -49,13 +49,19 @@ Uri adminUriForResourceKey(
 }
 
 Map<String, String> adminFiltersFromLocationUri(Uri uri, AdminResourceDefinition resource) {
-  if (resource.listFilters.isEmpty) return const {};
+  final acceptedFilterKeys = <String>{
+    for (final filter in resource.listFilters) filter.key,
+    for (final sourceResource in allResources)
+      for (final action in sourceResource.detailActions)
+        if (action.targetResourceKey == resource.key) action.filterKey,
+  };
+  if (acceptedFilterKeys.isEmpty) return const {};
 
   final filters = <String, String>{};
-  for (final filter in resource.listFilters) {
-    final value = uri.queryParameters['$_filterQueryPrefix${filter.key}'];
+  for (final filterKey in acceptedFilterKeys) {
+    final value = uri.queryParameters['$_filterQueryPrefix$filterKey'];
     if (value != null && value.trim().isNotEmpty) {
-      filters[filter.key] = value.trim();
+      filters[filterKey] = value.trim();
     }
   }
   return filters;

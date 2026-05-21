@@ -36,6 +36,8 @@ class AdminField {
     this.readOnly = false,
     this.lookup,
     this.options = const [],
+    this.helperText,
+    this.includeInPayload = true,
   });
 
   final String key;
@@ -44,6 +46,8 @@ class AdminField {
   final bool readOnly;
   final AdminLookup? lookup;
   final List<AdminSelectOption> options;
+  final String? helperText;
+  final bool includeInPayload;
 }
 
 class AdminColumn {
@@ -84,7 +88,10 @@ class AdminDetailAction {
     required this.sourceValueKey,
     this.icon = Icons.open_in_new_rounded,
     this.selectTargetRow = false,
-  });
+  }) : assert(
+          !selectTargetRow || filterKey == 'id',
+          'selectTargetRow can only be used with filterKey: id',
+        );
 
   final String label;
   final String targetResourceKey;

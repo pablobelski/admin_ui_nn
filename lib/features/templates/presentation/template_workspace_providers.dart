@@ -1,12 +1,16 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/navigation/admin_providers.dart';
+import '../../../core/navigation/admin_registry.dart';
+import '../../../core/navigation/browser_navigation.dart';
 import '../data/configurator_template_repository.dart';
 
 class TemplateWorkspaceState {
   const TemplateWorkspaceState({
     this.templateQuery = '',
     this.moduleQuery = '',
+    this.productFamilyId = '',
+    this.roofModelId = '',
     this.selectedTemplateId,
     this.selectedModuleId,
     this.offset = 0,
@@ -15,14 +19,23 @@ class TemplateWorkspaceState {
 
   final String templateQuery;
   final String moduleQuery;
+  final String productFamilyId;
+  final String roofModelId;
   final String? selectedTemplateId;
   final String? selectedModuleId;
   final int offset;
   final int limit;
 
+  Map<String, String> get activeFilters => <String, String>{
+        if (productFamilyId.isNotEmpty) 'product_family_id': productFamilyId,
+        if (roofModelId.isNotEmpty) 'roof_model_id': roofModelId,
+      };
+
   TemplateWorkspaceState copyWith({
     String? templateQuery,
     String? moduleQuery,
+    String? productFamilyId,
+    String? roofModelId,
     String? selectedTemplateId,
     String? selectedModuleId,
     int? offset,
@@ -33,6 +46,8 @@ class TemplateWorkspaceState {
     return TemplateWorkspaceState(
       templateQuery: templateQuery ?? this.templateQuery,
       moduleQuery: moduleQuery ?? this.moduleQuery,
+      productFamilyId: productFamilyId ?? this.productFamilyId,
+      roofModelId: roofModelId ?? this.roofModelId,
       selectedTemplateId: clearTemplate ? null : (selectedTemplateId ?? this.selectedTemplateId),
       selectedModuleId: clearModule ? null : (selectedModuleId ?? this.selectedModuleId),
       offset: offset ?? this.offset,
@@ -43,7 +58,13 @@ class TemplateWorkspaceState {
 
 class TemplateWorkspaceNotifier extends Notifier<TemplateWorkspaceState> {
   @override
-  TemplateWorkspaceState build() => const TemplateWorkspaceState();
+  TemplateWorkspaceState build() {
+    final filters = currentAdminResourceFilters(findResourceByKey('configurator_templates'));
+    return TemplateWorkspaceState(
+      productFamilyId: filters['product_family_id'] ?? '',
+      roofModelId: filters['roof_model_id'] ?? '',
+    );
+  }
 
   void setTemplateQuery(String value) {
     state = state.copyWith(
@@ -56,6 +77,62 @@ class TemplateWorkspaceNotifier extends Notifier<TemplateWorkspaceState> {
 
   void setModuleQuery(String value) {
     state = state.copyWith(moduleQuery: value, clearModule: true);
+  }
+
+  void setTemplateFilter(String key, String? value) {
+    final normalizedValue = value?.trim() ?? '';
+    TemplateWorkspaceState nextState;
+    if (key == 'product_family_id') {
+      nextState = state.copyWith(
+        productFamilyId: normalizedValue,
+        offset: 0,
+        clearTemplate: true,
+        clearModule: true,
+      );
+    } else if (key == 'roof_model_id') {
+      nextState = state.copyWith(
+        roofModelId: normalizedValue,
+        offset: 0,
+        clearTemplate: true,
+        clearModule: true,
+      );
+    } else {
+      nextState = state;
+    }
+    state = nextState;
+    ref
+        .read(resourceBrowserProvider('configurator_templates').notifier)
+        .openWithFilters(nextState.activeFilters, updateUrl: false);
+    pushAdminResourceUrl('configurator_templates', filters: nextState.activeFilters);
+  }
+
+  void applyNavigationFilters(Map<String, String> filters) {
+    final productFamilyId = filters['product_family_id'] ?? '';
+    final roofModelId = filters['roof_model_id'] ?? '';
+    if (productFamilyId == state.productFamilyId && roofModelId == state.roofModelId) {
+      return;
+    }
+    state = state.copyWith(
+      productFamilyId: productFamilyId,
+      roofModelId: roofModelId,
+      offset: 0,
+      clearTemplate: true,
+      clearModule: true,
+    );
+  }
+
+  void clearTemplateFilters() {
+    state = state.copyWith(
+      productFamilyId: '',
+      roofModelId: '',
+      offset: 0,
+      clearTemplate: true,
+      clearModule: true,
+    );
+    ref
+        .read(resourceBrowserProvider('configurator_templates').notifier)
+        .openWithFilters(const <String, String>{}, updateUrl: false);
+    pushAdminResourceUrl('configurator_templates');
   }
 
   void selectTemplate(String? id) {
@@ -99,6 +176,8 @@ final configuratorTemplateListProvider =
   final repository = ref.watch(configuratorTemplateRepositoryProvider);
   return repository.fetchTemplates(
     query: browserState.templateQuery,
+    productFamilyId: browserState.productFamilyId,
+    roofModelId: browserState.roofModelId,
     limit: browserState.limit,
     offset: browserState.offset,
   );
@@ -133,3 +212,17 @@ final selectedTemplateModuleProvider =
   final repository = ref.watch(configuratorTemplateRepositoryProvider);
   return repository.fetchModule(id);
 });
+
+class TemplateDependentLayerFocusNotifier extends Notifier<bool> {
+  @override
+  bool build() => false;
+
+  void toggle() {
+    state = !state;
+  }
+}
+
+final templateDependentLayerFocusProvider =
+    NotifierProvider.autoDispose<TemplateDependentLayerFocusNotifier, bool>(
+  TemplateDependentLayerFocusNotifier.new,
+);

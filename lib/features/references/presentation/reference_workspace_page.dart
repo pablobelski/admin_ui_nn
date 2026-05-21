@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/navigation/admin_providers.dart';
 import '../../../core/navigation/admin_registry.dart';
 import '../../../core/ui/admin_list_table.dart';
+import '../../../core/ui/header_focus_icon_button.dart';
 import '../../../core/ui/json_view_card.dart';
 import '../../../core/ui/resizable_split_pane.dart';
 import '../../../core/ui/scrollable_areas.dart';
@@ -24,6 +25,7 @@ class ReferenceWorkspacePage extends ConsumerWidget {
     final selectedDomainAsync = ref.watch(selectedReferenceDomainProvider);
     final valuesAsync = ref.watch(referenceValuesProvider);
     final isWide = MediaQuery.sizeOf(context).width >= 1360;
+    final focusDependentLayer = ref.watch(referenceDependentLayerFocusProvider);
 
     return DefaultTabController(
       initialIndex: 0,
@@ -39,14 +41,14 @@ class ReferenceWorkspacePage extends ConsumerWidget {
             child: isWide
                 ? ResizableSplitPane(
                     axis: Axis.horizontal,
-                    initialFraction: 0.4,
-                    minFirstFraction: 0.25,
+                    initialFraction: focusDependentLayer ? 0.0 : 0.4,
+                    minFirstFraction: focusDependentLayer ? 0.0 : 0.25,
                     minSecondFraction: 0.35,
                     first: const _DomainListCard(),
                     second: ResizableSplitPane(
                       axis: Axis.vertical,
-                      initialFraction: 0.34,
-                      minFirstFraction: 0.18,
+                      initialFraction: focusDependentLayer ? 0.12 : 0.34,
+                      minFirstFraction: focusDependentLayer ? 0.10 : 0.18,
                       minSecondFraction: 0.35,
                       first: _DomainDetailsCard(detailsAsync: selectedDomainAsync),
                       second: _ValuesWorkspace(valuesAsync: valuesAsync),
@@ -54,14 +56,14 @@ class ReferenceWorkspacePage extends ConsumerWidget {
                   )
                 : ResizableSplitPane(
                     axis: Axis.vertical,
-                    initialFraction: 0.35,
-                    minFirstFraction: 0.2,
+                    initialFraction: focusDependentLayer ? 0.0 : 0.35,
+                    minFirstFraction: focusDependentLayer ? 0.0 : 0.2,
                     minSecondFraction: 0.35,
                     first: const _DomainListCard(),
                     second: ResizableSplitPane(
                       axis: Axis.vertical,
-                      initialFraction: 0.34,
-                      minFirstFraction: 0.18,
+                      initialFraction: focusDependentLayer ? 0.12 : 0.34,
+                      minFirstFraction: focusDependentLayer ? 0.10 : 0.18,
                       minSecondFraction: 0.35,
                       first: _DomainDetailsCard(detailsAsync: selectedDomainAsync),
                       second: _ValuesWorkspace(valuesAsync: valuesAsync),
@@ -352,6 +354,7 @@ class _DomainDetailsCard extends ConsumerWidget {
     final adminRepository = ref.read(resourceRepositoryProvider);
     final selectedDomainId = ref.watch(referenceWorkspaceProvider.select((value) => value.selectedDomainId));
     final domainResource = findResourceByKey('reference_domains');
+    final focusDependentLayer = ref.watch(referenceDependentLayerFocusProvider);
 
     return detailsAsync.when(
       loading: () => const Card(child: Center(child: CircularProgressIndicator())),
@@ -372,13 +375,23 @@ class _DomainDetailsCard extends ConsumerWidget {
               children: [
                 Row(
                   children: [
+                    HeaderFocusIconButton(
+                      focused: focusDependentLayer,
+                      onPressed: () => ref.read(referenceDependentLayerFocusProvider.notifier).toggle(),
+                    ),
+                    const SizedBox(width: 6),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(domain.code, style: Theme.of(context).textTheme.headlineSmall),
+                          Text(
+                            domain.code,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.headlineSmall,
+                          ),
                           const SizedBox(height: 4),
-                          Text(domain.name),
+                          Text(domain.name, maxLines: 1, overflow: TextOverflow.ellipsis),
                         ],
                       ),
                     ),
@@ -404,11 +417,12 @@ class _DomainDetailsCard extends ConsumerWidget {
                     ),
                   ],
                 ),
-                const SizedBox(height: 16),
-                Expanded(
-                  child: ListView(
-                    children: [
-                      Wrap(
+                if (!focusDependentLayer) ...[
+                  const SizedBox(height: 16),
+                  Expanded(
+                    child: ListView(
+                      children: [
+                        Wrap(
                         spacing: 12,
                         runSpacing: 12,
                         children: [
@@ -437,9 +451,10 @@ class _DomainDetailsCard extends ConsumerWidget {
                       ],
                       const SizedBox(height: 16),
                       JsonViewCard(title: 'Domain JSON', data: domain.raw),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
+                ],
               ],
             ),
           ),
