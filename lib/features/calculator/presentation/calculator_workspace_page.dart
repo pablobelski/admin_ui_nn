@@ -59,14 +59,7 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
           children: [
             _Header(
               loadedQuote: loadedQuote,
-              onClearLoadedQuote: loadedQuote == null
-                  ? null
-                  : () {
-                      ref.read(loadedQuoteProvider.notifier).clear();
-                      ref.read(calculatorDraftProvider.notifier).reset();
-                      ref.read(calculatorResultProvider.notifier).clear();
-                      setState(() => _savedQuote = null);
-                    },
+              onNewCalculation: () => _confirmNewCalculation(context),
               onRefresh: () {
                 ref.invalidate(calculatorContextProvider);
                 ref.read(calculatorResultProvider.notifier).clear();
@@ -158,6 +151,45 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
     );
   }
 
+
+  Future<void> _confirmNewCalculation(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Start new calculation?'),
+        content: const Text(
+          'Current calculator input will be cleared. Unsaved changes will be lost.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton.icon(
+            onPressed: () => Navigator.of(context).pop(true),
+            icon: const Icon(Icons.add_circle_outline),
+            label: const Text('New calculation'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !context.mounted) return;
+
+    ref.read(loadedQuoteProvider.notifier).clear();
+    ref.read(calculatorDraftProvider.notifier).reset();
+    ref.read(calculatorResultProvider.notifier).clear();
+
+    setState(() {
+      _selectedStep = 0;
+      _savedQuote = null;
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('New calculation started')),
+    );
+  }
+
   Future<void> _calculate(BuildContext context) async {
     final draft = ref.read(calculatorDraftProvider);
     if (draft.templateId == null) {
@@ -215,16 +247,31 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
 
     setState(() => _isSavingQuote = true);
     try {
-      final savedQuote = await ref.read(calculatorRepositoryProvider).saveQuote(
-            ref.read(calculatorDraftProvider),
-            mode: mode,
-            baseQuoteId: mode == SaveQuoteMode.asOption ? loadedQuote?.id : null,
-          );
+      final repository = ref.read(calculatorRepositoryProvider);
+      final savedQuote = await repository.saveQuote(
+        ref.read(calculatorDraftProvider),
+        mode: mode,
+        baseQuoteId: mode == SaveQuoteMode.asOption ? loadedQuote?.id : null,
+      );
+      final savedLoadedQuote = await repository.loadQuoteForWorkspace(savedQuote.id);
 
       if (!mounted || !context.mounted) return;
+
+      ref.read(loadedQuoteProvider.notifier).set(savedLoadedQuote);
+      ref.read(calculatorDraftProvider.notifier).loadQuote(savedLoadedQuote);
+
+      final loadedResult = savedLoadedQuote.resultJson == null
+          ? null
+          : CalculatorResult.fromJson(savedLoadedQuote.resultJson!);
+      if (loadedResult == null) {
+        ref.read(calculatorResultProvider.notifier).clear();
+      } else {
+        ref.read(calculatorResultProvider.notifier).setData(loadedResult);
+      }
+
       setState(() => _savedQuote = savedQuote);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Quote saved ${mode.label}: ${savedQuote.quoteNo}')),
+        SnackBar(content: Text('Quote saved ${mode.label}: ${savedLoadedQuote.quoteNo}')),
       );
     } catch (error) {
       if (!context.mounted) return;
@@ -243,16 +290,18 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
 class _Header extends StatelessWidget {
   const _Header({
     required this.onRefresh,
+    required this.onNewCalculation,
     required this.loadedQuote,
-    this.onClearLoadedQuote,
   });
 
   final VoidCallback onRefresh;
+  final VoidCallback onNewCalculation;
   final LoadedQuote? loadedQuote;
-  final VoidCallback? onClearLoadedQuote;
 
   @override
   Widget build(BuildContext context) {
+    final quoteLabel = loadedQuote?.quoteNo ?? 'new quote';
+
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
@@ -262,20 +311,7 @@ class _Header extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Wrap(
-                crossAxisAlignment: WrapCrossAlignment.center,
-                spacing: 8,
-                runSpacing: 6,
-                children: [
-                  Text('Calculator Workspace', style: Theme.of(context).textTheme.headlineSmall),
-                  if (loadedQuote != null)
-                    InputChip(
-                      avatar: const Icon(Icons.request_quote_outlined, size: 18),
-                      label: Text('Loaded quote: ${loadedQuote!.quoteNo}'),
-                      onDeleted: onClearLoadedQuote,
-                    ),
-                ],
-              ),
+              Text('Calculator Workspace', style: Theme.of(context).textTheme.headlineSmall),
               const SizedBox(height: 4),
               Text(
                 'Internal step-by-step configurator: Product → Template → Model → Dimensions → Covering → Color → Options → Delivery → Summary.',
@@ -285,6 +321,20 @@ class _Header extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 12),
+        Chip(
+          avatar: Icon(
+            loadedQuote == null ? Icons.add_circle_outline : Icons.request_quote_outlined,
+            size: 18,
+          ),
+          label: Text(quoteLabel),
+        ),
+        const SizedBox(width: 8),
+        OutlinedButton.icon(
+          onPressed: onNewCalculation,
+          icon: const Icon(Icons.add_circle_outline),
+          label: const Text('New calculation'),
+        ),
+        const SizedBox(width: 8),
         OutlinedButton.icon(
           onPressed: onRefresh,
           icon: const Icon(Icons.refresh),
@@ -908,7 +958,7 @@ class _ResultPanel extends StatelessWidget {
                     children: [
                       Padding(
                         padding: const EdgeInsets.fromLTRB(18, 16, 18, 8),
-                        child: _PriceHeader(result: result),
+                        child: _PriceHeader(result: result, loadedQuote: loadedQuote),
                       ),
                       const TabBar(
                         isScrollable: true,
@@ -1064,18 +1114,30 @@ class _SaveQuoteModeDialog extends StatelessWidget {
 }
 
 class _PriceHeader extends StatelessWidget {
-  const _PriceHeader({required this.result});
+  const _PriceHeader({
+    required this.result,
+    required this.loadedQuote,
+  });
 
   final CalculatorResult result;
+  final LoadedQuote? loadedQuote;
 
   @override
   Widget build(BuildContext context) {
     final net = _num(result.price['net']);
     final gross = _num(result.price['gross']);
     final margin = result.internalPrice['margin'];
+    final quoteTitle = loadedQuote?.quoteNo ?? 'new quote';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        Text(
+          quoteTitle,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
+        const SizedBox(height: 8),
         Row(
           children: [
             Expanded(
