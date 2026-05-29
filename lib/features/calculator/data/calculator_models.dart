@@ -243,6 +243,29 @@ class CalculatorResult {
   final Map<String, dynamic> raw;
 }
 
+class SavedQuote {
+  const SavedQuote({
+    required this.id,
+    required this.quoteNo,
+    required this.statusCode,
+    this.createdAt,
+  });
+
+  factory SavedQuote.fromJson(Map<String, dynamic> json) {
+    return SavedQuote(
+      id: _string(json['id']),
+      quoteNo: _string(json['quote_no'] ?? json['quoteNo']),
+      statusCode: _string(json['status_code'] ?? json['statusCode']),
+      createdAt: json['created_at'] == null ? null : _string(json['created_at']),
+    );
+  }
+
+  final String id;
+  final String quoteNo;
+  final String statusCode;
+  final String? createdAt;
+}
+
 List<Map<String, dynamic>> _list(dynamic value) {
   if (value is List) {
     return value.whereType<Map>().map((entry) => Map<String, dynamic>.from(entry)).toList();

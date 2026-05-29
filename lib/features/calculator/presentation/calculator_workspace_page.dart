@@ -29,6 +29,8 @@ class CalculatorWorkspacePage extends ConsumerStatefulWidget {
 
 class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePage> {
   var _selectedStep = 0;
+  var _isSavingQuote = false;
+  SavedQuote? _savedQuote;
 
   @override
   Widget build(BuildContext context) {
@@ -36,6 +38,7 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
     final draft = ref.watch(calculatorDraftProvider);
     final resultAsync = ref.watch(calculatorResultProvider);
     final isWide = MediaQuery.sizeOf(context).width >= 1280;
+    final canCalculate = draft.templateId != null && draft.widthMm != null && draft.depthMm != null;
 
     return contextAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
@@ -57,9 +60,8 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
               onRefresh: () {
                 ref.invalidate(calculatorContextProvider);
                 ref.read(calculatorResultProvider.notifier).clear();
+                setState(() => _savedQuote = null);
               },
-              onCalculate: () => _calculate(context),
-              canCalculate: draft.templateId != null && draft.widthMm != null && draft.depthMm != null,
             ),
             const SizedBox(height: 16),
             Expanded(
@@ -85,12 +87,20 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
                             selectedTemplate: selectedTemplate,
                             onNext: () => setState(() => _selectedStep = (_selectedStep + 1).clamp(0, _steps.length - 1).toInt()),
                             onBack: () => setState(() => _selectedStep = (_selectedStep - 1).clamp(0, _steps.length - 1).toInt()),
+                            onCalculate: () => _calculate(context),
+                            canCalculate: canCalculate,
                           ),
                         ),
                         const SizedBox(width: 16),
                         Expanded(
                           flex: 2,
-                          child: _ResultPanel(resultAsync: resultAsync, draft: draft),
+                          child: _ResultPanel(
+                            resultAsync: resultAsync,
+                            draft: draft,
+                            savedQuote: _savedQuote,
+                            isSavingQuote: _isSavingQuote,
+                            onSaveQuote: () => _saveQuote(context),
+                          ),
                         ),
                       ],
                     )
@@ -112,12 +122,20 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
                             selectedTemplate: selectedTemplate,
                             onNext: () => setState(() => _selectedStep = (_selectedStep + 1).clamp(0, _steps.length - 1).toInt()),
                             onBack: () => setState(() => _selectedStep = (_selectedStep - 1).clamp(0, _steps.length - 1).toInt()),
+                            onCalculate: () => _calculate(context),
+                            canCalculate: canCalculate,
                           ),
                         ),
                         const SizedBox(height: 12),
                         SizedBox(
-                          height: 310,
-                          child: _ResultPanel(resultAsync: resultAsync, draft: draft),
+                          height: 340,
+                          child: _ResultPanel(
+                            resultAsync: resultAsync,
+                            draft: draft,
+                            savedQuote: _savedQuote,
+                            isSavingQuote: _isSavingQuote,
+                            onSaveQuote: () => _saveQuote(context),
+                          ),
                         ),
                       ],
                     ),
@@ -137,6 +155,7 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
       return;
     }
 
+    setState(() => _savedQuote = null);
     final resultNotifier = ref.read(calculatorResultProvider.notifier);
     resultNotifier.setLoading();
     try {
@@ -150,48 +169,75 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
       resultNotifier.setError(error, stackTrace);
     }
   }
+
+  Future<void> _saveQuote(BuildContext context) async {
+    final result = ref.read(calculatorResultProvider).maybeWhen(
+      data: (value) => value,
+      orElse: () => null,
+    );
+    if (result == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Run calculation before saving quote.')),
+      );
+      return;
+    }
+
+    setState(() => _isSavingQuote = true);
+    try {
+      final savedQuote = await ref.read(calculatorRepositoryProvider).saveQuote(
+            ref.read(calculatorDraftProvider),
+          );
+
+      if (!mounted || !context.mounted) return;
+      setState(() => _savedQuote = savedQuote);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Quote saved: ${savedQuote.quoteNo}')),
+      );
+    } catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Save quote failed: $error')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isSavingQuote = false);
+      }
+    }
+  }
 }
 
 class _Header extends StatelessWidget {
   const _Header({
     required this.onRefresh,
-    required this.onCalculate,
-    required this.canCalculate,
   });
 
   final VoidCallback onRefresh;
-  final VoidCallback onCalculate;
-  final bool canCalculate;
 
   @override
   Widget build(BuildContext context) {
-    return Wrap(
-      spacing: 12,
-      runSpacing: 12,
-      crossAxisAlignment: WrapCrossAlignment.center,
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         Icon(Icons.calculate_outlined, color: Theme.of(context).colorScheme.primary),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Calculator Workspace', style: Theme.of(context).textTheme.headlineSmall),
-            const SizedBox(height: 4),
-            Text(
-              'Internal step-by-step configurator: Product → Template → Model → Dimensions → Covering → Color → Options → Delivery → Summary.',
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
-          ],
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Calculator Workspace', style: Theme.of(context).textTheme.headlineSmall),
+              const SizedBox(height: 4),
+              Text(
+                'Internal step-by-step configurator: Product → Template → Model → Dimensions → Covering → Color → Options → Delivery → Summary.',
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+            ],
+          ),
         ),
-        const SpacerBox(width: 1),
+        const SizedBox(width: 12),
         OutlinedButton.icon(
           onPressed: onRefresh,
           icon: const Icon(Icons.refresh),
           label: const Text('Refresh context'),
-        ),
-        FilledButton.icon(
-          onPressed: canCalculate ? onCalculate : null,
-          icon: const Icon(Icons.play_arrow_rounded),
-          label: const Text('Calculate'),
         ),
       ],
     );
@@ -273,6 +319,8 @@ class _StepCard extends ConsumerWidget {
     required this.selectedTemplate,
     required this.onNext,
     required this.onBack,
+    required this.onCalculate,
+    required this.canCalculate,
   });
 
   final int selectedStep;
@@ -281,6 +329,8 @@ class _StepCard extends ConsumerWidget {
   final CalculatorTemplateOption? selectedTemplate;
   final VoidCallback onNext;
   final VoidCallback onBack;
+  final VoidCallback onCalculate;
+  final bool canCalculate;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -296,9 +346,7 @@ class _StepCard extends ConsumerWidget {
               children: [
                 Icon(step.icon, color: Theme.of(context).colorScheme.primary),
                 const SizedBox(width: 12),
-                Expanded(
-                  child: Text(step.title, style: Theme.of(context).textTheme.titleLarge),
-                ),
+                Expanded(child: Text(step.title, style: Theme.of(context).textTheme.titleLarge)),
                 Text('${selectedStep + 1}/${_steps.length}', style: Theme.of(context).textTheme.labelLarge),
               ],
             ),
@@ -320,11 +368,17 @@ class _StepCard extends ConsumerWidget {
                   icon: const Icon(Icons.chevron_left),
                   label: const Text('Back'),
                 ),
-                const Spacer(),
-                FilledButton.icon(
+                const SizedBox(width: 8),
+                OutlinedButton.icon(
                   onPressed: selectedStep == _steps.length - 1 ? null : onNext,
                   icon: const Icon(Icons.chevron_right),
                   label: const Text('Next'),
+                ),
+                const Spacer(),
+                FilledButton.icon(
+                  onPressed: canCalculate ? onCalculate : null,
+                  icon: const Icon(Icons.play_arrow_rounded),
+                  label: const Text('Calculate'),
                 ),
               ],
             ),
@@ -731,7 +785,7 @@ class _SummaryStep extends StatelessWidget {
         const _HintCard(
           icon: Icons.play_arrow_outlined,
           title: 'Run calculation',
-          text: 'Click Calculate in the top right. The right panel will show price, BOM preview, price sources and trace.',
+          text: 'Click Calculate in the bottom right of this data card. The right panel will show price, BOM preview, price sources and trace.',
         ),
       ],
     );
@@ -742,10 +796,16 @@ class _ResultPanel extends StatelessWidget {
   const _ResultPanel({
     required this.resultAsync,
     required this.draft,
+    required this.onSaveQuote,
+    required this.isSavingQuote,
+    this.savedQuote,
   });
 
   final AsyncValue<CalculatorResult?> resultAsync;
   final CalculatorDraft draft;
+  final VoidCallback onSaveQuote;
+  final bool isSavingQuote;
+  final SavedQuote? savedQuote;
 
   @override
   Widget build(BuildContext context) {
@@ -759,49 +819,130 @@ class _ResultPanel extends StatelessWidget {
         ),
         data: (result) {
           if (result == null) {
-            return const Padding(
-              padding: EdgeInsets.all(20),
-              child: _HintCard(
-                icon: Icons.calculate_outlined,
-                title: 'No calculation yet',
-                text: 'Fill the steps and run Calculate. Internal result will include sources, BOM and trace.',
-              ),
-            );
-          }
-          return DefaultTabController(
-            length: 5,
-            child: Column(
+            return Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(18, 16, 18, 8),
-                  child: _PriceHeader(result: result),
+                const Expanded(
+                  child: Padding(
+                    padding: EdgeInsets.all(20),
+                    child: _HintCard(
+                      icon: Icons.calculate_outlined,
+                      title: 'No calculation yet',
+                      text: 'Fill the steps and run Calculate. Internal result will include sources, BOM and trace.',
+                    ),
+                  ),
                 ),
-                const TabBar(
-                  isScrollable: true,
-                  tabs: [
-                    Tab(text: 'Lines'),
-                    Tab(text: 'BOM'),
-                    Tab(text: 'Sources'),
-                    Tab(text: 'Trace'),
-                    Tab(text: 'JSON'),
-                  ],
+                const Divider(height: 1),
+                _ResultActions(
+                  canSaveQuote: false,
+                  isSavingQuote: isSavingQuote,
+                  savedQuote: savedQuote,
+                  onSaveQuote: onSaveQuote,
                 ),
-                Expanded(
-                  child: TabBarView(
+              ],
+            );
+          }
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                child: DefaultTabController(
+                  length: 5,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      _LinesTab(result: result),
-                      _SimpleRowsTab(rows: result.bom, empty: 'No BOM lines yet.'),
-                      JsonViewCard(title: 'Price sources', data: result.sources),
-                      _SimpleRowsTab(rows: result.trace, empty: 'No trace.'),
-                      JsonViewCard(title: 'Raw calculation result', data: result.raw),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(18, 16, 18, 8),
+                        child: _PriceHeader(result: result),
+                      ),
+                      const TabBar(
+                        isScrollable: true,
+                        tabs: [
+                          Tab(text: 'Lines'),
+                          Tab(text: 'BOM'),
+                          Tab(text: 'Sources'),
+                          Tab(text: 'Trace'),
+                          Tab(text: 'JSON'),
+                        ],
+                      ),
+                      Expanded(
+                        child: TabBarView(
+                          children: [
+                            _LinesTab(result: result),
+                            _SimpleRowsTab(rows: result.bom, empty: 'No BOM lines yet.'),
+                            JsonViewCard(title: 'Price sources', data: result.sources),
+                            _SimpleRowsTab(rows: result.trace, empty: 'No trace.'),
+                            JsonViewCard(title: 'Raw calculation result', data: result.raw),
+                          ],
+                        ),
+                      ),
                     ],
                   ),
                 ),
-              ],
-            ),
+              ),
+              const Divider(height: 1),
+              _ResultActions(
+                canSaveQuote: true,
+                isSavingQuote: isSavingQuote,
+                savedQuote: savedQuote,
+                onSaveQuote: onSaveQuote,
+              ),
+            ],
           );
         },
+      ),
+    );
+  }
+}
+
+class _ResultActions extends StatelessWidget {
+  const _ResultActions({
+    required this.canSaveQuote,
+    required this.isSavingQuote,
+    required this.savedQuote,
+    required this.onSaveQuote,
+  });
+
+  final bool canSaveQuote;
+  final bool isSavingQuote;
+  final SavedQuote? savedQuote;
+  final VoidCallback onSaveQuote;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(12),
+      child: Row(
+        children: [
+          if (savedQuote != null)
+            Expanded(
+              child: Text(
+                'Saved quote: ${savedQuote!.quoteNo}',
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            )
+          else
+            const Spacer(),
+          OutlinedButton.icon(
+            onPressed: canSaveQuote && !isSavingQuote ? onSaveQuote : null,
+            icon: isSavingQuote
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.save_outlined),
+            label: const Text('save quote'),
+          ),
+          const SizedBox(width: 8),
+          FilledButton.icon(
+            onPressed: null,
+            icon: const Icon(Icons.description_outlined),
+            label: const Text('create offer'),
+          ),
+        ],
       ),
     );
   }
@@ -867,9 +1008,7 @@ class _LinesTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (result.visibleLines.isEmpty) {
-      return const Center(child: Text('No lines.'));
-    }
+    if (result.visibleLines.isEmpty) return const Center(child: Text('No lines.'));
     return ListView.separated(
       padding: const EdgeInsets.all(12),
       itemCount: result.visibleLines.length,
@@ -1159,16 +1298,6 @@ class _StepDefinition {
   final String key;
   final String title;
   final IconData icon;
-}
-
-class SpacerBox extends StatelessWidget {
-  const SpacerBox({super.key, this.width, this.height});
-
-  final double? width;
-  final double? height;
-
-  @override
-  Widget build(BuildContext context) => SizedBox(width: width, height: height);
 }
 
 bool _isStepComplete(String key, CalculatorDraft draft) {

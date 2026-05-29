@@ -81,6 +81,30 @@ const materialPriceDimensionLookup = AdminLookup(
   showIdInDropdown: false,
 );
 
+
+// BEGIN quote admin block: admin-registry-quote-lookups-v2
+const quoteLookup = AdminLookup(
+  endpoint: '/api/admin/quotes',
+  labelKeys: ['quote_no', 'status_code', 'created_at'],
+  limit: 1000,
+  showIdInDropdown: false,
+);
+
+const quoteStatusOptions = <AdminSelectOption>[
+  AdminSelectOption(value: 'draft', label: 'Draft'),
+  AdminSelectOption(value: 'approved', label: 'Approved'),
+  AdminSelectOption(value: 'sent', label: 'Sent'),
+  AdminSelectOption(value: 'accepted', label: 'Accepted'),
+  AdminSelectOption(value: 'rejected', label: 'Rejected'),
+  AdminSelectOption(value: 'cancelled', label: 'Cancelled'),
+];
+
+const quoteOrderTypeOptions = <AdminSelectOption>[
+  AdminSelectOption(value: 'offer', label: 'Offer'),
+  AdminSelectOption(value: 'order', label: 'Order'),
+];
+
+// END quote admin block: admin-registry-quote-lookups-v2
 const activeFilterOptions = <AdminSelectOption>[
   AdminSelectOption(value: 'true', label: 'Yes'),
   AdminSelectOption(value: 'false', label: 'No'),
@@ -243,6 +267,141 @@ const adminNavGroups = <AdminNavGroup>[
       resources: [calculatorWorkspaceResource],
       ),
 
+
+// BEGIN quote admin block: admin-registry-quote-nav-v2
+
+  AdminNavGroup(
+    key: 'quotes',
+    title: 'Quotes',
+    icon: Icons.request_quote_outlined,
+    resources: [
+      AdminResourceDefinition(
+        key: 'quotes',
+        title: 'Quotes',
+        endpoint: '/api/admin/quotes',
+        icon: Icons.request_quote_outlined,
+        supportsCreate: false,
+        supportsEdit: false,
+        supportsDelete: false,
+        columns: [
+          AdminColumn(key: 'quote_no', label: 'Quote no', isPrimary: true, flex: 2),
+          AdminColumn(key: 'status_code', label: 'Status'),
+          AdminColumn(key: 'order_type_code', label: 'Type'),
+          AdminColumn(key: 'buyer_organization_id', label: 'Buyer', flex: 2, lookup: organizationLookup),
+          AdminColumn(key: 'configurator_template_id', label: 'Template', flex: 2, lookup: configuratorTemplateLookup),
+          AdminColumn(key: 'currency', label: 'Currency'),
+          AdminColumn(key: 'quote_date', label: 'Date'),
+        ],
+        listFilters: [
+          AdminResourceFilter(key: 'seller_organization_id', label: 'Seller', lookup: organizationLookup),
+          AdminResourceFilter(key: 'buyer_organization_id', label: 'Buyer', lookup: organizationLookup),
+          AdminResourceFilter(key: 'configurator_template_id', label: 'Template', lookup: configuratorTemplateLookup),
+          AdminResourceFilter(key: 'price_list_id', label: 'Price list', lookup: priceListLookup),
+          AdminResourceFilter(key: 'status_code', label: 'Status', options: quoteStatusOptions),
+          AdminResourceFilter(key: 'order_type_code', label: 'Order type', options: quoteOrderTypeOptions),
+        ],
+        formFields: [
+          AdminField(key: 'quote_no', label: 'Quote no', readOnly: true),
+          AdminField(key: 'seller_organization_id', label: 'Seller', lookup: organizationLookup, readOnly: true),
+          AdminField(key: 'buyer_organization_id', label: 'Buyer', lookup: organizationLookup, readOnly: true),
+          AdminField(key: 'configurator_template_id', label: 'Template', lookup: configuratorTemplateLookup, readOnly: true),
+          AdminField(key: 'price_list_id', label: 'Price list', lookup: priceListLookup, readOnly: true),
+          AdminField(key: 'order_type_code', label: 'Order type', readOnly: true),
+          AdminField(key: 'status_code', label: 'Status', readOnly: true),
+          AdminField(key: 'currency', label: 'Currency', readOnly: true),
+          AdminField(key: 'quote_date', label: 'Quote date', type: AdminFieldType.date, readOnly: true),
+          AdminField(key: 'expires_at', label: 'Expires at', type: AdminFieldType.date, readOnly: true),
+          AdminField(key: 'totals_json', label: 'Totals JSON', type: AdminFieldType.json, readOnly: true),
+          AdminField(key: 'input_json', label: 'Input JSON', type: AdminFieldType.json, readOnly: true),
+          AdminField(key: 'result_json', label: 'Result JSON', type: AdminFieldType.json, readOnly: true),
+        ],
+        detailActions: [
+          AdminDetailAction(
+            label: 'Show quote lines',
+            targetResourceKey: 'quote_lines',
+            filterKey: 'quote_id',
+            sourceValueKey: 'id',
+            icon: Icons.format_list_bulleted_rounded,
+          ),
+          AdminDetailAction(
+            label: 'Show quote events',
+            targetResourceKey: 'quote_events',
+            filterKey: 'quote_id',
+            sourceValueKey: 'id',
+            icon: Icons.event_note_outlined,
+          ),
+        ],
+      ),
+      AdminResourceDefinition(
+        key: 'quote_lines',
+        title: 'Quote Lines',
+        endpoint: '/api/admin/quote-lines',
+        icon: Icons.format_list_bulleted_rounded,
+        supportsCreate: false,
+        supportsEdit: false,
+        supportsDelete: false,
+        columns: [
+          AdminColumn(key: 'quote_id', label: 'Quote', flex: 2, lookup: quoteLookup),
+          AdminColumn(key: 'section_code', label: 'Section'),
+          AdminColumn(key: 'description', label: 'Description', isPrimary: true, flex: 3),
+          AdminColumn(key: 'quantity', label: 'Qty'),
+          AdminColumn(key: 'unit_code', label: 'Unit'),
+          AdminColumn(key: 'unit_price', label: 'Unit price'),
+          AdminColumn(key: 'amount', label: 'Amount'),
+        ],
+        listFilters: [
+          AdminResourceFilter(key: 'quote_id', label: 'Quote', lookup: quoteLookup),
+          AdminResourceFilter(key: 'catalog_item_id', label: 'Catalog item', lookup: catalogItemLookup),
+          AdminResourceFilter(key: 'catalog_variant_id', label: 'Catalog variant', lookup: catalogVariantLookup),
+        ],
+        formFields: [
+          AdminField(key: 'quote_id', label: 'Quote', lookup: quoteLookup, readOnly: true),
+          AdminField(key: 'section_code', label: 'Section', readOnly: true),
+          AdminField(key: 'description', label: 'Description', type: AdminFieldType.longText, readOnly: true),
+          AdminField(key: 'catalog_item_id', label: 'Catalog item', lookup: catalogItemLookup, readOnly: true),
+          AdminField(key: 'catalog_variant_id', label: 'Catalog variant', lookup: catalogVariantLookup, readOnly: true),
+          AdminField(key: 'color_code', label: 'Color', readOnly: true),
+          AdminField(key: 'width_mm', label: 'Width mm', type: AdminFieldType.number, readOnly: true),
+          AdminField(key: 'depth_mm', label: 'Depth mm', type: AdminFieldType.number, readOnly: true),
+          AdminField(key: 'quantity', label: 'Quantity', type: AdminFieldType.number, readOnly: true),
+          AdminField(key: 'unit_code', label: 'Unit', readOnly: true),
+          AdminField(key: 'unit_price', label: 'Unit price', type: AdminFieldType.number, readOnly: true),
+          AdminField(key: 'amount', label: 'Amount', type: AdminFieldType.number, readOnly: true),
+          AdminField(key: 'meta_json', label: 'Meta JSON', type: AdminFieldType.json, readOnly: true),
+        ],
+      ),
+      AdminResourceDefinition(
+        key: 'quote_events',
+        title: 'Quote Events',
+        endpoint: '/api/admin/quote-events',
+        icon: Icons.event_note_outlined,
+        supportsCreate: false,
+        supportsEdit: false,
+        supportsDelete: false,
+        columns: [
+          AdminColumn(key: 'quote_id', label: 'Quote', flex: 2, lookup: quoteLookup),
+          AdminColumn(key: 'event_type_code', label: 'Event', isPrimary: true, flex: 2),
+          AdminColumn(key: 'event_status_code', label: 'Status'),
+          AdminColumn(key: 'actor_user_id', label: 'Actor', flex: 2, lookup: userLookup),
+          AdminColumn(key: 'event_at', label: 'Event at', flex: 2),
+        ],
+        listFilters: [
+          AdminResourceFilter(key: 'quote_id', label: 'Quote', lookup: quoteLookup),
+          AdminResourceFilter(key: 'actor_user_id', label: 'Actor', lookup: userLookup),
+        ],
+        formFields: [
+          AdminField(key: 'quote_id', label: 'Quote', lookup: quoteLookup, readOnly: true),
+          AdminField(key: 'event_type_code', label: 'Event type', readOnly: true),
+          AdminField(key: 'event_status_code', label: 'Event status', readOnly: true),
+          AdminField(key: 'event_at', label: 'Event at', readOnly: true),
+          AdminField(key: 'actor_user_id', label: 'Actor', lookup: userLookup, readOnly: true),
+          AdminField(key: 'payload_json', label: 'Payload JSON', type: AdminFieldType.json, readOnly: true),
+          AdminField(key: 'notes', label: 'Notes', type: AdminFieldType.longText, readOnly: true),
+        ],
+      ),
+    ],
+  ),
+// END quote admin block: admin-registry-quote-nav-v2
   AdminNavGroup(
     key: 'catalog',
     title: 'Catalog',

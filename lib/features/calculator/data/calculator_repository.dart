@@ -18,4 +18,20 @@ class CalculatorRepository {
     );
     return CalculatorResult.fromJson(response);
   }
+
+  Future<SavedQuote> saveQuote(CalculatorDraft draft) async {
+    final response = await _client.postJson(
+      '/api/internal/calculator/save-quote',
+      body: {
+        'input': draft.toCalculationJson(),
+      },
+    );
+
+    final quote = response['quote'];
+    if (quote is Map) {
+      return SavedQuote.fromJson(Map<String, dynamic>.from(quote));
+    }
+
+    return SavedQuote.fromJson(response);
+  }
 }
