@@ -12,9 +12,34 @@ final calculatorContextProvider = FutureProvider<CalculatorContext>((ref) async 
   return ref.watch(calculatorRepositoryProvider).fetchContext();
 });
 
+class LoadedQuoteNotifier extends Notifier<LoadedQuote?> {
+  @override
+  LoadedQuote? build() => null;
+
+  void set(LoadedQuote quote) {
+    state = quote;
+  }
+
+  void clear() {
+    state = null;
+  }
+}
+
+final loadedQuoteProvider = NotifierProvider<LoadedQuoteNotifier, LoadedQuote?>(
+  LoadedQuoteNotifier.new,
+);
+
 class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
   @override
   CalculatorDraft build() => const CalculatorDraft();
+
+  void loadQuote(LoadedQuote quote) {
+    state = CalculatorDraft.fromCalculationJson(quote.input, productFamilyId: quote.productFamilyId);
+  }
+
+  void reset() {
+    state = const CalculatorDraft();
+  }
 
   void setOrganization(String? value) => state = state.copyWith(
         organizationId: value,

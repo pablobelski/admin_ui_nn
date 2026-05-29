@@ -66,9 +66,7 @@ class _ResizableSplitPaneState extends State<ResizableSplitPane> {
         final fraction = (_fraction ?? widget.initialFraction).clamp(minFirst, maxFirst).toDouble();
         final firstExtent = availableExtent * fraction;
         final secondExtent = availableExtent - firstExtent;
-        final previewFraction = _previewFraction == null
-            ? null
-            : _previewFraction!.clamp(minFirst, maxFirst).toDouble();
+        final previewFraction = _previewFraction?.clamp(minFirst, maxFirst).toDouble();
 
         double globalAxisPosition(Offset position) {
           return widget.axis == Axis.horizontal ? position.dx : position.dy;
@@ -120,12 +118,11 @@ class _ResizableSplitPaneState extends State<ResizableSplitPane> {
                   SizedBox(
                     width: widget.axis == Axis.horizontal ? firstExtent : null,
                     height: widget.axis == Axis.vertical ? firstExtent : null,
-                    child: ClipRect(child: widget.first),
+                    child: widget.first,
                   ),
                   _SplitPaneDivider(
                     axis: widget.axis,
                     extent: widget.dividerExtent,
-                    dragging: previewFraction != null,
                     onDragStart: startDrag,
                     onDragUpdate: updateDrag,
                     onDragEnd: (_) => endDrag(),
@@ -134,16 +131,22 @@ class _ResizableSplitPaneState extends State<ResizableSplitPane> {
                   SizedBox(
                     width: widget.axis == Axis.horizontal ? secondExtent : null,
                     height: widget.axis == Axis.vertical ? secondExtent : null,
-                    child: ClipRect(child: widget.second),
+                    child: widget.second,
                   ),
                 ],
               ),
             ),
             if (previewFraction != null)
-              _SplitPanePreviewDivider(
-                axis: widget.axis,
-                extent: widget.dividerExtent,
-                position: availableExtent * previewFraction,
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: CustomPaint(
+                    painter: _SplitPreviewPainter(
+                      axis: widget.axis,
+                      fraction: previewFraction,
+                      dividerExtent: widget.dividerExtent,
+                    ),
+                  ),
+                ),
               ),
           ],
         );
@@ -152,11 +155,10 @@ class _ResizableSplitPaneState extends State<ResizableSplitPane> {
   }
 }
 
-class _SplitPaneDivider extends StatefulWidget {
+class _SplitPaneDivider extends StatelessWidget {
   const _SplitPaneDivider({
     required this.axis,
     required this.extent,
-    this.dragging = false,
     this.onDragStart,
     this.onDragUpdate,
     this.onDragEnd,
@@ -165,49 +167,35 @@ class _SplitPaneDivider extends StatefulWidget {
 
   final Axis axis;
   final double extent;
-  final bool dragging;
   final GestureDragStartCallback? onDragStart;
   final GestureDragUpdateCallback? onDragUpdate;
   final GestureDragEndCallback? onDragEnd;
   final GestureDragCancelCallback? onDragCancel;
 
   @override
-  State<_SplitPaneDivider> createState() => _SplitPaneDividerState();
-}
-
-class _SplitPaneDividerState extends State<_SplitPaneDivider> {
-  bool _hovered = false;
-
-  @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final isHorizontal = widget.axis == Axis.horizontal;
-    final cursor = isHorizontal ? SystemMouseCursors.resizeColumn : SystemMouseCursors.resizeRow;
-    final active = _hovered || widget.dragging;
-
+    final isHorizontal = axis == Axis.horizontal;
     return MouseRegion(
-      cursor: cursor,
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
+      cursor: isHorizontal ? SystemMouseCursors.resizeColumn : SystemMouseCursors.resizeRow,
       child: GestureDetector(
-        behavior: HitTestBehavior.translucent,
-        onHorizontalDragStart: isHorizontal ? widget.onDragStart : null,
-        onHorizontalDragUpdate: isHorizontal ? widget.onDragUpdate : null,
-        onHorizontalDragEnd: isHorizontal ? widget.onDragEnd : null,
-        onHorizontalDragCancel: isHorizontal ? widget.onDragCancel : null,
-        onVerticalDragStart: isHorizontal ? null : widget.onDragStart,
-        onVerticalDragUpdate: isHorizontal ? null : widget.onDragUpdate,
-        onVerticalDragEnd: isHorizontal ? null : widget.onDragEnd,
-        onVerticalDragCancel: isHorizontal ? null : widget.onDragCancel,
+        behavior: HitTestBehavior.opaque,
+        onHorizontalDragStart: isHorizontal ? onDragStart : null,
+        onHorizontalDragUpdate: isHorizontal ? onDragUpdate : null,
+        onHorizontalDragEnd: isHorizontal ? onDragEnd : null,
+        onHorizontalDragCancel: isHorizontal ? onDragCancel : null,
+        onVerticalDragStart: isHorizontal ? null : onDragStart,
+        onVerticalDragUpdate: isHorizontal ? null : onDragUpdate,
+        onVerticalDragEnd: isHorizontal ? null : onDragEnd,
+        onVerticalDragCancel: isHorizontal ? null : onDragCancel,
         child: SizedBox(
-          width: isHorizontal ? widget.extent : null,
-          height: isHorizontal ? null : widget.extent,
+          width: isHorizontal ? extent : double.infinity,
+          height: isHorizontal ? double.infinity : extent,
           child: Center(
             child: Container(
-              width: isHorizontal ? (active ? 3 : 1) : 44,
-              height: isHorizontal ? 44 : (active ? 3 : 1),
+              width: isHorizontal ? 4 : 32,
+              height: isHorizontal ? 32 : 4,
               decoration: BoxDecoration(
-                color: active ? scheme.primary : scheme.outlineVariant,
+                color: Theme.of(context).colorScheme.outlineVariant,
                 borderRadius: BorderRadius.circular(999),
               ),
             ),
@@ -218,47 +206,36 @@ class _SplitPaneDividerState extends State<_SplitPaneDivider> {
   }
 }
 
-class _SplitPanePreviewDivider extends StatelessWidget {
-  const _SplitPanePreviewDivider({
+class _SplitPreviewPainter extends CustomPainter {
+  const _SplitPreviewPainter({
     required this.axis,
-    required this.extent,
-    required this.position,
+    required this.fraction,
+    required this.dividerExtent,
   });
 
   final Axis axis;
-  final double extent;
-  final double position;
+  final double fraction;
+  final double dividerExtent;
 
   @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final isHorizontal = axis == Axis.horizontal;
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = Colors.black.withValues(alpha: 0.08)
+      ..style = PaintingStyle.fill;
 
-    final indicator = IgnorePointer(
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: scheme.primary,
-          borderRadius: BorderRadius.circular(999),
-        ),
-      ),
-    );
-
-    if (isHorizontal) {
-      return Positioned(
-        left: position + (extent / 2) - 1.5,
-        top: 0,
-        bottom: 0,
-        width: 3,
-        child: indicator,
-      );
+    if (axis == Axis.horizontal) {
+      final x = (size.width - dividerExtent) * fraction;
+      canvas.drawRect(Rect.fromLTWH(x, 0, dividerExtent, size.height), paint);
+    } else {
+      final y = (size.height - dividerExtent) * fraction;
+      canvas.drawRect(Rect.fromLTWH(0, y, size.width, dividerExtent), paint);
     }
+  }
 
-    return Positioned(
-      left: 0,
-      right: 0,
-      top: position + (extent / 2) - 1.5,
-      height: 3,
-      child: indicator,
-    );
+  @override
+  bool shouldRepaint(covariant _SplitPreviewPainter oldDelegate) {
+    return oldDelegate.axis != axis ||
+        oldDelegate.fraction != fraction ||
+        oldDelegate.dividerExtent != dividerExtent;
   }
 }

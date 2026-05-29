@@ -19,11 +19,27 @@ class CalculatorRepository {
     return CalculatorResult.fromJson(response);
   }
 
-  Future<SavedQuote> saveQuote(CalculatorDraft draft) async {
+  Future<LoadedQuote> loadQuoteForWorkspace(String quoteId) async {
+    final response = await _client.postJson(
+      '/api/internal/calculator/load-quote',
+      body: {
+        'quote_id': quoteId,
+      },
+    );
+    return LoadedQuote.fromJson(response);
+  }
+
+  Future<SavedQuote> saveQuote(
+    CalculatorDraft draft, {
+    SaveQuoteMode mode = SaveQuoteMode.asNew,
+    String? baseQuoteId,
+  }) async {
     final response = await _client.postJson(
       '/api/internal/calculator/save-quote',
       body: {
         'input': draft.toCalculationJson(),
+        'mode': mode.apiValue,
+        if (baseQuoteId != null && baseQuoteId.isNotEmpty) 'base_quote_id': baseQuoteId,
       },
     );
 

@@ -37,6 +37,7 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
     final contextAsync = ref.watch(calculatorContextProvider);
     final draft = ref.watch(calculatorDraftProvider);
     final resultAsync = ref.watch(calculatorResultProvider);
+    final loadedQuote = ref.watch(loadedQuoteProvider);
     final isWide = MediaQuery.sizeOf(context).width >= 1280;
     final canCalculate = draft.templateId != null && draft.widthMm != null && draft.depthMm != null;
 
@@ -57,6 +58,15 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _Header(
+              loadedQuote: loadedQuote,
+              onClearLoadedQuote: loadedQuote == null
+                  ? null
+                  : () {
+                      ref.read(loadedQuoteProvider.notifier).clear();
+                      ref.read(calculatorDraftProvider.notifier).reset();
+                      ref.read(calculatorResultProvider.notifier).clear();
+                      setState(() => _savedQuote = null);
+                    },
               onRefresh: () {
                 ref.invalidate(calculatorContextProvider);
                 ref.read(calculatorResultProvider.notifier).clear();
@@ -97,9 +107,10 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
                           child: _ResultPanel(
                             resultAsync: resultAsync,
                             draft: draft,
+                            loadedQuote: loadedQuote,
                             savedQuote: _savedQuote,
                             isSavingQuote: _isSavingQuote,
-                            onSaveQuote: () => _saveQuote(context),
+                            onSaveQuote: () => _showSaveQuoteDialog(context),
                           ),
                         ),
                       ],
@@ -132,9 +143,10 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
                           child: _ResultPanel(
                             resultAsync: resultAsync,
                             draft: draft,
+                            loadedQuote: loadedQuote,
                             savedQuote: _savedQuote,
                             isSavingQuote: _isSavingQuote,
-                            onSaveQuote: () => _saveQuote(context),
+                            onSaveQuote: () => _showSaveQuoteDialog(context),
                           ),
                         ),
                       ],
@@ -170,7 +182,7 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
     }
   }
 
-  Future<void> _saveQuote(BuildContext context) async {
+  Future<void> _showSaveQuoteDialog(BuildContext context) async {
     final result = ref.read(calculatorResultProvider).maybeWhen(
       data: (value) => value,
       orElse: () => null,
@@ -182,16 +194,37 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
       return;
     }
 
+    final draft = ref.read(calculatorDraftProvider);
+    final loadedQuote = ref.read(loadedQuoteProvider);
+    final canSaveAsOption = draft.canSaveAsOptionFor(loadedQuote);
+
+    final mode = await showDialog<SaveQuoteMode>(
+      context: context,
+      builder: (_) => _SaveQuoteModeDialog(
+        loadedQuote: loadedQuote,
+        canSaveAsOption: canSaveAsOption,
+      ),
+    );
+
+    if (mode == null || !context.mounted) return;
+    await _saveQuote(context, mode);
+  }
+
+  Future<void> _saveQuote(BuildContext context, SaveQuoteMode mode) async {
+    final loadedQuote = ref.read(loadedQuoteProvider);
+
     setState(() => _isSavingQuote = true);
     try {
       final savedQuote = await ref.read(calculatorRepositoryProvider).saveQuote(
             ref.read(calculatorDraftProvider),
+            mode: mode,
+            baseQuoteId: mode == SaveQuoteMode.asOption ? loadedQuote?.id : null,
           );
 
       if (!mounted || !context.mounted) return;
       setState(() => _savedQuote = savedQuote);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Quote saved: ${savedQuote.quoteNo}')),
+        SnackBar(content: Text('Quote saved ${mode.label}: ${savedQuote.quoteNo}')),
       );
     } catch (error) {
       if (!context.mounted) return;
@@ -204,14 +237,19 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
       }
     }
   }
+
 }
 
 class _Header extends StatelessWidget {
   const _Header({
     required this.onRefresh,
+    required this.loadedQuote,
+    this.onClearLoadedQuote,
   });
 
   final VoidCallback onRefresh;
+  final LoadedQuote? loadedQuote;
+  final VoidCallback? onClearLoadedQuote;
 
   @override
   Widget build(BuildContext context) {
@@ -224,7 +262,20 @@ class _Header extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Calculator Workspace', style: Theme.of(context).textTheme.headlineSmall),
+              Wrap(
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 8,
+                runSpacing: 6,
+                children: [
+                  Text('Calculator Workspace', style: Theme.of(context).textTheme.headlineSmall),
+                  if (loadedQuote != null)
+                    InputChip(
+                      avatar: const Icon(Icons.request_quote_outlined, size: 18),
+                      label: Text('Loaded quote: ${loadedQuote!.quoteNo}'),
+                      onDeleted: onClearLoadedQuote,
+                    ),
+                ],
+              ),
               const SizedBox(height: 4),
               Text(
                 'Internal step-by-step configurator: Product → Template → Model → Dimensions → Covering → Color → Options → Delivery → Summary.',
@@ -798,11 +849,13 @@ class _ResultPanel extends StatelessWidget {
     required this.draft,
     required this.onSaveQuote,
     required this.isSavingQuote,
+    this.loadedQuote,
     this.savedQuote,
   });
 
   final AsyncValue<CalculatorResult?> resultAsync;
   final CalculatorDraft draft;
+  final LoadedQuote? loadedQuote;
   final VoidCallback onSaveQuote;
   final bool isSavingQuote;
   final SavedQuote? savedQuote;
@@ -835,6 +888,7 @@ class _ResultPanel extends StatelessWidget {
                 const Divider(height: 1),
                 _ResultActions(
                   canSaveQuote: false,
+                  canSaveAsOption: false,
                   isSavingQuote: isSavingQuote,
                   savedQuote: savedQuote,
                   onSaveQuote: onSaveQuote,
@@ -884,6 +938,7 @@ class _ResultPanel extends StatelessWidget {
               const Divider(height: 1),
               _ResultActions(
                 canSaveQuote: true,
+                canSaveAsOption: draft.canSaveAsOptionFor(loadedQuote),
                 isSavingQuote: isSavingQuote,
                 savedQuote: savedQuote,
                 onSaveQuote: onSaveQuote,
@@ -899,18 +954,21 @@ class _ResultPanel extends StatelessWidget {
 class _ResultActions extends StatelessWidget {
   const _ResultActions({
     required this.canSaveQuote,
+    required this.canSaveAsOption,
     required this.isSavingQuote,
     required this.savedQuote,
     required this.onSaveQuote,
   });
 
   final bool canSaveQuote;
+  final bool canSaveAsOption;
   final bool isSavingQuote;
   final SavedQuote? savedQuote;
   final VoidCallback onSaveQuote;
 
   @override
   Widget build(BuildContext context) {
+    final hint = canSaveAsOption ? 'As New / As Option' : 'As New';
     return Padding(
       padding: const EdgeInsets.all(12),
       child: Row(
@@ -924,7 +982,13 @@ class _ResultActions extends StatelessWidget {
               ),
             )
           else
-            const Spacer(),
+            Expanded(
+              child: Text(
+                hint,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
           OutlinedButton.icon(
             onPressed: canSaveQuote && !isSavingQuote ? onSaveQuote : null,
             icon: isSavingQuote
@@ -944,6 +1008,57 @@ class _ResultActions extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _SaveQuoteModeDialog extends StatelessWidget {
+  const _SaveQuoteModeDialog({
+    required this.loadedQuote,
+    required this.canSaveAsOption,
+  });
+
+  final LoadedQuote? loadedQuote;
+  final bool canSaveAsOption;
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Save quote'),
+      content: SizedBox(
+        width: 520,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.add_circle_outline),
+              title: const Text('As New'),
+              subtitle: const Text('Save under the next quote number for the current buyer/seller context.'),
+              onTap: () => Navigator.of(context).pop(SaveQuoteMode.asNew),
+            ),
+            const Divider(height: 1),
+            ListTile(
+              enabled: canSaveAsOption,
+              leading: const Icon(Icons.call_split_outlined),
+              title: const Text('As Option'),
+              subtitle: Text(
+                loadedQuote == null
+                    ? 'Load an existing quote first.'
+                    : canSaveAsOption
+                        ? 'Save as ${loadedQuote!.quoteNo} - Option #...'
+                        : 'Available only if input changed and buyer/ship-to stayed the same.',
+              ),
+              onTap: canSaveAsOption ? () => Navigator.of(context).pop(SaveQuoteMode.asOption) : null,
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+      ],
     );
   }
 }

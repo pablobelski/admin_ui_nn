@@ -15,6 +15,8 @@ import '../../../core/ui/resizable_split_pane.dart';
 import '../../../core/ui/scrollable_areas.dart';
 import '../../../core/ui/resource_editor_dialog.dart';
 import '../../../core/ui/searchable_select_form_field.dart';
+import '../../calculator/data/calculator_models.dart';
+import '../../calculator/presentation/calculator_providers.dart';
 
 class ResourcePage extends ConsumerWidget {
   const ResourcePage({
@@ -467,6 +469,15 @@ class _DetailsCard extends ConsumerWidget {
                           onSelected: (action) => _openDetailAction(ref, action, data),
                         ),
                       ),
+                    if (resource.key == 'quotes')
+                      Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: OutlinedButton.icon(
+                          onPressed: () => loadQuoteToWorkspace(context, ref, data),
+                          icon: const Icon(Icons.upload_file_outlined, size: 18),
+                          label: const Text('Load to Workspace'),
+                        ),
+                      ),
                     if (resource.key == 'users')
                       Padding(
                         padding: const EdgeInsets.only(right: 8),
@@ -621,6 +632,68 @@ class _DetailActionsMenu extends StatelessWidget {
           label: const Text('Related'),
         ),
       ),
+    );
+  }
+}
+
+
+Future<void> loadQuoteToWorkspace(
+  BuildContext context,
+  WidgetRef ref,
+  Map<String, dynamic> data,
+) async {
+  final quoteId = data['id']?.toString();
+  final quoteNo = data['quote_no']?.toString() ?? quoteId ?? 'selected quote';
+  if (quoteId == null || quoteId.isEmpty) return;
+
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (_) => AlertDialog(
+      title: const Text('Load quote to workspace?'),
+      content: Text(
+        'Quote "$quoteNo" will be loaded into Calculator Workspace. '
+        'Current unsaved calculator input will be replaced.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('Cancel'),
+        ),
+        FilledButton.icon(
+          onPressed: () => Navigator.of(context).pop(true),
+          icon: const Icon(Icons.upload_file_outlined),
+          label: const Text('Load to Workspace'),
+        ),
+      ],
+    ),
+  );
+
+  if (confirmed != true) return;
+
+  try {
+    final loadedQuote = await ref.read(calculatorRepositoryProvider).loadQuoteForWorkspace(quoteId);
+    ref.read(loadedQuoteProvider.notifier).set(loadedQuote);
+    ref.read(calculatorDraftProvider.notifier).loadQuote(loadedQuote);
+
+    final loadedResult = loadedQuote.resultJson == null
+        ? null
+        : CalculatorResult.fromJson(loadedQuote.resultJson!);
+    if (loadedResult == null) {
+      ref.read(calculatorResultProvider.notifier).clear();
+    } else {
+      ref.read(calculatorResultProvider.notifier).setData(loadedResult);
+    }
+
+    ref.read(selectedResourceProvider.notifier).select('calculator_workspace');
+
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Loaded quote: ${loadedQuote.quoteNo}')),
+    );
+  } catch (error) {
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Load quote failed: $error')),
     );
   }
 }

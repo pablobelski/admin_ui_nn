@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 class CalculatorContext {
   const CalculatorContext({
     required this.organizations,
@@ -103,6 +105,31 @@ class CalculatorDraft {
     this.options = const [],
   });
 
+  factory CalculatorDraft.fromCalculationJson(Map<String, dynamic> json, {String? productFamilyId}) {
+    final dimensions = _map(json['dimensions']);
+    final options = json['options'] is List
+        ? (json['options'] as List)
+            .whereType<Map>()
+            .map((entry) => CalculatorSelectedOption.fromJson(Map<String, dynamic>.from(entry)))
+            .toList()
+        : <CalculatorSelectedOption>[];
+
+    return CalculatorDraft(
+      organizationId: _nullableString(json['organization_id']),
+      productFamilyId: productFamilyId,
+      templateId: _nullableString(json['template_id']),
+      priceMode: _string(json['price_mode']).isEmpty ? 'dealer_sales' : _string(json['price_mode']),
+      modelCode: _nullableString(json['model_code']),
+      widthMm: _intOrNull(dimensions['width_mm']),
+      depthMm: _intOrNull(dimensions['depth_mm']),
+      heightMm: _intOrNull(dimensions['height_mm']),
+      coveringCode: _nullableString(json['covering_code']),
+      colorCode: _nullableString(json['color_code']),
+      handoverTypeCode: _nullableString(json['handover_type_code']),
+      options: options,
+    );
+  }
+
   final String? organizationId;
   final String? productFamilyId;
   final String? templateId;
@@ -174,6 +201,21 @@ class CalculatorDraft {
       'language_code': 'de',
     };
   }
+
+  bool differsFromLoadedQuote(LoadedQuote quote) {
+    return _stableJson(toCalculationJson()) != _stableJson(quote.normalizedInput);
+  }
+
+  bool hasSameBuyerAndShipToAs(LoadedQuote quote) {
+    final currentBuyer = organizationId ?? '';
+    return (quote.buyerOrganizationId ?? '') == currentBuyer &&
+        (quote.shipToOrganizationId ?? '') == currentBuyer;
+  }
+
+  bool canSaveAsOptionFor(LoadedQuote? quote) {
+    if (quote == null) return false;
+    return differsFromLoadedQuote(quote) && hasSameBuyerAndShipToAs(quote);
+  }
 }
 
 class CalculatorSelectedOption {
@@ -183,6 +225,15 @@ class CalculatorSelectedOption {
     this.catalogVariantId,
     this.quantity = 1,
   });
+
+  factory CalculatorSelectedOption.fromJson(Map<String, dynamic> json) {
+    return CalculatorSelectedOption(
+      optionCode: _nullableString(json['option_code']),
+      catalogItemId: _nullableString(json['catalog_item_id']),
+      catalogVariantId: _nullableString(json['catalog_variant_id']),
+      quantity: json['quantity'] is num ? json['quantity'] as num : num.tryParse('${json['quantity']}') ?? 1,
+    );
+  }
 
   final String? optionCode;
   final String? catalogItemId;
@@ -266,6 +317,75 @@ class SavedQuote {
   final String? createdAt;
 }
 
+class LoadedQuote {
+  const LoadedQuote({
+    required this.id,
+    required this.quoteNo,
+    required this.statusCode,
+    required this.input,
+    this.productFamilyId,
+    this.resultJson,
+    this.sellerOrganizationId,
+    this.buyerOrganizationId,
+    this.shipToOrganizationId,
+  });
+
+  factory LoadedQuote.fromJson(Map<String, dynamic> json) {
+    final quote = _map(json['quote']);
+    return LoadedQuote(
+      id: _string(quote['id'] ?? json['id']),
+      quoteNo: _string(quote['quote_no'] ?? quote['quoteNo'] ?? json['quote_no'] ?? json['quoteNo']),
+      statusCode: _string(quote['status_code'] ?? quote['statusCode'] ?? json['status_code'] ?? json['statusCode']),
+      input: _map(json['input'] ?? quote['input_json']),
+      productFamilyId: _nullableString(quote['product_family_id'] ?? json['product_family_id']),
+      resultJson: (json['result'] ?? quote['result_json']) is Map
+          ? Map<String, dynamic>.from(json['result'] ?? quote['result_json'])
+          : null,
+      sellerOrganizationId: _nullableString(quote['seller_organization_id'] ?? json['seller_organization_id']),
+      buyerOrganizationId: _nullableString(quote['buyer_organization_id'] ?? json['buyer_organization_id']),
+      shipToOrganizationId: _nullableString(quote['ship_to_organization_id'] ?? json['ship_to_organization_id']),
+    );
+  }
+
+  final String id;
+  final String quoteNo;
+  final String statusCode;
+  final Map<String, dynamic> input;
+  final String? productFamilyId;
+  final Map<String, dynamic>? resultJson;
+  final String? sellerOrganizationId;
+  final String? buyerOrganizationId;
+  final String? shipToOrganizationId;
+
+  Map<String, dynamic> get normalizedInput => CalculatorDraft.fromCalculationJson(
+        input,
+        productFamilyId: productFamilyId,
+      ).toCalculationJson();
+}
+
+enum SaveQuoteMode {
+  asNew,
+  asOption;
+
+  String get apiValue {
+    switch (this) {
+      case SaveQuoteMode.asNew:
+        return 'new';
+      case SaveQuoteMode.asOption:
+        return 'option';
+    }
+  }
+
+  String get label {
+    switch (this) {
+      case SaveQuoteMode.asNew:
+        return 'As New';
+      case SaveQuoteMode.asOption:
+        return 'As Option';
+    }
+  }
+}
+
 List<Map<String, dynamic>> _list(dynamic value) {
   if (value is List) {
     return value.whereType<Map>().map((entry) => Map<String, dynamic>.from(entry)).toList();
@@ -289,3 +409,32 @@ Map<String, List<CalculatorOption>> _references(dynamic value) {
 }
 
 String _string(dynamic value) => value == null ? '' : '$value';
+
+String? _nullableString(dynamic value) {
+  final text = _string(value).trim();
+  return text.isEmpty ? null : text;
+}
+
+int? _intOrNull(dynamic value) {
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  return int.tryParse('$value');
+}
+
+String _stableJson(dynamic value) {
+  return jsonEncode(_stableValue(value));
+}
+
+dynamic _stableValue(dynamic value) {
+  if (value is Map) {
+    final keys = value.keys.map((entry) => '$entry').toList()..sort();
+    return {
+      for (final key in keys)
+        if (value[key] != null) key: _stableValue(value[key]),
+    };
+  }
+  if (value is List) {
+    return value.map(_stableValue).toList();
+  }
+  return value;
+}
