@@ -51,11 +51,13 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
         templateId: null,
         clearProductFamily: value == null || value.isEmpty,
         clearTemplate: true,
+        clearModel: true,
       );
 
   void setTemplate(String? value) => state = state.copyWith(
         templateId: value,
         clearTemplate: value == null || value.isEmpty,
+        clearModel: true,
       );
 
   void setPriceMode(String? value) {

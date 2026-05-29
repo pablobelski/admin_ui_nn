@@ -39,7 +39,6 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
     final resultAsync = ref.watch(calculatorResultProvider);
     final loadedQuote = ref.watch(loadedQuoteProvider);
     final isWide = MediaQuery.sizeOf(context).width >= 1280;
-    final canCalculate = draft.templateId != null && draft.widthMm != null && draft.depthMm != null;
 
     return contextAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
@@ -53,6 +52,21 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
             .where((entry) => entry.id == draft.templateId)
             .cast<CalculatorTemplateOption?>()
             .firstOrNull;
+
+        final roofModelState = _roofModelStateFor(
+          calculatorContext,
+          draft,
+          selectedTemplate,
+        );
+        final disabledStepKeys = <String>{
+          if (!roofModelState.required) 'model',
+        };
+        final canCalculate = draft.templateId != null &&
+            draft.widthMm != null &&
+            draft.depthMm != null &&
+            roofModelState.isSelected(draft.modelCode);
+
+
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -76,6 +90,7 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
                           width: 245,
                           child: _StepRail(
                             selectedIndex: _selectedStep,
+                            disabledStepKeys: disabledStepKeys,
                             draft: draft,
                             onSelect: (index) => setState(() => _selectedStep = index),
                           ),
@@ -88,10 +103,11 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
                             calculatorContext: calculatorContext,
                             draft: draft,
                             selectedTemplate: selectedTemplate,
-                            onNext: () => setState(() => _selectedStep = (_selectedStep + 1).clamp(0, _steps.length - 1).toInt()),
-                            onBack: () => setState(() => _selectedStep = (_selectedStep - 1).clamp(0, _steps.length - 1).toInt()),
+                            onNext: () => _moveStep(disabledStepKeys, 1),
+                            onBack: () => _moveStep(disabledStepKeys, -1),
                             onCalculate: () => _calculate(context),
                             canCalculate: canCalculate,
+                            roofModelState: roofModelState,
                           ),
                         ),
                         const SizedBox(width: 16),
@@ -114,6 +130,7 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
                           height: 88,
                           child: _StepScroller(
                             selectedIndex: _selectedStep,
+                            disabledStepKeys: disabledStepKeys,
                             onSelect: (index) => setState(() => _selectedStep = index),
                           ),
                         ),
@@ -124,10 +141,11 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
                             calculatorContext: calculatorContext,
                             draft: draft,
                             selectedTemplate: selectedTemplate,
-                            onNext: () => setState(() => _selectedStep = (_selectedStep + 1).clamp(0, _steps.length - 1).toInt()),
-                            onBack: () => setState(() => _selectedStep = (_selectedStep - 1).clamp(0, _steps.length - 1).toInt()),
+                            onNext: () => _moveStep(disabledStepKeys, 1),
+                            onBack: () => _moveStep(disabledStepKeys, -1),
                             onCalculate: () => _calculate(context),
                             canCalculate: canCalculate,
+                            roofModelState: roofModelState,
                           ),
                         ),
                         const SizedBox(height: 12),
@@ -149,6 +167,28 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
         );
       },
     );
+  }
+
+
+
+
+
+  void _moveStep(Set<String> disabledStepKeys, int direction) {
+    var next = _selectedStep;
+
+    while (true) {
+      next += direction;
+      if (next < 0 || next >= _steps.length) {
+        next = next.clamp(0, _steps.length - 1).toInt();
+        break;
+      }
+
+      if (!disabledStepKeys.contains(_steps[next].key)) {
+        break;
+      }
+    }
+
+    setState(() => _selectedStep = next);
   }
 
 
@@ -348,11 +388,13 @@ class _Header extends StatelessWidget {
 class _StepRail extends StatelessWidget {
   const _StepRail({
     required this.selectedIndex,
+    required this.disabledStepKeys,
     required this.draft,
     required this.onSelect,
   });
 
   final int selectedIndex;
+  final Set<String> disabledStepKeys;
   final CalculatorDraft draft;
   final ValueChanged<int> onSelect;
 
@@ -367,15 +409,17 @@ class _StepRail extends StatelessWidget {
         itemBuilder: (context, index) {
           final step = _steps[index];
           final selected = index == selectedIndex;
-          final complete = _isStepComplete(step.key, draft);
+          final disabled = disabledStepKeys.contains(step.key);
+          final complete = !disabled && _isStepComplete(step.key, draft);
           return ListTile(
+            enabled: !disabled,
             dense: true,
             selected: selected,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            leading: Icon(complete ? Icons.check_circle : step.icon),
+            leading: Icon(disabled ? Icons.lock_outline : complete ? Icons.check_circle : step.icon),
             title: Text(step.title),
-            subtitle: Text(_stepHint(step.key, draft), maxLines: 1, overflow: TextOverflow.ellipsis),
-            onTap: () => onSelect(index),
+            subtitle: Text(disabled ? 'not configured for selected template' : _stepHint(step.key, draft), maxLines: 1, overflow: TextOverflow.ellipsis),
+            onTap: disabled ? null : () => onSelect(index),
           );
         },
       ),
@@ -386,10 +430,12 @@ class _StepRail extends StatelessWidget {
 class _StepScroller extends StatelessWidget {
   const _StepScroller({
     required this.selectedIndex,
+    required this.disabledStepKeys,
     required this.onSelect,
   });
 
   final int selectedIndex;
+  final Set<String> disabledStepKeys;
   final ValueChanged<int> onSelect;
 
   @override
@@ -399,11 +445,12 @@ class _StepScroller extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 4),
       itemBuilder: (context, index) {
         final step = _steps[index];
+        final disabled = disabledStepKeys.contains(step.key);
         return ChoiceChip(
           selected: index == selectedIndex,
-          avatar: Icon(step.icon, size: 18),
+          avatar: Icon(disabled ? Icons.lock_outline : step.icon, size: 18),
           label: Text(step.title),
-          onSelected: (_) => onSelect(index),
+          onSelected: disabled ? null : (_) => onSelect(index),
         );
       },
       separatorBuilder: (_, __) => const SizedBox(width: 8),
@@ -422,6 +469,7 @@ class _StepCard extends ConsumerWidget {
     required this.onBack,
     required this.onCalculate,
     required this.canCalculate,
+    required this.roofModelState,
   });
 
   final int selectedStep;
@@ -432,6 +480,7 @@ class _StepCard extends ConsumerWidget {
   final VoidCallback onBack;
   final VoidCallback onCalculate;
   final bool canCalculate;
+  final _RoofModelStepState roofModelState;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -508,13 +557,10 @@ class _StepCard extends ConsumerWidget {
           onTemplateChanged: notifier.setTemplate,
         );
       case 'model':
-        return _SelectStep(
-          title: 'Model / construction type',
-          description: 'Uses reference domain skyview_models for now. Later this should come from ui_schema_json per template.',
-          value: draft.modelCode,
-          options: calculatorContext.references['skyview_models'] ?? const [],
+        return _ModelStep(
+          roofModelState: roofModelState,
+          draft: draft,
           onChanged: notifier.setModel,
-          emptyLabel: '— Model not selected —',
         );
       case 'dimensions':
         return _DimensionsStep(draft: draft, notifier: notifier);
@@ -729,6 +775,57 @@ class _DimensionsStepState extends State<_DimensionsStep> {
   }
 }
 
+
+class _DisabledStep extends StatelessWidget {
+  const _DisabledStep({required this.title, required this.text});
+
+  final String title;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return _HintCard(icon: Icons.lock_outline, title: title, text: text);
+  }
+}
+
+class _ModelStep extends StatelessWidget {
+  const _ModelStep({
+    required this.roofModelState,
+    required this.draft,
+    required this.onChanged,
+  });
+
+  final _RoofModelStepState roofModelState;
+  final CalculatorDraft draft;
+  final ValueChanged<String?> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!roofModelState.required) {
+      return const _DisabledStep(
+        title: 'Model / construction type is not configured',
+        text: 'No roof models exist for the selected product family. This step is skipped for the current calculation.',
+      );
+    }
+
+    if (roofModelState.options.isEmpty) {
+      return const _HintCard(
+        icon: Icons.warning_amber_outlined,
+        title: 'No roof models for selected template',
+        text: 'Roof models exist for this product family, so Model is required. Link one or more roof models to the selected configurator template, or choose another template.',
+      );
+    }
+
+    return _SelectStep(
+      title: 'Model / construction type',
+      description: 'Roof models are filtered by both product family and configurator template.',
+      value: draft.modelCode,
+      options: roofModelState.options,
+      onChanged: onChanged,
+      emptyLabel: '— Model not selected —',
+    );
+  }
+}
 class _SelectStep extends StatelessWidget {
   const _SelectStep({
     required this.title,
@@ -1475,6 +1572,126 @@ class _StepDefinition {
   final String key;
   final String title;
   final IconData icon;
+}
+
+
+List<CalculatorOption> _roofModelOptionsFor(
+  CalculatorContext calculatorContext,
+  CalculatorDraft draft,
+  CalculatorTemplateOption? selectedTemplate,
+) {
+  final templateId = draft.templateId;
+  final familyId = selectedTemplate?.productFamilyId ?? draft.productFamilyId;
+  if ((templateId == null || templateId.isEmpty) && (familyId == null || familyId.isEmpty)) {
+    return const [];
+  }
+
+  final models = calculatorContext.references['roof_models'] ?? const <CalculatorOption>[];
+
+  return models.where((option) {
+    final rawTemplateId = _stringOrNull(
+      option.raw['configurator_template_id'] ?? option.raw['template_id'],
+    );
+    final rawFamilyId = _stringOrNull(option.raw['product_family_id']);
+
+    if (rawTemplateId != null && rawTemplateId == templateId) {
+      return true;
+    }
+
+    if (rawFamilyId != null && rawFamilyId == familyId) {
+      return true;
+    }
+
+    return false;
+  }).toList(growable: false);
+}
+
+
+String? _stringOrNull(dynamic value) {
+  if (value == null) return null;
+  final text = '$value'.trim();
+  return text.isEmpty ? null : text;
+}
+
+
+class _RoofModelStepState {
+  const _RoofModelStepState({
+    required this.required,
+    required this.options,
+    required this.familyModelsCount,
+  });
+
+  final bool required;
+  final List<CalculatorOption> options;
+  final int familyModelsCount;
+
+  bool isSelected(String? modelCode) {
+    if (!required) return true;
+    if (modelCode == null || modelCode.isEmpty) return false;
+    return options.any((option) => option.code == modelCode);
+  }
+}
+
+_RoofModelStepState _roofModelStateFor(
+  CalculatorContext calculatorContext,
+  CalculatorDraft draft,
+  CalculatorTemplateOption? selectedTemplate,
+) {
+  final familyId = selectedTemplate?.productFamilyId ?? draft.productFamilyId;
+  if (familyId == null || familyId.isEmpty) {
+    return const _RoofModelStepState(
+      required: false,
+      options: [],
+      familyModelsCount: 0,
+    );
+  }
+
+  final allModels = calculatorContext.references['roof_models'] ?? const <CalculatorOption>[];
+  final familyModels = allModels.where((option) {
+    return _roofModelString(option.raw['product_family_id']) == familyId;
+  }).toList(growable: false);
+
+  // Business rule:
+  // - if product family has no roof_models at all, Model step is disabled and skipped;
+  // - if product family has roof_models, Model step is relevant/required;
+  // - the selectable list is a strict intersection:
+  //   same product_family_id AND same configurator_template_id.
+  if (familyModels.isEmpty) {
+    return const _RoofModelStepState(
+      required: false,
+      options: [],
+      familyModelsCount: 0,
+    );
+  }
+
+  final templateId = draft.templateId;
+  if (templateId == null || templateId.isEmpty) {
+    return _RoofModelStepState(
+      required: true,
+      options: const [],
+      familyModelsCount: familyModels.length,
+    );
+  }
+
+  final templateModels = familyModels.where((option) {
+    final optionTemplateId = _roofModelString(
+      option.raw['configurator_template_id'] ?? option.raw['template_id'],
+    );
+
+    return optionTemplateId == templateId;
+  }).toList(growable: false);
+
+  return _RoofModelStepState(
+    required: true,
+    options: templateModels,
+    familyModelsCount: familyModels.length,
+  );
+}
+
+String? _roofModelString(dynamic value) {
+  if (value == null) return null;
+  final text = '$value'.trim();
+  return text.isEmpty ? null : text;
 }
 
 bool _isStepComplete(String key, CalculatorDraft draft) {
