@@ -111,6 +111,26 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
     );
   }
 
+  void addCatalogOption({
+    required String catalogItemId,
+    String? catalogVariantId,
+    num quantity = 1,
+    int? schraegCount,
+  }) {
+    if (catalogItemId.trim().isEmpty) return;
+    state = state.copyWith(
+      options: [
+        ...state.options,
+        CalculatorSelectedOption(
+          catalogItemId: catalogItemId,
+          catalogVariantId: catalogVariantId == null || catalogVariantId.trim().isEmpty ? null : catalogVariantId,
+          quantity: quantity <= 0 ? 1 : quantity,
+          schraegCount: schraegCount == null || schraegCount <= 0 ? null : schraegCount.clamp(1, 2).toInt(),
+        ),
+      ],
+    );
+  }
+
   void removeOptionAt(int index) {
     final next = [...state.options]..removeAt(index);
     state = state.copyWith(options: next);

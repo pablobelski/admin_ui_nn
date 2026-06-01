@@ -8,6 +8,9 @@ class CalculatorContext {
     required this.references,
     required this.priceModes,
     required this.defaultSteps,
+    required this.optionItemTypes,
+    required this.optionCatalogItems,
+    required this.optionCatalogVariants,
   });
 
   factory CalculatorContext.fromJson(Map<String, dynamic> json) {
@@ -20,6 +23,9 @@ class CalculatorContext {
       defaultSteps: (json['defaultSteps'] as List? ?? const [])
           .map((entry) => '$entry')
           .toList(),
+      optionItemTypes: _list(json['optionItemTypes']).map(CalculatorOption.fromJson).toList(),
+      optionCatalogItems: _list(json['optionCatalogItems']).map(CalculatorCatalogItemOption.fromJson).toList(),
+      optionCatalogVariants: _list(json['optionCatalogVariants']).map(CalculatorCatalogVariantOption.fromJson).toList(),
     );
   }
 
@@ -29,6 +35,9 @@ class CalculatorContext {
   final Map<String, List<CalculatorOption>> references;
   final List<CalculatorOption> priceModes;
   final List<String> defaultSteps;
+  final List<CalculatorOption> optionItemTypes;
+  final List<CalculatorCatalogItemOption> optionCatalogItems;
+  final List<CalculatorCatalogVariantOption> optionCatalogVariants;
 }
 
 class CalculatorOption {
@@ -87,6 +96,109 @@ class CalculatorTemplateOption {
   final String productFamilyName;
   final Map<String, dynamic> defaultValues;
   final Map<String, dynamic> uiSchema;
+}
+
+class CalculatorCatalogItemOption {
+  const CalculatorCatalogItemOption({
+    required this.id,
+    required this.itemTypeCode,
+    required this.baseCode,
+    required this.name,
+    this.shortName,
+    this.measureTypeCode,
+    this.defaultLengthMm,
+    this.defaultColorCode,
+    this.raw = const {},
+  });
+
+  factory CalculatorCatalogItemOption.fromJson(Map<String, dynamic> json) {
+    return CalculatorCatalogItemOption(
+      id: _string(json['id']),
+      itemTypeCode: _string(json['item_type_code']),
+      baseCode: _string(json['base_code']),
+      name: _string(json['name']),
+      shortName: _nullableString(json['short_name']),
+      measureTypeCode: _nullableString(json['measure_type_code']),
+      defaultLengthMm: _intOrNull(json['default_length_mm']),
+      defaultColorCode: _nullableString(json['default_color_code']),
+      raw: json,
+    );
+  }
+
+  final String id;
+  final String itemTypeCode;
+  final String baseCode;
+  final String name;
+  final String? shortName;
+  final String? measureTypeCode;
+  final int? defaultLengthMm;
+  final String? defaultColorCode;
+  final Map<String, dynamic> raw;
+
+  String get displayName {
+    final code = baseCode.isEmpty ? null : baseCode;
+    return [code, name].whereType<String>().where((entry) => entry.isNotEmpty).join(' · ');
+  }
+}
+
+class CalculatorCatalogVariantOption {
+  const CalculatorCatalogVariantOption({
+    required this.id,
+    required this.catalogItemId,
+    required this.variantSku,
+    this.articleNo,
+    this.colorCode,
+    this.colorName,
+    this.lengthMm,
+    this.glassTypeCode,
+    this.coatingTypeCode,
+    this.systemCode,
+    this.systemName,
+    this.imageFileId,
+    this.raw = const {},
+  });
+
+  factory CalculatorCatalogVariantOption.fromJson(Map<String, dynamic> json) {
+    return CalculatorCatalogVariantOption(
+      id: _string(json['id']),
+      catalogItemId: _string(json['catalog_item_id']),
+      variantSku: _string(json['variant_sku']),
+      articleNo: _nullableString(json['article_no']),
+      colorCode: _nullableString(json['color_code']),
+      colorName: _nullableString(json['color_name']),
+      lengthMm: _intOrNull(json['length_mm']),
+      glassTypeCode: _nullableString(json['glass_type_code']),
+      coatingTypeCode: _nullableString(json['coating_type_code']),
+      systemCode: _nullableString(json['system_code']),
+      systemName: _nullableString(json['system_name']),
+      imageFileId: _nullableString(json['image_file_id']),
+      raw: json,
+    );
+  }
+
+  final String id;
+  final String catalogItemId;
+  final String variantSku;
+  final String? articleNo;
+  final String? colorCode;
+  final String? colorName;
+  final int? lengthMm;
+  final String? glassTypeCode;
+  final String? coatingTypeCode;
+  final String? systemCode;
+  final String? systemName;
+  final String? imageFileId;
+  final Map<String, dynamic> raw;
+
+  String get displayName {
+    final parts = [
+      if (variantSku.isNotEmpty) variantSku,
+      if (articleNo != null && articleNo!.isNotEmpty) articleNo,
+      if (colorName != null && colorName!.isNotEmpty) colorName,
+      if (lengthMm != null) '$lengthMm mm',
+    ];
+    return parts.join(' · ');
+  }
 }
 
 class CalculatorDraft {
@@ -224,6 +336,7 @@ class CalculatorSelectedOption {
     this.catalogItemId,
     this.catalogVariantId,
     this.quantity = 1,
+    this.schraegCount,
   });
 
   factory CalculatorSelectedOption.fromJson(Map<String, dynamic> json) {
@@ -232,6 +345,7 @@ class CalculatorSelectedOption {
       catalogItemId: _nullableString(json['catalog_item_id']),
       catalogVariantId: _nullableString(json['catalog_variant_id']),
       quantity: json['quantity'] is num ? json['quantity'] as num : num.tryParse('${json['quantity']}') ?? 1,
+      schraegCount: _intOrNull(json['schraeg_count']),
     );
   }
 
@@ -239,6 +353,7 @@ class CalculatorSelectedOption {
   final String? catalogItemId;
   final String? catalogVariantId;
   final num quantity;
+  final int? schraegCount;
 
   Map<String, dynamic> toJson() {
     return {
@@ -246,6 +361,7 @@ class CalculatorSelectedOption {
       if (catalogItemId != null && catalogItemId!.isNotEmpty) 'catalog_item_id': catalogItemId,
       if (catalogVariantId != null && catalogVariantId!.isNotEmpty) 'catalog_variant_id': catalogVariantId,
       'quantity': quantity,
+      if (schraegCount != null && schraegCount! > 0) 'schraeg_count': schraegCount,
     };
   }
 }
@@ -261,6 +377,9 @@ class CalculatorResult {
     required this.internalPrice,
     required this.sources,
     required this.bom,
+    required this.baseBom,
+    required this.optionBom,
+    required this.optionDiagnostics,
     required this.trace,
     required this.raw,
   });
@@ -276,6 +395,9 @@ class CalculatorResult {
       internalPrice: _map(json['internalPrice']),
       sources: _map(json['sources']),
       bom: _list(json['bom']),
+      baseBom: _list(json['baseBom'] ?? json['base_bom']),
+      optionBom: _list(json['optionBom'] ?? json['option_bom']),
+      optionDiagnostics: _list(json['optionDiagnostics'] ?? json['option_diagnostics']),
       trace: _list(json['trace']),
       raw: json,
     );
@@ -290,6 +412,9 @@ class CalculatorResult {
   final Map<String, dynamic> internalPrice;
   final Map<String, dynamic> sources;
   final List<Map<String, dynamic>> bom;
+  final List<Map<String, dynamic>> baseBom;
+  final List<Map<String, dynamic>> optionBom;
+  final List<Map<String, dynamic>> optionDiagnostics;
   final List<Map<String, dynamic>> trace;
   final Map<String, dynamic> raw;
 }
