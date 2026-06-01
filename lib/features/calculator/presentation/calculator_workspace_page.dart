@@ -173,6 +173,7 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
 
 
 
+
   void _moveStep(Set<String> disabledStepKeys, int direction) {
     var next = _selectedStep;
 
@@ -1572,45 +1573,6 @@ class _StepDefinition {
   final String key;
   final String title;
   final IconData icon;
-}
-
-
-List<CalculatorOption> _roofModelOptionsFor(
-  CalculatorContext calculatorContext,
-  CalculatorDraft draft,
-  CalculatorTemplateOption? selectedTemplate,
-) {
-  final templateId = draft.templateId;
-  final familyId = selectedTemplate?.productFamilyId ?? draft.productFamilyId;
-  if ((templateId == null || templateId.isEmpty) && (familyId == null || familyId.isEmpty)) {
-    return const [];
-  }
-
-  final models = calculatorContext.references['roof_models'] ?? const <CalculatorOption>[];
-
-  return models.where((option) {
-    final rawTemplateId = _stringOrNull(
-      option.raw['configurator_template_id'] ?? option.raw['template_id'],
-    );
-    final rawFamilyId = _stringOrNull(option.raw['product_family_id']);
-
-    if (rawTemplateId != null && rawTemplateId == templateId) {
-      return true;
-    }
-
-    if (rawFamilyId != null && rawFamilyId == familyId) {
-      return true;
-    }
-
-    return false;
-  }).toList(growable: false);
-}
-
-
-String? _stringOrNull(dynamic value) {
-  if (value == null) return null;
-  final text = '$value'.trim();
-  return text.isEmpty ? null : text;
 }
 
 
