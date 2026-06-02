@@ -205,6 +205,7 @@ const systemOptionPriceListPurposeOptions = <AdminSelectOption>[
 
 const systemSettingCodeOptions = <AdminSelectOption>[
   AdminSelectOption(value: 'head_organization', label: 'Head organization'),
+  AdminSelectOption(value: 'standard_ral_colors', label: 'Standard RAL colors'),
 ];
 
 const priceListScopeOptions = <AdminSelectOption>[
@@ -291,6 +292,7 @@ const adminNavGroups = <AdminNavGroup>[
         columns: [
           AdminColumn(key: 'setting_code', label: 'Setting', isPrimary: true, flex: 2),
           AdminColumn(key: 'organization_id', label: 'Organization', flex: 2, lookup: organizationLookup),
+          AdminColumn(key: 'value_text', label: 'Value', flex: 3),
           AdminColumn(key: 'notes', label: 'Notes', flex: 3),
           AdminColumn(key: 'is_active', label: 'Active'),
         ],
@@ -304,19 +306,24 @@ const adminNavGroups = <AdminNavGroup>[
             key: 'setting_code',
             label: 'Setting',
             options: systemSettingCodeOptions,
-            helperText: 'For the main organization use head_organization.',
+            helperText: 'head_organization = головная организация; standard_ral_colors = стандартные RAL без будущей наценки.',
           ),
           AdminField(
             key: 'organization_id',
             label: 'Head organization',
             lookup: organizationLookup,
-            helperText: 'Main internal organization used instead of the previously hard-coded VD.',
+            helperText: 'Only for head_organization. For standard_ral_colors leave this empty.',
+          ),
+          AdminField(
+            key: 'value_text',
+            label: 'Value / RAL colors',
+            helperText: 'For standard_ral_colors enter comma-separated RAL codes, e.g. 9010, 7016, 9005.',
           ),
           AdminField(key: 'value_json', label: 'Value JSON', type: AdminFieldType.json),
           AdminField(key: 'notes', label: 'Notes', type: AdminFieldType.longText),
           AdminField(key: 'is_active', label: 'Active', type: AdminFieldType.boolType),
         ],
-        description: 'Системные параметры платформы. Сейчас используется для выбора головной организации.',
+        description: 'Системные параметры платформы: головная организация и список стандартных RAL-цветов без будущей наценки.',
       ),
       AdminResourceDefinition(
         key: 'system_option_price_lists',
