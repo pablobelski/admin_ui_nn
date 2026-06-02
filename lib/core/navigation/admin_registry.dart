@@ -60,6 +60,13 @@ const priceListLookup = AdminLookup(
   showIdInDropdown: false,
 );
 
+const salesPriceListLookup = AdminLookup(
+  endpoint: '/api/admin/sales-price-lists',
+  labelKeys: ['code', 'name', 'scope_code', 'currency'],
+  limit: 1000,
+  showIdInDropdown: false,
+);
+
 const configuratorTemplateLookup = AdminLookup(
   endpoint: '/api/admin/configurator-templates',
   labelKeys: ['code', 'name', 'version', 'status_code'],
@@ -192,6 +199,14 @@ const scopeOptions = <AdminSelectOption>[
   AdminSelectOption(value: 'other', label: 'Other'),
 ];
 
+const systemOptionPriceListPurposeOptions = <AdminSelectOption>[
+  AdminSelectOption(value: 'calculator_options', label: 'Calculator options'),
+];
+
+const systemSettingCodeOptions = <AdminSelectOption>[
+  AdminSelectOption(value: 'head_organization', label: 'Head organization'),
+];
+
 const priceListScopeOptions = <AdminSelectOption>[
   AdminSelectOption(value: 'sales', label: 'Sales'),
   AdminSelectOption(value: 'retail_sales', label: 'Retail sales'),
@@ -259,6 +274,98 @@ const calculatorWorkspaceResource = AdminResourceDefinition(
     );
 
 const adminNavGroups = <AdminNavGroup>[
+
+
+  AdminNavGroup(
+    key: 'system_settings',
+    title: 'System Settings',
+    icon: Icons.admin_panel_settings_outlined,
+    resources: [
+      AdminResourceDefinition(
+        key: 'system_settings',
+        title: 'System Settings',
+        endpoint: '/api/admin/system-settings',
+        icon: Icons.settings_applications_outlined,
+        requiresSysadmin: true,
+        supportsDelete: false,
+        columns: [
+          AdminColumn(key: 'setting_code', label: 'Setting', isPrimary: true, flex: 2),
+          AdminColumn(key: 'organization_id', label: 'Organization', flex: 2, lookup: organizationLookup),
+          AdminColumn(key: 'notes', label: 'Notes', flex: 3),
+          AdminColumn(key: 'is_active', label: 'Active'),
+        ],
+        listFilters: [
+          AdminResourceFilter(key: 'setting_code', label: 'Setting', options: systemSettingCodeOptions),
+          AdminResourceFilter(key: 'organization_id', label: 'Organization', lookup: organizationLookup),
+          AdminResourceFilter(key: 'is_active', label: 'Active', options: activeFilterOptions),
+        ],
+        formFields: [
+          AdminField(
+            key: 'setting_code',
+            label: 'Setting',
+            options: systemSettingCodeOptions,
+            helperText: 'For the main organization use head_organization.',
+          ),
+          AdminField(
+            key: 'organization_id',
+            label: 'Head organization',
+            lookup: organizationLookup,
+            helperText: 'Main internal organization used instead of the previously hard-coded VD.',
+          ),
+          AdminField(key: 'value_json', label: 'Value JSON', type: AdminFieldType.json),
+          AdminField(key: 'notes', label: 'Notes', type: AdminFieldType.longText),
+          AdminField(key: 'is_active', label: 'Active', type: AdminFieldType.boolType),
+        ],
+        description: 'Системные параметры платформы. Сейчас используется для выбора головной организации.',
+      ),
+      AdminResourceDefinition(
+        key: 'system_option_price_lists',
+        title: 'Option Price Lists',
+        endpoint: '/api/admin/system-option-price-lists',
+        icon: Icons.playlist_add_check_outlined,
+        requiresSysadmin: true,
+        columns: [
+          AdminColumn(key: 'purpose_code', label: 'Purpose', isPrimary: true, flex: 2),
+          AdminColumn(key: 'price_list_id', label: 'Sales price list', flex: 3, lookup: salesPriceListLookup),
+          AdminColumn(key: 'sort_order', label: 'Sort'),
+          AdminColumn(key: 'is_active', label: 'Active'),
+        ],
+        listFilters: [
+          AdminResourceFilter(key: 'purpose_code', label: 'Purpose', options: systemOptionPriceListPurposeOptions),
+          AdminResourceFilter(key: 'price_list_id', label: 'Sales price list', lookup: salesPriceListLookup),
+          AdminResourceFilter(key: 'is_active', label: 'Active', options: activeFilterOptions),
+        ],
+        formFields: [
+          AdminField(
+            key: 'purpose_code',
+            label: 'Purpose',
+            options: systemOptionPriceListPurposeOptions,
+            helperText: 'calculator_options = price lists used for pricing calculator Options.',
+          ),
+          AdminField(
+            key: 'price_list_id',
+            label: 'Sales price list',
+            lookup: salesPriceListLookup,
+            helperText: 'Only active price lists with scope_code = sales are shown here.',
+          ),
+          AdminField(key: 'sort_order', label: 'Sort order', type: AdminFieldType.number),
+          AdminField(key: 'metadata_json', label: 'Metadata JSON', type: AdminFieldType.json),
+          AdminField(key: 'is_active', label: 'Active', type: AdminFieldType.boolType),
+        ],
+        detailActions: [
+          AdminDetailAction(
+            label: 'Show price list',
+            targetResourceKey: 'price_lists',
+            filterKey: 'id',
+            sourceValueKey: 'price_list_id',
+            selectTargetRow: true,
+            icon: Icons.request_quote_outlined,
+          ),
+        ],
+        description: 'Прайслисты scope_code=sales, из которых калькулятор берет цены для выбранных Options.',
+      ),
+    ],
+  ),
 
   AdminNavGroup(
       key: 'calculator',

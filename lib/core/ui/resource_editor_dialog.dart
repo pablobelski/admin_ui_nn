@@ -294,7 +294,16 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
       }
 
       final rawValue = _controllers[field.key]!.text.trim();
-      if (rawValue.isEmpty) continue;
+      if (rawValue.isEmpty) {
+        if (widget.initialData != null &&
+            !field.readOnly &&
+            field.lookup != null &&
+            widget.initialData!.containsKey(field.key) &&
+            widget.initialData![field.key] != null) {
+          payload[field.key] = null;
+        }
+        continue;
+      }
 
       switch (field.type) {
         case AdminFieldType.number:

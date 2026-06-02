@@ -104,6 +104,7 @@ class CalculatorCatalogItemOption {
     required this.itemTypeCode,
     required this.baseCode,
     required this.name,
+    this.profileNo,
     this.shortName,
     this.measureTypeCode,
     this.defaultLengthMm,
@@ -117,9 +118,10 @@ class CalculatorCatalogItemOption {
       itemTypeCode: _string(json['item_type_code']),
       baseCode: _string(json['base_code']),
       name: _string(json['name']),
+      profileNo: _nullableString(json['profile_no']),
       shortName: _nullableString(json['short_name']),
       measureTypeCode: _nullableString(json['measure_type_code']),
-      defaultLengthMm: _intOrNull(json['default_length_mm']),
+      defaultLengthMm: _lengthOrNull(json['default_length_mm']),
       defaultColorCode: _nullableString(json['default_color_code']),
       raw: json,
     );
@@ -129,6 +131,7 @@ class CalculatorCatalogItemOption {
   final String itemTypeCode;
   final String baseCode;
   final String name;
+  final String? profileNo;
   final String? shortName;
   final String? measureTypeCode;
   final int? defaultLengthMm;
@@ -147,6 +150,7 @@ class CalculatorCatalogVariantOption {
     required this.catalogItemId,
     required this.variantSku,
     this.articleNo,
+    this.profileNo,
     this.colorCode,
     this.colorName,
     this.lengthMm,
@@ -164,9 +168,10 @@ class CalculatorCatalogVariantOption {
       catalogItemId: _string(json['catalog_item_id']),
       variantSku: _string(json['variant_sku']),
       articleNo: _nullableString(json['article_no']),
+      profileNo: _nullableString(json['profile_no']),
       colorCode: _nullableString(json['color_code']),
       colorName: _nullableString(json['color_name']),
-      lengthMm: _intOrNull(json['length_mm']),
+      lengthMm: _lengthOrNull(json['length_mm'] ?? json['default_length_mm']),
       glassTypeCode: _nullableString(json['glass_type_code']),
       coatingTypeCode: _nullableString(json['coating_type_code']),
       systemCode: _nullableString(json['system_code']),
@@ -180,6 +185,7 @@ class CalculatorCatalogVariantOption {
   final String catalogItemId;
   final String variantSku;
   final String? articleNo;
+  final String? profileNo;
   final String? colorCode;
   final String? colorName;
   final int? lengthMm;
@@ -192,6 +198,7 @@ class CalculatorCatalogVariantOption {
 
   String get displayName {
     final parts = [
+      if (profileNo != null && profileNo!.isNotEmpty) profileNo,
       if (variantSku.isNotEmpty) variantSku,
       if (articleNo != null && articleNo!.isNotEmpty) articleNo,
       if (colorName != null && colorName!.isNotEmpty) colorName,
@@ -544,6 +551,12 @@ int? _intOrNull(dynamic value) {
   if (value is int) return value;
   if (value is num) return value.toInt();
   return int.tryParse('$value');
+}
+
+int? _lengthOrNull(dynamic value) {
+  final length = _intOrNull(value);
+  if (length == null || length <= 1) return null;
+  return length;
 }
 
 String _stableJson(dynamic value) {

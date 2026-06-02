@@ -575,10 +575,15 @@ class _StepCard extends ConsumerWidget {
           emptyLabel: '— Color not selected —',
         );
       case 'options':
+        final result = ref.watch(calculatorResultProvider).maybeWhen(
+              data: (value) => value,
+              orElse: () => null,
+            );
         return _OptionsStep(
           contextData: calculatorContext,
           draft: draft,
           notifier: notifier,
+          optionDiagnostics: result?.optionDiagnostics ?? const [],
         );
       case 'delivery':
         return _SelectStep(
@@ -866,20 +871,24 @@ class _OptionsStep extends StatefulWidget {
     required this.contextData,
     required this.draft,
     required this.notifier,
+    required this.optionDiagnostics,
   });
 
   final CalculatorContext contextData;
   final CalculatorDraft draft;
   final CalculatorDraftNotifier notifier;
+  final List<Map<String, dynamic>> optionDiagnostics;
 
   @override
   State<_OptionsStep> createState() => _OptionsStepState();
 }
 
 class _OptionsStepState extends State<_OptionsStep> {
-  final _itemSearchController = TextEditingController();
-  final _variantSearchController = TextEditingController();
+  final _catalogItemController = TextEditingController();
+  final _catalogVariantController = TextEditingController();
   final _quantityController = TextEditingController(text: '1');
+  final _catalogItemFocusNode = FocusNode();
+  final _catalogVariantFocusNode = FocusNode();
 
   String? _itemTypeCode;
   String? _catalogItemId;
@@ -888,19 +897,21 @@ class _OptionsStepState extends State<_OptionsStep> {
 
   @override
   void dispose() {
-    _itemSearchController.dispose();
-    _variantSearchController.dispose();
+    _catalogItemController.dispose();
+    _catalogVariantController.dispose();
     _quantityController.dispose();
+    _catalogItemFocusNode.dispose();
+    _catalogVariantFocusNode.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final items = _filteredItems();
+    final items = _itemsForSelectedType();
     final selectedItem = _findItem(_catalogItemId);
-    final variantsForItem = _filteredVariantsForSelectedItem();
+    final variantsForItem = _allVariantsForSelectedItem();
     final selectedVariant = _findVariant(_catalogVariantId);
-    final addRequiresVariant = selectedItem != null && _allVariantsForItem(selectedItem.id).isNotEmpty;
+    final addRequiresVariant = selectedItem != null && variantsForItem.isNotEmpty;
     final canAdd = selectedItem != null && (!addRequiresVariant || selectedVariant != null);
 
     return Column(
@@ -912,15 +923,6 @@ class _OptionsStepState extends State<_OptionsStep> {
           'Options are additional catalog positions selected only for the current calculation. They do not change the base set, but are added to price lines and option BOM.',
         ),
         const SizedBox(height: 16),
-        TextField(
-          controller: _itemSearchController,
-          decoration: const InputDecoration(
-            labelText: 'Search catalog items / variants',
-            prefixIcon: Icon(Icons.search),
-          ),
-          onChanged: (_) => setState(() {}),
-        ),
-        const SizedBox(height: 12),
         Wrap(
           spacing: 12,
           runSpacing: 12,
@@ -941,29 +943,43 @@ class _OptionsStepState extends State<_OptionsStep> {
                   _itemTypeCode = value == null || value.isEmpty ? null : value;
                   _catalogItemId = null;
                   _catalogVariantId = null;
+                  _catalogItemController.clear();
+                  _catalogVariantController.clear();
                 }),
               ),
             ),
             SizedBox(
-              width: 440,
-              child: DropdownButtonFormField<String>(
-                initialValue: items.any((entry) => entry.id == _catalogItemId) ? _catalogItemId : null,
-                isExpanded: true,
-                decoration: const InputDecoration(labelText: 'Catalog item'),
-                items: [
-                  const DropdownMenuItem(value: '', child: Text('— Select catalog item —')),
-                  for (final item in items.take(250))
-                    DropdownMenuItem(
-                      value: item.id,
-                      child: Text(item.displayName, overflow: TextOverflow.ellipsis),
-                    ),
-                ],
-                onChanged: (value) => setState(() {
-                  _catalogItemId = value == null || value.isEmpty ? null : value;
-                  _catalogVariantId = null;
-                  _variantSearchController.clear();
-                }),
+              width: 520,
+              child: _SearchableOptionField<CalculatorCatalogItemOption>(
+                label: 'Catalog item',
+                hintText: 'Type to search catalog items',
+                controller: _catalogItemController,
+                focusNode: _catalogItemFocusNode,
+                options: items,
+                displayStringForOption: _itemLabel,
+                searchStringForOption: _itemSearchText,
+                onSelected: (item) {
+                  final variants = _variantsForItem(item.id);
+                  final onlyVariant = variants.length == 1 ? variants.first : null;
+                  setState(() {
+                    _catalogItemId = item.id;
+                    _catalogVariantId = onlyVariant?.id;
+                    _catalogItemController.text = _itemLabel(item);
+                    _catalogVariantController.text = onlyVariant == null ? '' : _variantLabel(onlyVariant);
+                  });
+                  if (onlyVariant == null && variants.isNotEmpty) {
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (!mounted) return;
+                      _catalogVariantFocusNode.requestFocus();
+                    });
+                  }
+                },
               ),
+            ),
+            OutlinedButton.icon(
+              onPressed: _clearOptionSelection,
+              icon: const Icon(Icons.restart_alt),
+              label: const Text('Clear'),
             ),
           ],
         ),
@@ -976,81 +992,71 @@ class _OptionsStepState extends State<_OptionsStep> {
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    TextField(
-                      controller: _variantSearchController,
-                      decoration: const InputDecoration(
-                        labelText: 'Search SKU / color / length / article no',
-                        prefixIcon: Icon(Icons.search),
+                    _SearchableOptionField<CalculatorCatalogVariantOption>(
+                      label: variantsForItem.isEmpty ? 'Catalog variant / SKU (none available)' : 'Catalog variant / SKU',
+                      hintText: variantsForItem.isEmpty ? 'This catalog item has no SKU variants' : 'Type to search SKU / color / length / article no',
+                      controller: _catalogVariantController,
+                      focusNode: _catalogVariantFocusNode,
+                      enabled: variantsForItem.isNotEmpty,
+                      options: variantsForItem,
+                      displayStringForOption: _variantLabel,
+                      onSelected: (variant) => setState(() {
+                        _catalogVariantId = variant.id;
+                        _catalogVariantController.text = _variantLabel(variant);
+                      }),
+                    ),
+                    const SizedBox(height: 6),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: Text(
+                        _skuCountLabel(variantsForItem),
+                        style: Theme.of(context).textTheme.bodySmall,
                       ),
-                      onChanged: (_) => setState(() {}),
                     ),
                     const SizedBox(height: 12),
-                    DropdownButtonFormField<String>(
-                      initialValue: variantsForItem.any((entry) => entry.id == _catalogVariantId) ? _catalogVariantId : null,
-                      isExpanded: true,
-                      decoration: InputDecoration(
-                        labelText: variantsForItem.isEmpty ? 'Catalog variant / SKU (none available)' : 'Catalog variant / SKU',
-                      ),
-                      items: [
-                        if (variantsForItem.isEmpty)
-                          const DropdownMenuItem(value: '', child: Text('— Use catalog item without SKU —'))
-                        else
-                          const DropdownMenuItem(value: '', child: Text('— Select concrete SKU —')),
-                        for (final variant in variantsForItem.take(300))
-                          DropdownMenuItem(
-                            value: variant.id,
-                            child: Text(variant.displayName, overflow: TextOverflow.ellipsis),
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        SizedBox(
+                          width: 100,
+                          child: TextField(
+                            controller: _quantityController,
+                            keyboardType: TextInputType.number,
+                            decoration: const InputDecoration(labelText: 'Qty'),
+                          ),
+                        ),
+                        SizedBox(
+                          width: 115,
+                          child: DropdownButtonFormField<int>(
+                            initialValue: _schraegCount,
+                            decoration: const InputDecoration(labelText: 'Schräg'),
+                            items: const [
+                              DropdownMenuItem(value: null, child: Text('—')),
+                              DropdownMenuItem(value: 1, child: Text('1')),
+                              DropdownMenuItem(value: 2, child: Text('2')),
+                            ],
+                            onChanged: (value) => setState(() => _schraegCount = value),
+                          ),
+                        ),
+                        FilledButton.icon(
+                          onPressed: canAdd ? _addSelectedOption : null,
+                          icon: const Icon(Icons.add),
+                          label: const Text('Add'),
+                        ),
+                        if (addRequiresVariant && selectedVariant == null)
+                          Text(
+                            'Select concrete SKU before adding.',
+                            style: TextStyle(color: Theme.of(context).colorScheme.error),
                           ),
                       ],
-                      onChanged: variantsForItem.isEmpty
-                          ? null
-                          : (value) => setState(() {
-                                _catalogVariantId = value == null || value.isEmpty ? null : value;
-                              }),
                     ),
                   ],
                 ),
               ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 12,
-            runSpacing: 12,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              SizedBox(
-                width: 140,
-                child: TextField(
-                  controller: _quantityController,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(labelText: 'Qty'),
-                ),
-              ),
-              SizedBox(
-                width: 140,
-                child: DropdownButtonFormField<int>(
-                  initialValue: _schraegCount,
-                  decoration: const InputDecoration(labelText: 'Schräg'),
-                  items: const [
-                    DropdownMenuItem(value: null, child: Text('—')),
-                    DropdownMenuItem(value: 1, child: Text('1')),
-                    DropdownMenuItem(value: 2, child: Text('2')),
-                  ],
-                  onChanged: (value) => setState(() => _schraegCount = value),
-                ),
-              ),
-              FilledButton.icon(
-                onPressed: canAdd ? _addSelectedOption : null,
-                icon: const Icon(Icons.add),
-                label: const Text('Add'),
-              ),
-              if (addRequiresVariant && selectedVariant == null)
-                Text(
-                  'Select concrete SKU before adding.',
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
-                ),
             ],
           ),
         ],
@@ -1058,45 +1064,30 @@ class _OptionsStepState extends State<_OptionsStep> {
         _SelectedOptionsTable(
           contextData: widget.contextData,
           options: widget.draft.options,
+          optionDiagnostics: widget.optionDiagnostics,
           onRemove: widget.notifier.removeOptionAt,
         ),
       ],
     );
   }
 
-  List<CalculatorCatalogItemOption> _filteredItems() {
-    final query = _normalize(_itemSearchController.text);
-    final variantsByItem = <String, List<CalculatorCatalogVariantOption>>{};
-    for (final variant in widget.contextData.optionCatalogVariants) {
-      variantsByItem.putIfAbsent(variant.catalogItemId, () => []).add(variant);
-    }
-
+  List<CalculatorCatalogItemOption> _itemsForSelectedType() {
     return widget.contextData.optionCatalogItems.where((item) {
       if (_itemTypeCode != null && item.itemTypeCode != _itemTypeCode) return false;
-      if (query.isEmpty) return true;
-      final itemText = _normalize('${item.baseCode} ${item.name} ${item.shortName ?? ''}');
-      final variantText = (variantsByItem[item.id] ?? const <CalculatorCatalogVariantOption>[])
-          .map((variant) => _normalize('${variant.variantSku} ${variant.articleNo ?? ''} ${variant.colorName ?? ''} ${variant.lengthMm ?? ''}'))
-          .join(' ');
-      return itemText.contains(query) || variantText.contains(query);
+      return true;
     }).toList(growable: false);
   }
 
-  List<CalculatorCatalogVariantOption> _allVariantsForItem(String itemId) {
+  List<CalculatorCatalogVariantOption> _allVariantsForSelectedItem() {
+    final itemId = _catalogItemId;
+    if (itemId == null) return const [];
+    return _variantsForItem(itemId);
+  }
+
+  List<CalculatorCatalogVariantOption> _variantsForItem(String itemId) {
     return widget.contextData.optionCatalogVariants
         .where((entry) => entry.catalogItemId == itemId)
         .toList(growable: false);
-  }
-
-  List<CalculatorCatalogVariantOption> _filteredVariantsForSelectedItem() {
-    final itemId = _catalogItemId;
-    if (itemId == null) return const [];
-    final query = _normalize(_variantSearchController.text);
-    return _allVariantsForItem(itemId).where((variant) {
-      if (query.isEmpty) return true;
-      final text = _normalize('${variant.variantSku} ${variant.articleNo ?? ''} ${variant.colorName ?? ''} ${variant.lengthMm ?? ''} ${variant.glassTypeCode ?? ''}');
-      return text.contains(query);
-    }).toList(growable: false);
   }
 
   CalculatorCatalogItemOption? _findItem(String? id) {
@@ -1107,6 +1098,51 @@ class _OptionsStepState extends State<_OptionsStep> {
   CalculatorCatalogVariantOption? _findVariant(String? id) {
     if (id == null) return null;
     return widget.contextData.optionCatalogVariants.where((entry) => entry.id == id).cast<CalculatorCatalogVariantOption?>().firstOrNull;
+  }
+
+  String _itemLabel(CalculatorCatalogItemOption item) {
+    return [
+      if (item.baseCode.isNotEmpty) item.baseCode,
+      if (item.profileNo != null && item.profileNo!.isNotEmpty) item.profileNo,
+      item.name,
+    ].whereType<String>().where((entry) => entry.isNotEmpty).join(' · ');
+  }
+
+  String _itemSearchText(CalculatorCatalogItemOption item) {
+    final variantText = widget.contextData.optionCatalogVariants
+        .where((variant) => variant.catalogItemId == item.id)
+        .map(_variantLabel)
+        .join(' ');
+    return '${_itemLabel(item)} ${item.shortName ?? ''} ${item.itemTypeCode} $variantText';
+  }
+
+  String _variantLabel(CalculatorCatalogVariantOption variant) {
+    return [
+      if (variant.profileNo != null && variant.profileNo!.isNotEmpty) variant.profileNo,
+      if (variant.variantSku.isNotEmpty) variant.variantSku,
+      if (variant.articleNo != null && variant.articleNo!.isNotEmpty) variant.articleNo,
+      if (variant.colorName != null && variant.colorName!.isNotEmpty) variant.colorName,
+      if (_formatLengthMm(variant.lengthMm) != null) _formatLengthMm(variant.lengthMm),
+    ].whereType<String>().where((entry) => entry.isNotEmpty).join(' · ');
+  }
+
+  String _skuCountLabel(List<CalculatorCatalogVariantOption> variants) {
+    final count = variants.length;
+    if (count == 0) return '0 SKUs found';
+    if (count == 1) return '1 SKU found';
+    return '$count SKUs found';
+  }
+
+  void _clearOptionSelection() {
+    setState(() {
+      _itemTypeCode = null;
+      _catalogItemId = null;
+      _catalogVariantId = null;
+      _catalogItemController.clear();
+      _catalogVariantController.clear();
+      _quantityController.text = '1';
+      _schraegCount = null;
+    });
   }
 
   void _addSelectedOption() {
@@ -1121,6 +1157,7 @@ class _OptionsStepState extends State<_OptionsStep> {
     );
     setState(() {
       _catalogVariantId = null;
+      _catalogVariantController.clear();
       _quantityController.text = '1';
       _schraegCount = null;
     });
@@ -1156,11 +1193,13 @@ class _SelectedOptionsTable extends StatelessWidget {
   const _SelectedOptionsTable({
     required this.contextData,
     required this.options,
+    required this.optionDiagnostics,
     required this.onRemove,
   });
 
   final CalculatorContext contextData;
   final List<CalculatorSelectedOption> options;
+  final List<Map<String, dynamic>> optionDiagnostics;
   final ValueChanged<int> onRemove;
 
   @override
@@ -1175,57 +1214,138 @@ class _SelectedOptionsTable extends StatelessWidget {
 
     return Card(
       margin: EdgeInsets.zero,
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: DataTable(
-          columns: const [
-            DataColumn(label: Text('Article no')),
-            DataColumn(label: Text('Name')),
-            DataColumn(label: Text('Qty')),
-            DataColumn(label: Text('Unit')),
-            DataColumn(label: Text('Source')),
-            DataColumn(label: Text('Option')),
-            DataColumn(label: Text('')),
-          ],
-          rows: [
-            for (var i = 0; i < options.length; i++)
-              _selectedOptionRow(i),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _optionTableHeader(context),
+            const Divider(height: 1),
+            for (var i = 0; i < options.length; i++) ...[
+              _selectedOptionRow(context, i),
+              if (i < options.length - 1) const Divider(height: 1),
+            ],
           ],
         ),
       ),
     );
   }
 
-  DataRow _selectedOptionRow(int index) {
+  Widget _optionTableHeader(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _cell(context, const Text('Profile no'), width: 74, header: true),
+          _cell(context, const Text('Name'), flex: 5, header: true),
+          _cell(context, const Text('Qty'), width: 46, header: true),
+          _cell(context, const Text('Unit'), width: 52, header: true),
+          _cell(context, const Text('Option'), width: 104, header: true),
+          _cell(context, const Text('Price'), width: 84, header: true),
+          const SizedBox(width: 40),
+        ],
+      ),
+    );
+  }
+
+  Widget _selectedOptionRow(BuildContext context, int index) {
     final option = options[index];
     final item = _findItem(option.catalogItemId);
     final variant = _findVariant(option.catalogVariantId);
-    final articleNo = variant?.articleNo ?? item?.baseCode ?? option.optionCode ?? '—';
-    final name = [
-      if (item != null) item.name,
-      if (variant != null && variant.variantSku.isNotEmpty) variant.variantSku,
-    ].join(' · ');
+    final diagnostic = _diagnosticFor(index, option);
+    final profileNo = variant?.profileNo ?? item?.profileNo ?? diagnostic?['profile_no'];
+    final name = _selectedOptionName(item, variant, option);
     final optionText = [
       if (variant?.colorName != null) variant!.colorName!,
-      if (variant?.lengthMm != null) '${variant!.lengthMm} mm',
+      if (_formatLengthMm(variant?.lengthMm) != null) _formatLengthMm(variant?.lengthMm),
       if (option.schraegCount != null && option.schraegCount! > 0) 'Schräg ${option.schraegCount}',
-    ].join(' · ');
+    ].whereType<String>().join(' · ');
 
-    return DataRow(
-      cells: [
-        DataCell(Text(articleNo)),
-        DataCell(SizedBox(width: 260, child: Text(name.isEmpty ? 'Option' : name, overflow: TextOverflow.ellipsis))),
-        DataCell(Text('${option.quantity}')),
-        DataCell(Text(item?.measureTypeCode ?? 'piece')),
-        DataCell(Text(option.catalogVariantId == null ? 'catalog_items' : 'catalog_variants')),
-        DataCell(SizedBox(width: 200, child: Text(optionText.isEmpty ? '—' : optionText, overflow: TextOverflow.ellipsis))),
-        DataCell(IconButton(
-          tooltip: 'Remove',
-          onPressed: () => onRemove(index),
-          icon: const Icon(Icons.delete_outline),
-        )),
-      ],
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _cell(context, Text('${profileNo ?? '—'}'), width: 74),
+          _cell(
+            context,
+            Text(
+              name,
+              softWrap: true,
+              maxLines: 4,
+              overflow: TextOverflow.ellipsis,
+            ),
+            flex: 5,
+          ),
+          _cell(context, Text('${option.quantity}'), width: 46),
+          _cell(context, Text(item?.measureTypeCode ?? diagnostic?['unit_code']?.toString() ?? 'piece'), width: 52),
+          _cell(
+            context,
+            Text(
+              optionText.isEmpty ? '—' : optionText,
+              softWrap: true,
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+            ),
+            width: 104,
+          ),
+          _cell(context, _SelectedOptionPriceCell(diagnostic: diagnostic), width: 84),
+          SizedBox(
+            width: 40,
+            child: IconButton(
+              tooltip: 'Remove',
+              onPressed: () => onRemove(index),
+              icon: const Icon(Icons.delete_outline),
+            ),
+          ),
+        ],
+      ),
     );
+  }
+
+  Widget _cell(
+    BuildContext context,
+    Widget child, {
+    double? width,
+    int? flex,
+    bool header = false,
+  }) {
+    final textStyle = header ? Theme.of(context).textTheme.labelMedium : Theme.of(context).textTheme.bodySmall;
+    final content = DefaultTextStyle.merge(
+      style: textStyle,
+      child: Padding(
+        padding: const EdgeInsets.only(right: 8),
+        child: child,
+      ),
+    );
+    if (width != null) return SizedBox(width: width, child: content);
+    return Expanded(flex: flex ?? 1, child: content);
+  }
+
+  String _selectedOptionName(
+    CalculatorCatalogItemOption? item,
+    CalculatorCatalogVariantOption? variant,
+    CalculatorSelectedOption option,
+  ) {
+    final parts = <String?>[
+      item?.itemTypeCode,
+      item?.name,
+      variant?.variantSku,
+      if (item == null && variant == null) option.optionCode ?? option.catalogVariantId ?? option.catalogItemId ?? 'Option',
+    ];
+    return _joinDistinctTextParts(parts);
+  }
+
+  Map<String, dynamic>? _diagnosticFor(int index, CalculatorSelectedOption option) {
+    for (final row in optionDiagnostics) {
+      final rowIndex = _num(row['option_index']).toInt();
+      if (rowIndex != index) continue;
+      final sameItem = '${row['catalog_item_id'] ?? ''}' == (option.catalogItemId ?? '');
+      final sameVariant = '${row['catalog_variant_id'] ?? ''}' == (option.catalogVariantId ?? '');
+      if (sameItem && sameVariant) return row;
+    }
+    return null;
   }
 
   CalculatorCatalogItemOption? _findItem(String? id) {
@@ -1236,6 +1356,50 @@ class _SelectedOptionsTable extends StatelessWidget {
   CalculatorCatalogVariantOption? _findVariant(String? id) {
     if (id == null) return null;
     return contextData.optionCatalogVariants.where((entry) => entry.id == id).cast<CalculatorCatalogVariantOption?>().firstOrNull;
+  }
+}
+
+class _SelectedOptionPriceCell extends StatelessWidget {
+  const _SelectedOptionPriceCell({required this.diagnostic});
+
+  final Map<String, dynamic>? diagnostic;
+
+  @override
+  Widget build(BuildContext context) {
+    final row = diagnostic;
+    if (row == null) {
+      return const Tooltip(
+        message: 'Run calculation to resolve option price.',
+        child: Icon(Icons.help_outline, size: 18),
+      );
+    }
+
+    final warning = row['warning'];
+    final priceFound = row['price_found'] == true;
+    final amount = row['amount'];
+    if (!priceFound) {
+      return Tooltip(
+        message: warning == null ? 'No price found for this option.' : '$warning',
+        child: Icon(Icons.warning_amber_outlined, color: Theme.of(context).colorScheme.error, size: 18),
+      );
+    }
+
+    final priceText = amount == null ? 'OK' : _moneyFormat.format(_num(amount));
+    if (warning == null || '$warning'.isEmpty) {
+      return Text(priceText);
+    }
+
+    return Tooltip(
+      message: '$warning',
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(priceText),
+          const SizedBox(width: 4),
+          Icon(Icons.warning_amber_outlined, color: Theme.of(context).colorScheme.error, size: 16),
+        ],
+      ),
+    );
   }
 }
 
@@ -1337,7 +1501,7 @@ class _ResultPanel extends StatelessWidget {
             children: [
               Expanded(
                 child: DefaultTabController(
-                  length: 6,
+                  length: 5,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
@@ -1349,7 +1513,6 @@ class _ResultPanel extends StatelessWidget {
                         isScrollable: true,
                         tabs: [
                           Tab(text: 'Lines'),
-                          Tab(text: 'Options'),
                           Tab(text: 'BOM'),
                           Tab(text: 'Sources'),
                           Tab(text: 'Trace'),
@@ -1360,11 +1523,10 @@ class _ResultPanel extends StatelessWidget {
                         child: TabBarView(
                           children: [
                             _LinesTab(result: result),
-                            _OptionsDiagnosticsTab(result: result),
                             _BomTab(result: result),
-                            JsonViewCard(title: 'Price sources', data: result.sources),
+                            _ScrollableResultCard(child: JsonViewCard(title: 'Price sources', data: result.sources)),
                             _SimpleRowsTab(rows: result.trace, empty: 'No trace.'),
-                            JsonViewCard(title: 'Raw calculation result', data: result.raw),
+                            _ScrollableResultCard(child: JsonViewCard(title: 'Raw calculation result', data: result.raw)),
                           ],
                         ),
                       ),
@@ -1515,6 +1677,14 @@ class _PriceHeader extends StatelessWidget {
     final gross = _num(result.price['gross']);
     final margin = result.internalPrice['margin'];
     final quoteTitle = loadedQuote?.quoteNo ?? 'new quote';
+    final missingOptionPriceCount = result.optionDiagnostics
+        .where((row) => row['price_found'] == false)
+        .length;
+    final nonOptionWarnings = result.warnings.where((warning) {
+      final code = '${warning['code'] ?? ''}';
+      return !code.startsWith('option_');
+    }).toList(growable: false);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1553,9 +1723,18 @@ class _PriceHeader extends StatelessWidget {
             _MetricChip(label: 'Currency', value: result.currency),
           ],
         ),
-        if (result.warnings.isNotEmpty) ...[
+        if (missingOptionPriceCount > 0) ...[
           const SizedBox(height: 12),
-          for (final warning in result.warnings.take(3))
+          Text(
+            '⚠ $missingOptionPriceCount selected option(s) have no configured price. See Options tab.',
+            style: TextStyle(color: Theme.of(context).colorScheme.error),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
+        if (nonOptionWarnings.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          for (final warning in nonOptionWarnings.take(3))
             Padding(
               padding: const EdgeInsets.only(bottom: 4),
               child: Text(
@@ -1595,76 +1774,6 @@ class _LinesTab extends StatelessWidget {
   }
 }
 
-class _OptionsDiagnosticsTab extends StatelessWidget {
-  const _OptionsDiagnosticsTab({required this.result});
-
-  final CalculatorResult result;
-
-  @override
-  Widget build(BuildContext context) {
-    if (result.optionDiagnostics.isEmpty) {
-      return const Center(child: Text('No selected options.'));
-    }
-
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(12),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: DataTable(
-          columns: const [
-            DataColumn(label: Text('Article no')),
-            DataColumn(label: Text('Name')),
-            DataColumn(label: Text('Qty')),
-            DataColumn(label: Text('Unit price')),
-            DataColumn(label: Text('Schräg')),
-            DataColumn(label: Text('Amount')),
-            DataColumn(label: Text('Status')),
-          ],
-          rows: [
-            for (final row in result.optionDiagnostics)
-              DataRow(cells: [
-                DataCell(Text('${row['article_no'] ?? '—'}')),
-                DataCell(SizedBox(width: 260, child: Text('${row['name'] ?? 'Option'}', overflow: TextOverflow.ellipsis))),
-                DataCell(Text('${row['quantity'] ?? 1} ${row['unit_code'] ?? ''}')),
-                DataCell(Text(row['unit_price'] == null ? '—' : _moneyFormat.format(_num(row['unit_price'])))),
-                DataCell(Text(_schraegDiagnosticText(row))),
-                DataCell(Text(row['amount'] == null ? '—' : _moneyFormat.format(_num(row['amount'])))),
-                DataCell(_OptionStatusChip(row: row)),
-              ]),
-          ],
-        ),
-      ),
-    );
-  }
-
-  String _schraegDiagnosticText(Map<String, dynamic> row) {
-    final count = _num(row['schraeg_count']).toInt();
-    if (count <= 0) return '—';
-    final price = row['schraeg_unit_price'];
-    return price == null ? 'Schräg $count / no price' : 'Schräg $count · ${_moneyFormat.format(_num(price))}';
-  }
-}
-
-class _OptionStatusChip extends StatelessWidget {
-  const _OptionStatusChip({required this.row});
-
-  final Map<String, dynamic> row;
-
-  @override
-  Widget build(BuildContext context) {
-    final warning = row['warning'];
-    final ok = row['price_found'] == true && (warning == null || '$warning'.isEmpty);
-    return Tooltip(
-      message: warning == null ? (ok ? 'Price resolved' : 'No price') : '$warning',
-      child: Chip(
-        visualDensity: VisualDensity.compact,
-        avatar: Icon(ok ? Icons.check_circle_outline : Icons.warning_amber_outlined, size: 16),
-        label: Text(ok ? 'OK' : 'Warning'),
-      ),
-    );
-  }
-}
-
 class _BomTab extends StatelessWidget {
   const _BomTab({required this.result});
 
@@ -1672,10 +1781,7 @@ class _BomTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final rows = [
-      ...result.baseBom.map((entry) => {...entry, '_set': 'base'}),
-      ...result.optionBom.map((entry) => {...entry, '_set': 'option'}),
-    ];
+    final rows = result.bom;
     if (rows.isEmpty) return const Center(child: Text('No BOM lines yet.'));
 
     return ListView.separated(
@@ -1686,7 +1792,6 @@ class _BomTab extends StatelessWidget {
         final row = rows[index];
         return ListTile(
           dense: true,
-          leading: Chip(label: Text('${row['_set']}')),
           title: Text('${row['name'] ?? row['article_no'] ?? 'BOM line'}'),
           subtitle: Text('Article: ${row['article_no'] ?? '—'} · Qty: ${row['quantity'] ?? 1} ${row['unit_code'] ?? ''}'),
         );
@@ -1725,6 +1830,293 @@ class _SimpleRowsTab extends StatelessWidget {
           subtitle: Text(subtitle, maxLines: 2, overflow: TextOverflow.ellipsis),
         );
       },
+    );
+  }
+}
+
+class _SearchableOptionField<T extends Object> extends StatefulWidget {
+  const _SearchableOptionField({
+    required this.label,
+    required this.controller,
+    required this.focusNode,
+    required this.options,
+    required this.displayStringForOption,
+    required this.onSelected,
+    this.searchStringForOption,
+    this.hintText,
+    this.enabled = true,
+  });
+
+  final String label;
+  final String? hintText;
+  final TextEditingController controller;
+  final FocusNode focusNode;
+  final List<T> options;
+  final String Function(T option) displayStringForOption;
+  final String Function(T option)? searchStringForOption;
+  final ValueChanged<T> onSelected;
+  final bool enabled;
+
+  @override
+  State<_SearchableOptionField<T>> createState() => _SearchableOptionFieldState<T>();
+}
+
+class _SearchableOptionFieldState<T extends Object> extends State<_SearchableOptionField<T>> {
+  final _layerLink = LayerLink();
+  OverlayEntry? _overlayEntry;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_handleInputChanged);
+    widget.focusNode.addListener(_handleFocusChanged);
+  }
+
+  @override
+  void didUpdateWidget(covariant _SearchableOptionField<T> oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller.removeListener(_handleInputChanged);
+      widget.controller.addListener(_handleInputChanged);
+    }
+    if (oldWidget.focusNode != widget.focusNode) {
+      oldWidget.focusNode.removeListener(_handleFocusChanged);
+      widget.focusNode.addListener(_handleFocusChanged);
+    }
+
+    if (!widget.enabled || widget.options.isEmpty) {
+      _hideOverlay();
+      return;
+    }
+    if (widget.focusNode.hasFocus) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && widget.focusNode.hasFocus) _showOrUpdateOverlay();
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_handleInputChanged);
+    widget.focusNode.removeListener(_handleFocusChanged);
+    _hideOverlay();
+    super.dispose();
+  }
+
+  void _handleInputChanged() {
+    if (!widget.focusNode.hasFocus) return;
+    _showOrUpdateOverlay();
+  }
+
+  void _handleFocusChanged() {
+    if (widget.focusNode.hasFocus) {
+      _showOrUpdateOverlay();
+      return;
+    }
+    Future<void>.delayed(const Duration(milliseconds: 120), () {
+      if (!mounted || widget.focusNode.hasFocus) return;
+      _hideOverlay();
+    });
+  }
+
+  List<T> _filteredOptions() {
+    if (!widget.enabled) return <T>[];
+    final query = _normalize(widget.controller.text);
+    return widget.options.where((option) {
+      if (query.isEmpty) return true;
+      final searchable = widget.searchStringForOption?.call(option) ?? widget.displayStringForOption(option);
+      return _normalize(searchable).contains(query);
+    }).take(250).toList(growable: false);
+  }
+
+  void _showOrUpdateOverlay() {
+    if (!widget.enabled || !mounted) {
+      _hideOverlay();
+      return;
+    }
+
+    final rows = _filteredOptions();
+    if (rows.isEmpty) {
+      _hideOverlay();
+      return;
+    }
+
+    if (_overlayEntry == null) {
+      _overlayEntry = OverlayEntry(builder: (_) => _buildOverlay());
+      Overlay.of(context).insert(_overlayEntry!);
+    } else {
+      _overlayEntry!.markNeedsBuild();
+    }
+  }
+
+  void _hideOverlay() {
+    _overlayEntry?.remove();
+    _overlayEntry = null;
+  }
+
+  Widget _buildOverlay() {
+    final box = context.findRenderObject() as RenderBox?;
+    final width = box?.size.width ?? 520.0;
+    final rows = _filteredOptions();
+    if (rows.isEmpty) return const SizedBox.shrink();
+
+    return Positioned.fill(
+      child: CompositedTransformFollower(
+        link: _layerLink,
+        showWhenUnlinked: false,
+        targetAnchor: Alignment.bottomLeft,
+        followerAnchor: Alignment.topLeft,
+        offset: const Offset(0, 4),
+        child: Align(
+          alignment: Alignment.topLeft,
+          child: Material(
+            elevation: 6,
+            borderRadius: BorderRadius.circular(12),
+            clipBehavior: Clip.antiAlias,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: 260,
+                minWidth: width,
+                maxWidth: width,
+              ),
+              child: ListView.separated(
+                padding: EdgeInsets.zero,
+                shrinkWrap: true,
+                itemCount: rows.length,
+                separatorBuilder: (_, __) => const Divider(height: 1),
+                itemBuilder: (context, index) {
+                  final option = rows[index];
+                  return ListTile(
+                    dense: true,
+                    title: Text(
+                      widget.displayStringForOption(option),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    onTap: () {
+                      widget.controller.text = widget.displayStringForOption(option);
+                      widget.onSelected(option);
+                      _hideOverlay();
+                    },
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return CompositedTransformTarget(
+      link: _layerLink,
+      child: TextField(
+        controller: widget.controller,
+        focusNode: widget.focusNode,
+        enabled: widget.enabled,
+        decoration: InputDecoration(
+          labelText: widget.label,
+          hintText: widget.hintText,
+          prefixIcon: const Icon(Icons.search),
+          suffixIcon: IconButton(
+            tooltip: 'Show list',
+            onPressed: widget.enabled
+                ? () {
+                    widget.focusNode.requestFocus();
+                    widget.controller.selection = TextSelection.collapsed(offset: widget.controller.text.length);
+                    _showOrUpdateOverlay();
+                  }
+                : null,
+            icon: const Icon(Icons.expand_more),
+          ),
+        ),
+        onTap: () {
+          widget.focusNode.requestFocus();
+          widget.controller.selection = TextSelection.collapsed(offset: widget.controller.text.length);
+          _showOrUpdateOverlay();
+        },
+      ),
+    );
+  }
+}
+
+class _ScrollableDataTable extends StatefulWidget {
+  const _ScrollableDataTable({
+    required this.dataTable,
+  });
+
+  final DataTable dataTable;
+
+  @override
+  State<_ScrollableDataTable> createState() => _ScrollableDataTableState();
+}
+
+class _ScrollableDataTableState extends State<_ScrollableDataTable> {
+  final _verticalController = ScrollController();
+  final _horizontalController = ScrollController();
+
+  @override
+  void dispose() {
+    _verticalController.dispose();
+    _horizontalController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final table = Scrollbar(
+      controller: _horizontalController,
+      thumbVisibility: true,
+      child: SingleChildScrollView(
+        controller: _horizontalController,
+        scrollDirection: Axis.horizontal,
+        child: widget.dataTable,
+      ),
+    );
+
+    final scrollable = Scrollbar(
+      controller: _verticalController,
+      thumbVisibility: true,
+      child: SingleChildScrollView(
+        controller: _verticalController,
+        child: table,
+      ),
+    );
+
+    return scrollable;
+  }
+}
+
+class _ScrollableResultCard extends StatefulWidget {
+  const _ScrollableResultCard({required this.child});
+
+  final Widget child;
+
+  @override
+  State<_ScrollableResultCard> createState() => _ScrollableResultCardState();
+}
+
+class _ScrollableResultCardState extends State<_ScrollableResultCard> {
+  final _controller = ScrollController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scrollbar(
+      controller: _controller,
+      thumbVisibility: true,
+      child: SingleChildScrollView(
+        controller: _controller,
+        padding: const EdgeInsets.all(12),
+        child: widget.child,
+      ),
     );
   }
 }
@@ -2095,8 +2487,27 @@ String _stepHint(String key, CalculatorDraft draft) {
   }
 }
 
+String _joinDistinctTextParts(Iterable<String?> values) {
+  final result = <String>[];
+  final normalized = <String>{};
+  for (final raw in values) {
+    final value = raw?.trim();
+    if (value == null || value.isEmpty) continue;
+    final key = _normalize(value);
+    if (key.isEmpty || normalized.contains(key)) continue;
+    normalized.add(key);
+    result.add(value);
+  }
+  return result.isEmpty ? 'Option' : result.join(' · ');
+}
+
 String _normalize(String value) {
   return value.toLowerCase().replaceAll(RegExp(r'[^a-z0-9äöüß]+'), ' ').trim();
+}
+
+String? _formatLengthMm(int? value) {
+  if (value == null || value <= 1) return null;
+  return '$value mm';
 }
 
 num _num(dynamic value) {

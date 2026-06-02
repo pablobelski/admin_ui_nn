@@ -44,8 +44,13 @@ class _AdminShellState extends ConsumerState<AdminShell> {
 
   @override
   Widget build(BuildContext context) {
+    final authSession = ref.watch(authSessionProvider);
     final selectedKey = ref.watch(selectedResourceProvider);
     final selectedResource = findResourceByKey(selectedKey);
+    final effectiveResource = selectedResource.requiresSysadmin && authSession.roleCode != 'sysadmin'
+        ? dashboardResource
+        : selectedResource;
+    final effectiveSelectedKey = effectiveResource.key;
     final isNarrow = MediaQuery.sizeOf(context).width < 1100;
 
     return Scaffold(
@@ -56,7 +61,7 @@ class _AdminShellState extends ConsumerState<AdminShell> {
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Center(
               child: Text(
-                ref.watch(authSessionProvider).email ?? 'catalogs / prices / rules / refs',
+                authSession.email ?? 'catalogs / prices / rules / refs',
               ),
             ),
           ),
@@ -76,7 +81,8 @@ class _AdminShellState extends ConsumerState<AdminShell> {
           ? Drawer(
               child: SafeArea(
                 child: _NavigationTree(
-                  selectedKey: selectedKey,
+                  selectedKey: effectiveSelectedKey,
+                  roleCode: authSession.roleCode,
                   onSelect: (key) {
                     ref.read(selectedResourceProvider.notifier).select(key);
                     Navigator.of(context).pop();
@@ -95,7 +101,8 @@ class _AdminShellState extends ConsumerState<AdminShell> {
                 color: Colors.white,
                 child: SafeArea(
                   child: _NavigationTree(
-                    selectedKey: selectedKey,
+                    selectedKey: effectiveSelectedKey,
+                    roleCode: authSession.roleCode,
                     onSelect: (key) {
                       ref.read(selectedResourceProvider.notifier).select(key);
                     },
@@ -107,7 +114,7 @@ class _AdminShellState extends ConsumerState<AdminShell> {
           Expanded(
             child: Padding(
               padding: const EdgeInsets.all(16),
-              child: _buildPage(selectedResource),
+              child: _buildPage(effectiveResource),
             ),
           ),
         ],
@@ -275,11 +282,13 @@ class _ChangeOwnPasswordDialogState extends State<_ChangeOwnPasswordDialog> {
 class _NavigationTree extends StatelessWidget {
   const _NavigationTree({
     required this.selectedKey,
+    required this.roleCode,
     required this.onSelect,
     required this.onOpenInNewTab,
   });
 
   final String selectedKey;
+  final String? roleCode;
   final ValueChanged<String> onSelect;
   final ValueChanged<String> onOpenInNewTab;
 
@@ -298,14 +307,15 @@ class _NavigationTree extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         for (final group in adminNavGroups)
+          if (_visibleResources(group).isNotEmpty)
           Card(
             child: ExpansionTile(
               leading: Icon(group.icon),
               title: Text(group.title),
-              initiallyExpanded: group.resources.any((r) => r.key == selectedKey),
+              initiallyExpanded: _visibleResources(group).any((r) => r.key == selectedKey),
               childrenPadding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
               children: [
-                for (final resource in group.resources)
+                for (final resource in _visibleResources(group))
                   _NavTile(
                     resourceKey: resource.key,
                     title: resource.title,
@@ -319,6 +329,13 @@ class _NavigationTree extends StatelessWidget {
           ),
       ],
     );
+  }
+
+  List<AdminResourceDefinition> _visibleResources(AdminNavGroup group) {
+    if (roleCode == 'sysadmin') {
+      return group.resources;
+    }
+    return group.resources.where((resource) => !resource.requiresSysadmin).toList(growable: false);
   }
 }
 
