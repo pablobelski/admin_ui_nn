@@ -203,6 +203,17 @@ const systemOptionPriceListPurposeOptions = <AdminSelectOption>[
   AdminSelectOption(value: 'calculator_options', label: 'Calculator options'),
 ];
 
+const additionalHandlingDependencyTypeOptions = <AdminSelectOption>[
+  AdminSelectOption(value: 'additional_handling', label: 'Additional handling'),
+];
+
+const catalogItemRelationTypeOptions = <AdminSelectOption>[
+  AdminSelectOption(value: 'contains', label: 'Contains / child item'),
+  AdminSelectOption(value: 'requires', label: 'Requires'),
+  AdminSelectOption(value: 'substitute', label: 'Substitute'),
+  AdminSelectOption(value: 'compatible_with', label: 'Compatible with'),
+];
+
 const systemSettingCodeOptions = <AdminSelectOption>[
   AdminSelectOption(value: 'head_organization', label: 'Head organization'),
   AdminSelectOption(value: 'standard_ral_colors', label: 'Standard RAL colors'),
@@ -370,6 +381,120 @@ const adminNavGroups = <AdminNavGroup>[
           ),
         ],
         description: 'Прайслисты scope_code=sales, из которых калькулятор берет цены для выбранных Options.',
+      ),
+      AdminResourceDefinition(
+        key: 'catalog_item_additional_handling',
+        title: 'Additional Handling',
+        endpoint: '/api/admin/catalog-item-additional-handling',
+        icon: Icons.engineering_outlined,
+        requiresSysadmin: true,
+        columns: [
+          AdminColumn(key: 'source_catalog_item_id', label: 'Option / source item', isPrimary: true, flex: 3, lookup: catalogItemLookup),
+          AdminColumn(key: 'service_catalog_item_id', label: 'Internal service', flex: 3, lookup: catalogItemLookup),
+          AdminColumn(key: 'product_family_id', label: 'Product family', flex: 2, lookup: productFamilyLookup),
+          AdminColumn(key: 'dependency_type_code', label: 'Type', flex: 2),
+          AdminColumn(key: 'sort_order', label: 'Sort'),
+          AdminColumn(key: 'is_active', label: 'Active'),
+        ],
+        listFilters: [
+          AdminResourceFilter(key: 'source_catalog_item_id', label: 'Option / source item', lookup: catalogItemLookup),
+          AdminResourceFilter(key: 'service_catalog_item_id', label: 'Internal service', lookup: catalogItemLookup),
+          AdminResourceFilter(key: 'product_family_id', label: 'Product family', lookup: productFamilyLookup),
+          AdminResourceFilter(key: 'dependency_type_code', label: 'Type', options: additionalHandlingDependencyTypeOptions),
+          AdminResourceFilter(key: 'is_active', label: 'Active', options: activeFilterOptions),
+        ],
+        formFields: [
+          AdminField(
+            key: 'source_catalog_item_id',
+            label: 'Option / source catalog item',
+            lookup: catalogItemLookup,
+            helperText: 'Catalog item selected in calculator. DB validation does not allow service here.',
+          ),
+          AdminField(
+            key: 'service_catalog_item_id',
+            label: 'Internal service catalog item',
+            lookup: catalogItemLookup,
+            helperText: 'Must reference catalog item with item_type_code = service.',
+          ),
+          AdminField(key: 'product_family_id', label: 'Product family', lookup: productFamilyLookup),
+          AdminField(key: 'dependency_type_code', label: 'Type', options: additionalHandlingDependencyTypeOptions),
+          AdminField(
+            key: 'quantity_formula_json',
+            label: 'Quantity formula JSON',
+            type: AdminFieldType.json,
+            helperText: 'Optional. Empty JSON means default qty = 1 or calculator fallback.',
+          ),
+          AdminField(key: 'metadata_json', label: 'Metadata JSON', type: AdminFieldType.json),
+          AdminField(key: 'sort_order', label: 'Sort order', type: AdminFieldType.number),
+          AdminField(key: 'is_active', label: 'Active', type: AdminFieldType.boolType),
+        ],
+        detailActions: [
+          AdminDetailAction(
+            label: 'Show source item',
+            targetResourceKey: 'catalog_items',
+            filterKey: 'id',
+            sourceValueKey: 'source_catalog_item_id',
+            selectTargetRow: true,
+            icon: Icons.inventory_2_outlined,
+          ),
+          AdminDetailAction(
+            label: 'Show service item',
+            targetResourceKey: 'catalog_items',
+            filterKey: 'id',
+            sourceValueKey: 'service_catalog_item_id',
+            selectTargetRow: true,
+            icon: Icons.engineering_outlined,
+          ),
+        ],
+        description: 'Связи: выбранная опция/catalog item -> внутренние service catalog items, которые калькулятор добавит как дополнительные работы.',
+      ),
+      AdminResourceDefinition(
+        key: 'catalog_item_relations',
+        title: 'Catalog Item Relations',
+        endpoint: '/api/admin/catalog-item-relations',
+        icon: Icons.account_tree_outlined,
+        requiresSysadmin: true,
+        columns: [
+          AdminColumn(key: 'parent_catalog_item_id', label: 'Parent item', isPrimary: true, flex: 3, lookup: catalogItemLookup),
+          AdminColumn(key: 'child_catalog_item_id', label: 'Child item', flex: 3, lookup: catalogItemLookup),
+          AdminColumn(key: 'relation_type_code', label: 'Relation', flex: 2),
+          AdminColumn(key: 'sort_order', label: 'Sort'),
+          AdminColumn(key: 'is_active', label: 'Active'),
+        ],
+        listFilters: [
+          AdminResourceFilter(key: 'parent_catalog_item_id', label: 'Parent item', lookup: catalogItemLookup),
+          AdminResourceFilter(key: 'child_catalog_item_id', label: 'Child item', lookup: catalogItemLookup),
+          AdminResourceFilter(key: 'relation_type_code', label: 'Relation', options: catalogItemRelationTypeOptions),
+          AdminResourceFilter(key: 'is_active', label: 'Active', options: activeFilterOptions),
+        ],
+        formFields: [
+          AdminField(key: 'parent_catalog_item_id', label: 'Parent catalog item', lookup: catalogItemLookup),
+          AdminField(key: 'child_catalog_item_id', label: 'Child catalog item', lookup: catalogItemLookup),
+          AdminField(key: 'relation_type_code', label: 'Relation', options: catalogItemRelationTypeOptions),
+          AdminField(key: 'quantity_formula_json', label: 'Quantity formula JSON', type: AdminFieldType.json),
+          AdminField(key: 'metadata_json', label: 'Metadata JSON', type: AdminFieldType.json),
+          AdminField(key: 'sort_order', label: 'Sort order', type: AdminFieldType.number),
+          AdminField(key: 'is_active', label: 'Active', type: AdminFieldType.boolType),
+        ],
+        detailActions: [
+          AdminDetailAction(
+            label: 'Show parent item',
+            targetResourceKey: 'catalog_items',
+            filterKey: 'id',
+            sourceValueKey: 'parent_catalog_item_id',
+            selectTargetRow: true,
+            icon: Icons.inventory_2_outlined,
+          ),
+          AdminDetailAction(
+            label: 'Show child item',
+            targetResourceKey: 'catalog_items',
+            filterKey: 'id',
+            sourceValueKey: 'child_catalog_item_id',
+            selectTargetRow: true,
+            icon: Icons.inventory_outlined,
+          ),
+        ],
+        description: 'Родительские/дочерние отношения catalog items для комплектов, узлов, зависимостей и будущего состава изделий.',
       ),
     ],
   ),
