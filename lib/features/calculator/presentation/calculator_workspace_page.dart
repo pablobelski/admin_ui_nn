@@ -889,17 +889,22 @@ class _OptionsStepState extends State<_OptionsStep> {
   final _quantityController = TextEditingController(text: '1');
   final _catalogItemFocusNode = FocusNode();
   final _catalogVariantFocusNode = FocusNode();
+  final Map<String, TextEditingController> _additionalHandlingControllers = {};
+  final Set<String> _enabledAdditionalHandlingIds = <String>{};
 
+  String? _pendingAdditionalHandlingId;
   String? _itemTypeCode;
   String? _catalogItemId;
   String? _catalogVariantId;
-  int? _schraegCount;
 
   @override
   void dispose() {
     _catalogItemController.dispose();
     _catalogVariantController.dispose();
     _quantityController.dispose();
+    for (final controller in _additionalHandlingControllers.values) {
+      controller.dispose();
+    }
     _catalogItemFocusNode.dispose();
     _catalogVariantFocusNode.dispose();
     super.dispose();
@@ -911,6 +916,9 @@ class _OptionsStepState extends State<_OptionsStep> {
     final selectedItem = _findItem(_catalogItemId);
     final variantsForItem = _allVariantsForSelectedItem();
     final selectedVariant = _findVariant(_catalogVariantId);
+    final additionalHandlingOptions = selectedItem == null
+        ? const <CalculatorAdditionalHandlingOption>[]
+        : widget.contextData.additionalHandlingByParentItemId[selectedItem.id] ?? const <CalculatorAdditionalHandlingOption>[];
     final addRequiresVariant = selectedItem != null && variantsForItem.isNotEmpty;
     final canAdd = selectedItem != null && (!addRequiresVariant || selectedVariant != null);
 
@@ -945,6 +953,7 @@ class _OptionsStepState extends State<_OptionsStep> {
                   _catalogVariantId = null;
                   _catalogItemController.clear();
                   _catalogVariantController.clear();
+                  _resetAdditionalHandlingInputs();
                 }),
               ),
             ),
@@ -966,6 +975,7 @@ class _OptionsStepState extends State<_OptionsStep> {
                     _catalogVariantId = onlyVariant?.id;
                     _catalogItemController.text = _itemLabel(item);
                     _catalogVariantController.text = onlyVariant == null ? '' : _variantLabel(onlyVariant);
+                    _resetAdditionalHandlingInputs();
                   });
                   if (onlyVariant == null && variants.isNotEmpty) {
                     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1016,43 +1026,11 @@ class _OptionsStepState extends State<_OptionsStep> {
                       ),
                     ),
                     const SizedBox(height: 12),
-                    Wrap(
-                      spacing: 10,
-                      runSpacing: 10,
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      children: [
-                        SizedBox(
-                          width: 100,
-                          child: TextField(
-                            controller: _quantityController,
-                            keyboardType: TextInputType.number,
-                            decoration: const InputDecoration(labelText: 'Qty'),
-                          ),
-                        ),
-                        SizedBox(
-                          width: 115,
-                          child: DropdownButtonFormField<int>(
-                            initialValue: _schraegCount,
-                            decoration: const InputDecoration(labelText: 'Schräg'),
-                            items: const [
-                              DropdownMenuItem(value: null, child: Text('—')),
-                              DropdownMenuItem(value: 1, child: Text('1')),
-                              DropdownMenuItem(value: 2, child: Text('2')),
-                            ],
-                            onChanged: (value) => setState(() => _schraegCount = value),
-                          ),
-                        ),
-                        FilledButton.icon(
-                          onPressed: canAdd ? _addSelectedOption : null,
-                          icon: const Icon(Icons.add),
-                          label: const Text('Add'),
-                        ),
-                        if (addRequiresVariant && selectedVariant == null)
-                          Text(
-                            'Select concrete SKU before adding.',
-                            style: TextStyle(color: Theme.of(context).colorScheme.error),
-                          ),
-                      ],
+                    _optionAddPanel(
+                      additionalHandlingOptions: additionalHandlingOptions,
+                      canAdd: canAdd,
+                      addRequiresVariant: addRequiresVariant,
+                      selectedVariant: selectedVariant,
                     ),
                   ],
                 ),
@@ -1133,6 +1111,257 @@ class _OptionsStepState extends State<_OptionsStep> {
     return '$count SKUs found';
   }
 
+  TextEditingController _handlingQuantityController(CalculatorAdditionalHandlingOption option) {
+    return _additionalHandlingControllers.putIfAbsent(
+      option.catalogItemId,
+      () => TextEditingController(text: '1'),
+    );
+  }
+
+  Widget _optionAddPanel({
+    required List<CalculatorAdditionalHandlingOption> additionalHandlingOptions,
+    required bool canAdd,
+    required bool addRequiresVariant,
+    required CalculatorCatalogVariantOption? selectedVariant,
+  }) {
+    final unselectedHandlings = _unselectedAdditionalHandlingOptions(additionalHandlingOptions);
+    final pendingHandlingId = _effectivePendingAdditionalHandlingId(unselectedHandlings);
+    final selectedHandlings = additionalHandlingOptions
+        .where((entry) => _enabledAdditionalHandlingIds.contains(entry.catalogItemId))
+        .toList(growable: false);
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Theme.of(context).dividerColor),
+        color: Theme.of(context).colorScheme.surface,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(
+                width: 110,
+                child: TextField(
+                  controller: _quantityController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: 'Qty'),
+                ),
+              ),
+              if (additionalHandlingOptions.isNotEmpty) ...[
+                const SizedBox(width: 12),
+                Expanded(
+                  child: DropdownButtonFormField<String>(
+                    key: ValueKey('additional-handling-$pendingHandlingId-${unselectedHandlings.length}'),
+                    initialValue: pendingHandlingId,
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Possible handling',
+                      isDense: true,
+                    ),
+                    items: [
+                      for (final option in unselectedHandlings)
+                        DropdownMenuItem(
+                          value: option.catalogItemId,
+                          child: Text(
+                            '${option.displayName} · max ${_formatInputQuantity(option.maxQuantity)}',
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                    ],
+                    onChanged: unselectedHandlings.isEmpty
+                        ? null
+                        : (value) => setState(() => _pendingAdditionalHandlingId = value),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                FilledButton.tonalIcon(
+                  onPressed: unselectedHandlings.isEmpty ? null : () => _addPendingAdditionalHandling(additionalHandlingOptions),
+                  icon: const Icon(Icons.add_task_outlined),
+                  label: const Text('Add handling'),
+                ),
+              ],
+            ],
+          ),
+          if (additionalHandlingOptions.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(
+              unselectedHandlings.isEmpty && selectedHandlings.isEmpty
+                  ? 'No additional handling available for this option.'
+                  : 'Add handling only when this option needs extra production work.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+            ),
+          ],
+          if (selectedHandlings.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            _selectedAdditionalHandlingFrame(selectedHandlings),
+          ],
+          const SizedBox(height: 12),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              if (addRequiresVariant && selectedVariant == null)
+                Expanded(
+                  child: Text(
+                    'Select concrete SKU before adding.',
+                    style: TextStyle(color: Theme.of(context).colorScheme.error),
+                  ),
+                )
+              else
+                const Spacer(),
+              FilledButton.icon(
+                onPressed: canAdd ? _addSelectedOption : null,
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size(168, 48),
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  textStyle: Theme.of(context).textTheme.titleSmall,
+                ),
+                icon: const Icon(Icons.add),
+                label: const Text('Add option'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<CalculatorAdditionalHandlingOption> _unselectedAdditionalHandlingOptions(List<CalculatorAdditionalHandlingOption> options) {
+    return options
+        .where((entry) => !_enabledAdditionalHandlingIds.contains(entry.catalogItemId))
+        .toList(growable: false);
+  }
+
+  String? _effectivePendingAdditionalHandlingId(List<CalculatorAdditionalHandlingOption> unselectedOptions) {
+    final pendingId = _pendingAdditionalHandlingId;
+    if (pendingId != null && unselectedOptions.any((entry) => entry.catalogItemId == pendingId)) {
+      return pendingId;
+    }
+    return unselectedOptions.isEmpty ? null : unselectedOptions.first.catalogItemId;
+  }
+
+  void _addPendingAdditionalHandling(List<CalculatorAdditionalHandlingOption> options) {
+    final unselected = _unselectedAdditionalHandlingOptions(options);
+    if (unselected.isEmpty) return;
+    final pendingId = _effectivePendingAdditionalHandlingId(unselected) ?? unselected.first.catalogItemId;
+    final option = unselected.firstWhere(
+      (entry) => entry.catalogItemId == pendingId,
+      orElse: () => unselected.first,
+    );
+
+    setState(() {
+      _enabledAdditionalHandlingIds.add(option.catalogItemId);
+      final controller = _handlingQuantityController(option);
+      final currentQuantity = num.tryParse(controller.text.replaceAll(',', '.')) ?? 0;
+      if (currentQuantity <= 0) controller.text = '1';
+      final nextUnselected = options
+          .where((entry) => !_enabledAdditionalHandlingIds.contains(entry.catalogItemId))
+          .cast<CalculatorAdditionalHandlingOption?>()
+          .firstOrNull;
+      _pendingAdditionalHandlingId = nextUnselected?.catalogItemId;
+    });
+  }
+
+  Widget _selectedAdditionalHandlingFrame(List<CalculatorAdditionalHandlingOption> selectedHandlings) {
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'Selected handling',
+            style: Theme.of(context).textTheme.labelMedium,
+          ),
+          const SizedBox(height: 6),
+          for (final option in selectedHandlings)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      option.displayName,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  SizedBox(
+                    width: 84,
+                    child: TextField(
+                      controller: _handlingQuantityController(option),
+                      keyboardType: TextInputType.number,
+                      decoration: InputDecoration(
+                        isDense: true,
+                        labelText: 'Qty',
+                        helperText: 'max ${_formatInputQuantity(option.maxQuantity)}',
+                      ),
+                      onEditingComplete: () => _clampHandlingQuantity(option),
+                      onSubmitted: (_) => _clampHandlingQuantity(option),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Remove handling',
+                    onPressed: () => setState(() {
+                      _enabledAdditionalHandlingIds.remove(option.catalogItemId);
+                      _pendingAdditionalHandlingId ??= option.catalogItemId;
+                    }),
+                    icon: const Icon(Icons.close),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  void _clampHandlingQuantity(CalculatorAdditionalHandlingOption option) {
+    final controller = _handlingQuantityController(option);
+    var quantity = num.tryParse(controller.text.replaceAll(',', '.')) ?? 1;
+    if (quantity <= 0) quantity = 1;
+    if (option.maxQuantity > 0 && quantity > option.maxQuantity) {
+      quantity = option.maxQuantity;
+    }
+    controller.text = _formatInputQuantity(quantity);
+  }
+
+  void _resetAdditionalHandlingInputs() {
+    _enabledAdditionalHandlingIds.clear();
+    _pendingAdditionalHandlingId = null;
+    for (final controller in _additionalHandlingControllers.values) {
+      controller.text = '1';
+    }
+  }
+
+  List<CalculatorSelectedAdditionalHandling> _selectedAdditionalHandlings(String parentItemId) {
+    final options = widget.contextData.additionalHandlingByParentItemId[parentItemId] ?? const <CalculatorAdditionalHandlingOption>[];
+    final result = <CalculatorSelectedAdditionalHandling>[];
+    for (final option in options) {
+      if (!_enabledAdditionalHandlingIds.contains(option.catalogItemId)) continue;
+      final controller = _handlingQuantityController(option);
+      var quantity = num.tryParse(controller.text.replaceAll(',', '.')) ?? 0;
+      if (quantity <= 0) continue;
+      if (option.maxQuantity > 0 && quantity > option.maxQuantity) {
+        quantity = option.maxQuantity;
+        controller.text = option.maxQuantity.toString();
+      }
+      result.add(CalculatorSelectedAdditionalHandling(catalogItemId: option.catalogItemId, quantity: quantity));
+    }
+    return result;
+  }
+
   void _clearOptionSelection() {
     setState(() {
       _itemTypeCode = null;
@@ -1141,7 +1370,7 @@ class _OptionsStepState extends State<_OptionsStep> {
       _catalogItemController.clear();
       _catalogVariantController.clear();
       _quantityController.text = '1';
-      _schraegCount = null;
+      _resetAdditionalHandlingInputs();
     });
   }
 
@@ -1153,13 +1382,13 @@ class _OptionsStepState extends State<_OptionsStep> {
       catalogItemId: itemId,
       catalogVariantId: _catalogVariantId,
       quantity: quantity,
-      schraegCount: _schraegCount,
+      additionalHandlings: _selectedAdditionalHandlings(itemId),
     );
     setState(() {
       _catalogVariantId = null;
       _catalogVariantController.clear();
       _quantityController.text = '1';
-      _schraegCount = null;
+      _resetAdditionalHandlingInputs();
     });
   }
 }
@@ -1238,10 +1467,10 @@ class _SelectedOptionsTable extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _cell(context, const Text('Profile no'), width: 74, header: true),
-          _cell(context, const Text('Name'), flex: 5, header: true),
+          _cell(context, const Text('Name / additional handling'), flex: 5, header: true),
           _cell(context, const Text('Qty'), width: 46, header: true),
           _cell(context, const Text('Unit'), width: 52, header: true),
-          _cell(context, const Text('Option'), width: 104, header: true),
+          _cell(context, const Text('Option info'), width: 132, header: true),
           _cell(context, const Text('Price'), width: 84, header: true),
           const SizedBox(width: 40),
         ],
@@ -1256,11 +1485,13 @@ class _SelectedOptionsTable extends StatelessWidget {
     final diagnostic = _diagnosticFor(index, option);
     final profileNo = variant?.profileNo ?? item?.profileNo ?? diagnostic?['profile_no'];
     final name = _selectedOptionName(item, variant, option);
-    final optionText = [
+    final availableHandlings = item == null
+        ? const <CalculatorAdditionalHandlingOption>[]
+        : contextData.additionalHandlingByParentItemId[item.id] ?? const <CalculatorAdditionalHandlingOption>[];
+    final optionTextParts = [
       if (variant?.colorName != null) variant!.colorName!,
       if (_formatLengthMm(variant?.lengthMm) != null) _formatLengthMm(variant?.lengthMm),
-      if (option.schraegCount != null && option.schraegCount! > 0) 'Schräg ${option.schraegCount}',
-    ].whereType<String>().join(' · ');
+    ].whereType<String>().where((entry) => entry.isNotEmpty).toList(growable: false);
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
@@ -1270,11 +1501,10 @@ class _SelectedOptionsTable extends StatelessWidget {
           _cell(context, Text('${profileNo ?? '—'}'), width: 74),
           _cell(
             context,
-            Text(
-              name,
-              softWrap: true,
-              maxLines: 4,
-              overflow: TextOverflow.ellipsis,
+            _SelectedOptionNameCell(
+              name: name,
+              availableHandlings: availableHandlings,
+              selectedHandlings: option.additionalHandlings,
             ),
             flex: 5,
           ),
@@ -1282,13 +1512,8 @@ class _SelectedOptionsTable extends StatelessWidget {
           _cell(context, Text(item?.measureTypeCode ?? diagnostic?['unit_code']?.toString() ?? 'piece'), width: 52),
           _cell(
             context,
-            Text(
-              optionText.isEmpty ? '—' : optionText,
-              softWrap: true,
-              maxLines: 3,
-              overflow: TextOverflow.ellipsis,
-            ),
-            width: 104,
+            _SelectedOptionInfoCell(optionTextParts: optionTextParts),
+            width: 132,
           ),
           _cell(context, _SelectedOptionPriceCell(diagnostic: diagnostic), width: 84),
           SizedBox(
@@ -1356,6 +1581,102 @@ class _SelectedOptionsTable extends StatelessWidget {
   CalculatorCatalogVariantOption? _findVariant(String? id) {
     if (id == null) return null;
     return contextData.optionCatalogVariants.where((entry) => entry.id == id).cast<CalculatorCatalogVariantOption?>().firstOrNull;
+  }
+
+}
+
+
+
+String _formatInputQuantity(num value) {
+  if (value % 1 == 0) return value.toInt().toString();
+  return value.toString();
+}
+
+class _SelectedOptionNameCell extends StatelessWidget {
+  const _SelectedOptionNameCell({
+    required this.name,
+    required this.availableHandlings,
+    required this.selectedHandlings,
+  });
+
+  final String name;
+  final List<CalculatorAdditionalHandlingOption> availableHandlings;
+  final List<CalculatorSelectedAdditionalHandling> selectedHandlings;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          name,
+          softWrap: true,
+          maxLines: 4,
+          overflow: TextOverflow.ellipsis,
+        ),
+        if (selectedHandlings.isNotEmpty) ...[
+          const SizedBox(height: 5),
+          for (final entry in selectedHandlings)
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    Icons.subdirectory_arrow_right,
+                    size: 14,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      '${_handlingLabel(entry)} × ${_formatInputQuantity(entry.quantity)}',
+                      softWrap: true,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: Theme.of(context).colorScheme.onSurfaceVariant,
+                          ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ],
+    );
+  }
+
+  String _handlingLabel(CalculatorSelectedAdditionalHandling entry) {
+    for (final option in availableHandlings) {
+      if (option.catalogItemId == entry.catalogItemId) return option.displayName;
+    }
+    return entry.catalogItemId;
+  }
+}
+
+class _SelectedOptionInfoCell extends StatelessWidget {
+  const _SelectedOptionInfoCell({required this.optionTextParts});
+
+  final List<String> optionTextParts;
+
+  @override
+  Widget build(BuildContext context) {
+    if (optionTextParts.isEmpty) return const Text('—');
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (final text in optionTextParts)
+          Text(
+            text,
+            softWrap: true,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+      ],
+    );
   }
 }
 

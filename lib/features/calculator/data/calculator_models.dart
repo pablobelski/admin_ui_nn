@@ -11,6 +11,7 @@ class CalculatorContext {
     required this.optionItemTypes,
     required this.optionCatalogItems,
     required this.optionCatalogVariants,
+    required this.additionalHandlingByParentItemId,
   });
 
   factory CalculatorContext.fromJson(Map<String, dynamic> json) {
@@ -26,6 +27,7 @@ class CalculatorContext {
       optionItemTypes: _list(json['optionItemTypes']).map(CalculatorOption.fromJson).toList(),
       optionCatalogItems: _list(json['optionCatalogItems']).map(CalculatorCatalogItemOption.fromJson).toList(),
       optionCatalogVariants: _list(json['optionCatalogVariants']).map(CalculatorCatalogVariantOption.fromJson).toList(),
+      additionalHandlingByParentItemId: _additionalHandlingMap(json['additionalHandlingByParentItemId']),
     );
   }
 
@@ -38,6 +40,7 @@ class CalculatorContext {
   final List<CalculatorOption> optionItemTypes;
   final List<CalculatorCatalogItemOption> optionCatalogItems;
   final List<CalculatorCatalogVariantOption> optionCatalogVariants;
+  final Map<String, List<CalculatorAdditionalHandlingOption>> additionalHandlingByParentItemId;
 }
 
 class CalculatorOption {
@@ -208,6 +211,84 @@ class CalculatorCatalogVariantOption {
   }
 }
 
+
+class CalculatorAdditionalHandlingOption {
+  const CalculatorAdditionalHandlingOption({
+    required this.parentCatalogItemId,
+    required this.catalogItemId,
+    required this.name,
+    this.itemTypeCode,
+    this.baseCode,
+    this.profileNo,
+    this.unitCode,
+    this.maxQuantity = 1,
+    this.unitPrice,
+    this.sortOrder = 100,
+    this.raw = const {},
+  });
+
+  factory CalculatorAdditionalHandlingOption.fromJson(Map<String, dynamic> json) {
+    return CalculatorAdditionalHandlingOption(
+      parentCatalogItemId: _string(json['parent_catalog_item_id']),
+      catalogItemId: _string(json['catalog_item_id']),
+      itemTypeCode: _nullableString(json['item_type_code']),
+      baseCode: _nullableString(json['base_code']),
+      profileNo: _nullableString(json['profile_no']),
+      name: _string(json['name']),
+      unitCode: _nullableString(json['unit_code']),
+      maxQuantity: _numOrDefault(json['max_quantity'], 1),
+      unitPrice: _numOrNull(json['unit_price']),
+      sortOrder: _intOrNull(json['sort_order']) ?? 100,
+      raw: json,
+    );
+  }
+
+  final String parentCatalogItemId;
+  final String catalogItemId;
+  final String? itemTypeCode;
+  final String? baseCode;
+  final String? profileNo;
+  final String name;
+  final String? unitCode;
+  final num maxQuantity;
+  final num? unitPrice;
+  final int sortOrder;
+  final Map<String, dynamic> raw;
+
+  String get displayName {
+    final parts = [
+      if (baseCode != null && baseCode!.isNotEmpty) baseCode,
+      if (profileNo != null && profileNo!.isNotEmpty) profileNo,
+      if (name.isNotEmpty) name,
+    ];
+    return parts.whereType<String>().join(' · ');
+  }
+}
+
+class CalculatorSelectedAdditionalHandling {
+  const CalculatorSelectedAdditionalHandling({
+    required this.catalogItemId,
+    required this.quantity,
+  });
+
+  factory CalculatorSelectedAdditionalHandling.fromJson(Map<String, dynamic> json) {
+    return CalculatorSelectedAdditionalHandling(
+      catalogItemId: _string(json['catalog_item_id']),
+      quantity: _numOrDefault(json['quantity'], 0),
+    );
+  }
+
+  final String catalogItemId;
+  final num quantity;
+
+  Map<String, dynamic> toJson() {
+    return {
+      'catalog_item_id': catalogItemId,
+      'quantity': quantity,
+    };
+  }
+}
+
 class CalculatorDraft {
   const CalculatorDraft({
     this.organizationId,
@@ -344,6 +425,7 @@ class CalculatorSelectedOption {
     this.catalogVariantId,
     this.quantity = 1,
     this.schraegCount,
+    this.additionalHandlings = const [],
   });
 
   factory CalculatorSelectedOption.fromJson(Map<String, dynamic> json) {
@@ -351,8 +433,12 @@ class CalculatorSelectedOption {
       optionCode: _nullableString(json['option_code']),
       catalogItemId: _nullableString(json['catalog_item_id']),
       catalogVariantId: _nullableString(json['catalog_variant_id']),
-      quantity: json['quantity'] is num ? json['quantity'] as num : num.tryParse('${json['quantity']}') ?? 1,
+      quantity: _numOrDefault(json['quantity'], 1),
       schraegCount: _intOrNull(json['schraeg_count']),
+      additionalHandlings: _list(json['additional_handlings'])
+          .map(CalculatorSelectedAdditionalHandling.fromJson)
+          .where((entry) => entry.catalogItemId.isNotEmpty && entry.quantity > 0)
+          .toList(),
     );
   }
 
@@ -361,6 +447,30 @@ class CalculatorSelectedOption {
   final String? catalogVariantId;
   final num quantity;
   final int? schraegCount;
+  final List<CalculatorSelectedAdditionalHandling> additionalHandlings;
+
+
+  CalculatorSelectedOption copyWith({
+    String? optionCode,
+    bool clearOptionCode = false,
+    String? catalogItemId,
+    bool clearCatalogItem = false,
+    String? catalogVariantId,
+    bool clearCatalogVariant = false,
+    num? quantity,
+    int? schraegCount,
+    bool clearSchraeg = false,
+    List<CalculatorSelectedAdditionalHandling>? additionalHandlings,
+  }) {
+    return CalculatorSelectedOption(
+      optionCode: clearOptionCode ? null : optionCode ?? this.optionCode,
+      catalogItemId: clearCatalogItem ? null : catalogItemId ?? this.catalogItemId,
+      catalogVariantId: clearCatalogVariant ? null : catalogVariantId ?? this.catalogVariantId,
+      quantity: quantity ?? this.quantity,
+      schraegCount: clearSchraeg ? null : schraegCount ?? this.schraegCount,
+      additionalHandlings: additionalHandlings ?? this.additionalHandlings,
+    );
+  }
 
   Map<String, dynamic> toJson() {
     return {
@@ -369,6 +479,8 @@ class CalculatorSelectedOption {
       if (catalogVariantId != null && catalogVariantId!.isNotEmpty) 'catalog_variant_id': catalogVariantId,
       'quantity': quantity,
       if (schraegCount != null && schraegCount! > 0) 'schraeg_count': schraegCount,
+      if (additionalHandlings.isNotEmpty)
+        'additional_handlings': additionalHandlings.map((entry) => entry.toJson()).toList(),
     };
   }
 }
@@ -538,6 +650,32 @@ Map<String, List<CalculatorOption>> _references(dynamic value) {
         : <CalculatorOption>[];
     return MapEntry(key, options);
   });
+}
+
+Map<String, List<CalculatorAdditionalHandlingOption>> _additionalHandlingMap(dynamic value) {
+  final map = _map(value);
+  return map.map((parentId, entries) {
+    final options = entries is List
+        ? entries
+            .whereType<Map>()
+            .map((entry) => CalculatorAdditionalHandlingOption.fromJson(Map<String, dynamic>.from(entry)))
+            .where((entry) => entry.parentCatalogItemId.isNotEmpty && entry.catalogItemId.isNotEmpty)
+            .toList()
+        : <CalculatorAdditionalHandlingOption>[];
+    options.sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
+    return MapEntry(parentId, options);
+  });
+}
+
+num _numOrDefault(dynamic value, num fallback) {
+  if (value is num) return value;
+  return num.tryParse('$value'.replaceAll(',', '.')) ?? fallback;
+}
+
+num? _numOrNull(dynamic value) {
+  if (value == null) return null;
+  if (value is num) return value;
+  return num.tryParse('$value'.replaceAll(',', '.'));
 }
 
 String _string(dynamic value) => value == null ? '' : '$value';

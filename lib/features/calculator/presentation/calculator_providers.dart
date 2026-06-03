@@ -116,6 +116,7 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
     String? catalogVariantId,
     num quantity = 1,
     int? schraegCount,
+    List<CalculatorSelectedAdditionalHandling> additionalHandlings = const [],
   }) {
     if (catalogItemId.trim().isEmpty) return;
     state = state.copyWith(
@@ -126,9 +127,21 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
           catalogVariantId: catalogVariantId == null || catalogVariantId.trim().isEmpty ? null : catalogVariantId,
           quantity: quantity <= 0 ? 1 : quantity,
           schraegCount: schraegCount == null || schraegCount <= 0 ? null : schraegCount.clamp(1, 2).toInt(),
+          additionalHandlings: additionalHandlings,
         ),
       ],
     );
+  }
+
+
+  void updateOptionAdditionalHandlings(
+    int index,
+    List<CalculatorSelectedAdditionalHandling> additionalHandlings,
+  ) {
+    if (index < 0 || index >= state.options.length) return;
+    final next = [...state.options];
+    next[index] = next[index].copyWith(additionalHandlings: additionalHandlings);
+    state = state.copyWith(options: next);
   }
 
   void removeOptionAt(int index) {

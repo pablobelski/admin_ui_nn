@@ -46,6 +46,13 @@ const catalogItemNameLookup = AdminLookup(
   showIdInDropdown: false,
 );
 
+const catalogItemTypeLookup = AdminLookup(
+  endpoint: '/api/admin/catalog-item-types',
+  labelKeys: ['code', 'name', 'visibility_code'],
+  limit: 200,
+  showIdInDropdown: false,
+);
+
 const catalogVariantLookup = AdminLookup(
   endpoint: '/api/admin/catalog-variants',
   labelKeys: ['variant_sku', 'system_name', 'color_name', 'length_mm', 'article_no'],
@@ -164,7 +171,12 @@ const catalogItemTypeOptions = <AdminSelectOption>[
   AdminSelectOption(value: 'set', label: 'Set'),
   AdminSelectOption(value: 'awning', label: 'Awning'),
   AdminSelectOption(value: 'coating', label: 'Coating'),
-  AdminSelectOption(value: 'other', label: 'Other'),
+  AdminSelectOption(value: 'handling', label: 'Handling'),
+];
+
+const catalogItemTypeVisibilityOptions = <AdminSelectOption>[
+  AdminSelectOption(value: 'public', label: 'Public'),
+  AdminSelectOption(value: 'internal', label: 'Internal'),
 ];
 
 const mediaKindOptions = <AdminSelectOption>[
@@ -208,6 +220,7 @@ const additionalHandlingDependencyTypeOptions = <AdminSelectOption>[
 ];
 
 const catalogItemRelationTypeOptions = <AdminSelectOption>[
+  AdminSelectOption(value: 'additional_handling', label: 'Additional handling'),
   AdminSelectOption(value: 'contains', label: 'Contains / child item'),
   AdminSelectOption(value: 'requires', label: 'Requires'),
   AdminSelectOption(value: 'substitute', label: 'Substitute'),
@@ -383,70 +396,83 @@ const adminNavGroups = <AdminNavGroup>[
         description: 'Прайслисты scope_code=sales, из которых калькулятор берет цены для выбранных Options.',
       ),
       AdminResourceDefinition(
-        key: 'catalog_item_additional_handling',
-        title: 'Additional Handling',
-        endpoint: '/api/admin/catalog-item-additional-handling',
-        icon: Icons.engineering_outlined,
+        key: 'catalog_item_types',
+        title: 'Catalog Item Types',
+        endpoint: '/api/admin/catalog-item-types',
+        icon: Icons.category_outlined,
         requiresSysadmin: true,
         columns: [
-          AdminColumn(key: 'source_catalog_item_id', label: 'Option / source item', isPrimary: true, flex: 3, lookup: catalogItemLookup),
-          AdminColumn(key: 'service_catalog_item_id', label: 'Internal service', flex: 3, lookup: catalogItemLookup),
-          AdminColumn(key: 'product_family_id', label: 'Product family', flex: 2, lookup: productFamilyLookup),
-          AdminColumn(key: 'dependency_type_code', label: 'Type', flex: 2),
+          AdminColumn(key: 'code', label: 'Code', isPrimary: true, flex: 2),
+          AdminColumn(key: 'name', label: 'Name', flex: 3),
+          AdminColumn(key: 'visibility_code', label: 'Visibility', flex: 2),
           AdminColumn(key: 'sort_order', label: 'Sort'),
           AdminColumn(key: 'is_active', label: 'Active'),
         ],
         listFilters: [
-          AdminResourceFilter(key: 'source_catalog_item_id', label: 'Option / source item', lookup: catalogItemLookup),
-          AdminResourceFilter(key: 'service_catalog_item_id', label: 'Internal service', lookup: catalogItemLookup),
-          AdminResourceFilter(key: 'product_family_id', label: 'Product family', lookup: productFamilyLookup),
-          AdminResourceFilter(key: 'dependency_type_code', label: 'Type', options: additionalHandlingDependencyTypeOptions),
+          AdminResourceFilter(key: 'code', label: 'Code', options: catalogItemTypeOptions),
+          AdminResourceFilter(key: 'visibility_code', label: 'Visibility', options: catalogItemTypeVisibilityOptions),
           AdminResourceFilter(key: 'is_active', label: 'Active', options: activeFilterOptions),
         ],
         formFields: [
           AdminField(
-            key: 'source_catalog_item_id',
-            label: 'Option / source catalog item',
-            lookup: catalogItemLookup,
-            helperText: 'Catalog item selected in calculator. DB validation does not allow service here.',
+            key: 'code',
+            label: 'Code',
+            helperText: 'Unique technical code, for example handling_for_glass. If empty on create, server generates it from Name.',
+          ),
+          AdminField(key: 'name', label: 'Name'),
+          AdminField(key: 'visibility_code', label: 'Visibility', options: catalogItemTypeVisibilityOptions),
+          AdminField(key: 'sort_order', label: 'Sort order', type: AdminFieldType.number),
+          AdminField(key: 'metadata_json', label: 'Metadata JSON', type: AdminFieldType.json),
+          AdminField(key: 'is_active', label: 'Active', type: AdminFieldType.boolType),
+        ],
+        description: 'Типы catalog items. Public-типы доступны как опции калькулятора, internal-типы используются как внутренние доп. работы.',
+      ),
+      AdminResourceDefinition(
+        key: 'catalog_item_type_relations',
+        title: 'Additional Handling',
+        endpoint: '/api/admin/catalog-item-type-relations',
+        icon: Icons.engineering_outlined,
+        requiresSysadmin: true,
+        columns: [
+          AdminColumn(key: 'parent_item_type_id', label: 'Public option type', isPrimary: true, flex: 3, lookup: catalogItemTypeLookup),
+          AdminColumn(key: 'child_item_type_id', label: 'Internal handling type', flex: 3, lookup: catalogItemTypeLookup),
+          AdminColumn(key: 'relation_type_code', label: 'Relation', flex: 2),
+          AdminColumn(key: 'max_quantity', label: 'Max qty'),
+          AdminColumn(key: 'sort_order', label: 'Sort'),
+          AdminColumn(key: 'is_active', label: 'Active'),
+        ],
+        listFilters: [
+          AdminResourceFilter(key: 'parent_item_type_id', label: 'Public option type', lookup: catalogItemTypeLookup),
+          AdminResourceFilter(key: 'child_item_type_id', label: 'Internal handling type', lookup: catalogItemTypeLookup),
+          AdminResourceFilter(key: 'relation_type_code', label: 'Relation', options: additionalHandlingDependencyTypeOptions),
+          AdminResourceFilter(key: 'is_active', label: 'Active', options: activeFilterOptions),
+        ],
+        formFields: [
+          AdminField(
+            key: 'parent_item_type_id',
+            label: 'Public option type',
+            lookup: catalogItemTypeLookup,
+            helperText: 'Выбирается тип catalog item с visibility = public: profile, glass, awning и т.п.',
           ),
           AdminField(
-            key: 'service_catalog_item_id',
-            label: 'Internal service catalog item',
-            lookup: catalogItemLookup,
-            helperText: 'Must reference catalog item with item_type_code = service.',
+            key: 'child_item_type_id',
+            label: 'Internal handling type',
+            lookup: catalogItemTypeLookup,
+            helperText: 'Выбирается внутренний тип catalog item с visibility = internal: service или handling.',
           ),
-          AdminField(key: 'product_family_id', label: 'Product family', lookup: productFamilyLookup),
-          AdminField(key: 'dependency_type_code', label: 'Type', options: additionalHandlingDependencyTypeOptions),
+          AdminField(key: 'relation_type_code', label: 'Relation', options: additionalHandlingDependencyTypeOptions),
           AdminField(
-            key: 'quantity_formula_json',
-            label: 'Quantity formula JSON',
-            type: AdminFieldType.json,
-            helperText: 'Optional. Empty JSON means default qty = 1 or calculator fallback.',
+            key: 'max_quantity',
+            label: 'Max quantity',
+            type: AdminFieldType.number,
+            helperText: 'Максимальное количество, которое будет записано в quantity_formula_json дочерних catalog_item_relations.',
           ),
+          AdminField(key: 'quantity_formula_json', label: 'Quantity formula JSON', type: AdminFieldType.json),
           AdminField(key: 'metadata_json', label: 'Metadata JSON', type: AdminFieldType.json),
           AdminField(key: 'sort_order', label: 'Sort order', type: AdminFieldType.number),
           AdminField(key: 'is_active', label: 'Active', type: AdminFieldType.boolType),
         ],
-        detailActions: [
-          AdminDetailAction(
-            label: 'Show source item',
-            targetResourceKey: 'catalog_items',
-            filterKey: 'id',
-            sourceValueKey: 'source_catalog_item_id',
-            selectTargetRow: true,
-            icon: Icons.inventory_2_outlined,
-          ),
-          AdminDetailAction(
-            label: 'Show service item',
-            targetResourceKey: 'catalog_items',
-            filterKey: 'id',
-            sourceValueKey: 'service_catalog_item_id',
-            selectTargetRow: true,
-            icon: Icons.engineering_outlined,
-          ),
-        ],
-        description: 'Связи: выбранная опция/catalog item -> внутренние service catalog items, которые калькулятор добавит как дополнительные работы.',
+        description: 'Настройка Additional Handling на уровне типов: public-тип опции -> internal-тип доп. работ. После сохранения сервер создает/обновляет соответствующие catalog_item_relations для всех catalog items этих типов.',
       ),
       AdminResourceDefinition(
         key: 'catalog_item_relations',
@@ -655,6 +681,7 @@ const adminNavGroups = <AdminNavGroup>[
           AdminColumn(key: 'base_code', label: 'Base code', isPrimary: true, flex: 2),
           AdminColumn(key: 'name', label: 'Name', flex: 3),
           AdminColumn(key: 'product_family_id', label: 'Product family', flex: 2, lookup: productFamilyLookup),
+          AdminColumn(key: 'item_type_id', label: 'Type', flex: 2, lookup: catalogItemTypeLookup),
           AdminColumn(key: 'category_code', label: 'Category'),
           AdminColumn(key: 'system_code', label: 'System'),
           AdminColumn(key: 'measure_type_code', label: 'Unit'),
@@ -664,7 +691,7 @@ const adminNavGroups = <AdminNavGroup>[
           AdminResourceFilter(key: 'id', label: 'Catalog item', lookup: catalogItemLookup),
           AdminResourceFilter(key: 'product_family_id', label: 'Product family', lookup: productFamilyLookup),
           AdminResourceFilter(key: 'price_list_id', label: 'Price list', lookup: priceListLookup),
-          AdminResourceFilter(key: 'item_type_code', label: 'Item type', options: catalogItemTypeOptions),
+          AdminResourceFilter(key: 'item_type_id', label: 'Item type', lookup: catalogItemTypeLookup),
         ],
         formFields: [
           AdminField(
@@ -679,7 +706,7 @@ const adminNavGroups = <AdminNavGroup>[
           AdminField(key: 'name', label: 'Name'),
           AdminField(key: 'short_name', label: 'Short name'),
           AdminField(key: 'category_code', label: 'Category code'),
-          AdminField(key: 'item_type_code', label: 'Item type', options: catalogItemTypeOptions),
+          AdminField(key: 'item_type_id', label: 'Item type', lookup: catalogItemTypeLookup),
           AdminField(key: 'system_code', label: 'System code'),
           AdminField(key: 'measure_type_code', label: 'Measure type', options: unitOptions),
           AdminField(key: 'default_length_mm', label: 'Default length', type: AdminFieldType.number),
