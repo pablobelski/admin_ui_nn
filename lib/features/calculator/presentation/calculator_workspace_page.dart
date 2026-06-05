@@ -891,6 +891,7 @@ class _OptionsStepState extends State<_OptionsStep> {
   final _catalogVariantFocusNode = FocusNode();
   final Map<String, TextEditingController> _additionalHandlingControllers = {};
   final Set<String> _enabledAdditionalHandlingIds = <String>{};
+  var _additionalHandlingInputEnabled = false;
 
   String? _pendingAdditionalHandlingId;
   String? _itemTypeCode;
@@ -1031,6 +1032,7 @@ class _OptionsStepState extends State<_OptionsStep> {
                       additionalHandlingOptions: additionalHandlingOptions,
                       canAdd: canAdd,
                       addRequiresVariant: addRequiresVariant,
+                      selectedItem: selectedItem,
                       selectedVariant: selectedVariant,
                     ),
                   ],
@@ -1160,6 +1162,7 @@ class _OptionsStepState extends State<_OptionsStep> {
     required List<CalculatorAdditionalHandlingOption> additionalHandlingOptions,
     required bool canAdd,
     required bool addRequiresVariant,
+    required CalculatorCatalogItemOption? selectedItem,
     required CalculatorCatalogVariantOption? selectedVariant,
   }) {
     final unselectedHandlings = _unselectedAdditionalHandlingOptions(additionalHandlingOptions);
@@ -1167,9 +1170,11 @@ class _OptionsStepState extends State<_OptionsStep> {
     final selectedHandlings = additionalHandlingOptions
         .where((entry) => _enabledAdditionalHandlingIds.contains(entry.catalogItemId))
         .toList(growable: false);
+    final canUseHandlingInput = _additionalHandlingInputEnabled && unselectedHandlings.isNotEmpty;
+    final unitLabel = _selectedItemMeasureUnitLabel(selectedItem);
 
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: Theme.of(context).dividerColor),
@@ -1178,51 +1183,11 @@ class _OptionsStepState extends State<_OptionsStep> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              SizedBox(
-                width: 110,
-                child: TextField(
-                  controller: _quantityController,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(labelText: 'Qty'),
-                ),
-              ),
-              if (additionalHandlingOptions.isNotEmpty) ...[
-                const SizedBox(width: 12),
-                Expanded(
-                  child: DropdownButtonFormField<String>(
-                    key: ValueKey('additional-handling-$pendingHandlingId-${unselectedHandlings.length}'),
-                    initialValue: pendingHandlingId,
-                    isExpanded: true,
-                    decoration: const InputDecoration(
-                      labelText: 'Possible handling',
-                      isDense: true,
-                    ),
-                    items: [
-                      for (final option in unselectedHandlings)
-                        DropdownMenuItem(
-                          value: option.catalogItemId,
-                          child: Text(
-                            '${option.displayName} · max ${_formatInputQuantity(option.maxQuantity)}',
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                    ],
-                    onChanged: unselectedHandlings.isEmpty
-                        ? null
-                        : (value) => setState(() => _pendingAdditionalHandlingId = value),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                FilledButton.tonalIcon(
-                  onPressed: unselectedHandlings.isEmpty ? null : () => _addPendingAdditionalHandling(additionalHandlingOptions),
-                  icon: const Icon(Icons.add_task_outlined),
-                  label: const Text('Add handling'),
-                ),
-              ],
-            ],
+          _optionQuantityAndAddRow(
+            canAdd: canAdd,
+            addRequiresVariant: addRequiresVariant,
+            selectedVariant: selectedVariant,
+            unitLabel: unitLabel,
           ),
           if (additionalHandlingOptions.isNotEmpty) ...[
             const SizedBox(height: 8),
@@ -1234,39 +1199,177 @@ class _OptionsStepState extends State<_OptionsStep> {
                     color: Theme.of(context).colorScheme.onSurfaceVariant,
                   ),
             ),
+            const SizedBox(height: 6),
+            _additionalHandlingInputRow(
+              unselectedHandlings: unselectedHandlings,
+              pendingHandlingId: pendingHandlingId,
+              inputEnabled: canUseHandlingInput,
+              allHandlingOptions: additionalHandlingOptions,
+            ),
           ],
           if (selectedHandlings.isNotEmpty) ...[
             const SizedBox(height: 10),
             _selectedAdditionalHandlingFrame(selectedHandlings),
           ],
-          const SizedBox(height: 12),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              if (addRequiresVariant && selectedVariant == null)
-                Expanded(
-                  child: Text(
-                    'Select concrete SKU before adding.',
-                    style: TextStyle(color: Theme.of(context).colorScheme.error),
-                  ),
-                )
-              else
-                const Spacer(),
-              FilledButton.icon(
-                onPressed: canAdd ? _addSelectedOption : null,
-                style: FilledButton.styleFrom(
-                  minimumSize: const Size(168, 48),
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
-                  textStyle: Theme.of(context).textTheme.titleSmall,
-                ),
-                icon: const Icon(Icons.add),
-                label: const Text('Add option'),
-              ),
-            ],
-          ),
         ],
       ),
     );
+  }
+
+  Widget _optionQuantityAndAddRow({
+    required bool canAdd,
+    required bool addRequiresVariant,
+    required CalculatorCatalogVariantOption? selectedVariant,
+    required String unitLabel,
+  }) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        SizedBox(
+          width: 88,
+          child: TextField(
+            controller: _quantityController,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(
+              labelText: 'Qty',
+              isDense: true,
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        ConstrainedBox(
+          constraints: const BoxConstraints(minWidth: 84, maxWidth: 150),
+          child: Text(
+            unitLabel,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
+        ),
+        const SizedBox(width: 12),
+        if (addRequiresVariant && selectedVariant == null)
+          Expanded(
+            child: Text(
+              'Select concrete SKU before adding.',
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
+          )
+        else
+          const Spacer(),
+        FilledButton.icon(
+          onPressed: canAdd ? _addSelectedOption : null,
+          style: FilledButton.styleFrom(
+            minimumSize: const Size(150, 42),
+            padding: const EdgeInsets.symmetric(horizontal: 22),
+            textStyle: Theme.of(context).textTheme.titleSmall,
+          ),
+          icon: const Icon(Icons.add),
+          label: const Text('Add option'),
+        ),
+      ],
+    );
+  }
+
+  Widget _additionalHandlingInputRow({
+    required List<CalculatorAdditionalHandlingOption> unselectedHandlings,
+    required String? pendingHandlingId,
+    required bool inputEnabled,
+    required List<CalculatorAdditionalHandlingOption> allHandlingOptions,
+  }) {
+    final hasChoices = unselectedHandlings.isNotEmpty;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        SizedBox(
+          width: 34,
+          child: Checkbox(
+            value: _additionalHandlingInputEnabled && hasChoices,
+            visualDensity: VisualDensity.compact,
+            onChanged: hasChoices ? _toggleAdditionalHandlingInput : null,
+          ),
+        ),
+        const SizedBox(width: 4),
+        Expanded(
+          child: DropdownButtonFormField<String>(
+            key: ValueKey('additional-handling-$pendingHandlingId-${unselectedHandlings.length}-$_additionalHandlingInputEnabled'),
+            initialValue: pendingHandlingId,
+            isExpanded: true,
+            decoration: const InputDecoration(
+              labelText: 'Possible handling',
+              isDense: true,
+            ),
+            items: [
+              for (final option in unselectedHandlings)
+                DropdownMenuItem(
+                  value: option.catalogItemId,
+                  child: Text(
+                    '${option.displayName} · max ${_formatInputQuantity(option.maxQuantity)}',
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+            ],
+            onChanged: inputEnabled ? (value) => setState(() => _pendingAdditionalHandlingId = value) : null,
+          ),
+        ),
+        const SizedBox(width: 8),
+        FilledButton.tonalIcon(
+          onPressed: inputEnabled ? () => _addPendingAdditionalHandling(allHandlingOptions) : null,
+          style: FilledButton.styleFrom(
+            minimumSize: const Size(150, 42),
+            padding: const EdgeInsets.symmetric(horizontal: 18),
+          ),
+          icon: const Icon(Icons.add_task_outlined),
+          label: const Text('Add handling'),
+        ),
+      ],
+    );
+  }
+
+  void _toggleAdditionalHandlingInput(bool? enabled) {
+    setState(() {
+      _additionalHandlingInputEnabled = enabled ?? false;
+      if (!_additionalHandlingInputEnabled) return;
+      final unselected = _unselectedAdditionalHandlingOptions(
+        _catalogItemId == null
+            ? const <CalculatorAdditionalHandlingOption>[]
+            : widget.contextData.additionalHandlingByParentItemId[_catalogItemId!] ?? const <CalculatorAdditionalHandlingOption>[],
+      );
+      _pendingAdditionalHandlingId = _effectivePendingAdditionalHandlingId(unselected);
+    });
+  }
+
+  String _selectedItemMeasureUnitLabel(CalculatorCatalogItemOption? item) {
+    return _measureUnitLabel(item?.measureTypeCode);
+  }
+
+  String _measureUnitLabel(String? rawUnit) {
+    final unit = rawUnit?.trim();
+    if (unit == null || unit.isEmpty) return 'piece';
+    switch (unit.toLowerCase()) {
+      case 'm':
+      case 'meter':
+      case 'meters':
+      case 'metre':
+      case 'metres':
+        return 'meters';
+      case 'mm':
+        return 'mm';
+      case 'm2':
+      case 'sqm':
+      case 'square_meter':
+      case 'square_meters':
+        return 'm²';
+      case 'stk':
+      case 'st':
+      case 'pc':
+      case 'pcs':
+      case 'piece':
+      case 'pieces':
+        return 'pieces';
+      default:
+        return unit;
+    }
   }
 
   List<CalculatorAdditionalHandlingOption> _unselectedAdditionalHandlingOptions(List<CalculatorAdditionalHandlingOption> options) {
@@ -1301,6 +1404,7 @@ class _OptionsStepState extends State<_OptionsStep> {
           .where((entry) => !_enabledAdditionalHandlingIds.contains(entry.catalogItemId))
           .cast<CalculatorAdditionalHandlingOption?>()
           .firstOrNull;
+      //_additionalHandlingInputEnabled = nextUnselected != null;
       _pendingAdditionalHandlingId = nextUnselected?.catalogItemId;
     });
   }
@@ -1377,6 +1481,7 @@ class _OptionsStepState extends State<_OptionsStep> {
 
   void _resetAdditionalHandlingInputs() {
     _enabledAdditionalHandlingIds.clear();
+    _additionalHandlingInputEnabled = false;
     _pendingAdditionalHandlingId = null;
     for (final controller in _additionalHandlingControllers.values) {
       controller.text = '1';
