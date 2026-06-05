@@ -1012,6 +1012,7 @@ class _OptionsStepState extends State<_OptionsStep> {
                       enabled: variantsForItem.isNotEmpty,
                       options: variantsForItem,
                       displayStringForOption: _variantLabel,
+                      searchStringForOption: _variantSearchText,
                       onSelected: (variant) => setState(() {
                         _catalogVariantId = variant.id;
                         _catalogVariantController.text = _variantLabel(variant);
@@ -1095,13 +1096,50 @@ class _OptionsStepState extends State<_OptionsStep> {
   }
 
   String _variantLabel(CalculatorCatalogVariantOption variant) {
-    return [
-      if (variant.profileNo != null && variant.profileNo!.isNotEmpty) variant.profileNo,
-      if (variant.variantSku.isNotEmpty) variant.variantSku,
-      if (variant.articleNo != null && variant.articleNo!.isNotEmpty) variant.articleNo,
-      if (variant.colorName != null && variant.colorName!.isNotEmpty) variant.colorName,
-      if (_formatLengthMm(variant.lengthMm) != null) _formatLengthMm(variant.lengthMm),
-    ].whereType<String>().where((entry) => entry.isNotEmpty).join(' · ');
+    final primaryCode = _variantPrimaryCode(variant) ?? variant.id;
+    final color = _firstNonEmpty([variant.colorName, variant.colorCode]);
+    final length = _formatLengthMm(variant.lengthMm);
+
+    return _joinDistinctTextParts([
+      primaryCode,
+      if (!_containsNormalized(primaryCode, color)) color,
+      if (!_containsNormalized(primaryCode, length)) length,
+    ]);
+  }
+
+  String _variantSearchText(CalculatorCatalogVariantOption variant) {
+    return _joinDistinctTextParts([
+      _variantLabel(variant),
+      variant.profileNo,
+      variant.variantSku,
+      variant.articleNo,
+      variant.colorName,
+      variant.colorCode,
+      _formatLengthMm(variant.lengthMm),
+      variant.glassTypeCode,
+      variant.coatingTypeCode,
+      variant.systemCode,
+      variant.systemName,
+    ]);
+  }
+
+  String? _variantPrimaryCode(CalculatorCatalogVariantOption variant) {
+    return _firstNonEmpty([variant.variantSku, variant.articleNo]);
+  }
+
+  String? _firstNonEmpty(Iterable<String?> values) {
+    for (final raw in values) {
+      final value = raw?.trim();
+      if (value != null && value.isNotEmpty) return value;
+    }
+    return null;
+  }
+
+  bool _containsNormalized(String? haystack, String? needle) {
+    final normalizedHaystack = _normalize(haystack ?? '');
+    final normalizedNeedle = _normalize(needle ?? '');
+    if (normalizedHaystack.isEmpty || normalizedNeedle.isEmpty) return false;
+    return normalizedHaystack.contains(normalizedNeedle);
   }
 
   String _skuCountLabel(List<CalculatorCatalogVariantOption> variants) {

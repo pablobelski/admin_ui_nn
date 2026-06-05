@@ -17,6 +17,7 @@ import '../../../core/ui/resource_editor_dialog.dart';
 import '../../../core/ui/searchable_select_form_field.dart';
 import '../../calculator/data/calculator_models.dart';
 import '../../calculator/presentation/calculator_providers.dart';
+import 'catalog_item_dependency_tree.dart';
 
 class ResourcePage extends ConsumerWidget {
   const ResourcePage({
@@ -202,9 +203,7 @@ class _ToolbarState extends ConsumerState<_Toolbar> {
       ],
     );
   }
-
 }
-
 
 class _ListFilterField extends ConsumerWidget {
   const _ListFilterField({
@@ -416,7 +415,7 @@ class _ListCard extends ConsumerWidget {
   }
 }
 
-class _DetailsCard extends ConsumerWidget {
+class _DetailsCard extends ConsumerStatefulWidget {
   const _DetailsCard({
     required this.resource,
     required this.detailsAsync,
@@ -426,11 +425,27 @@ class _DetailsCard extends ConsumerWidget {
   final AsyncValue<Map<String, dynamic>?> detailsAsync;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_DetailsCard> createState() => _DetailsCardState();
+}
+
+class _DetailsCardState extends ConsumerState<_DetailsCard> {
+  bool _showCatalogItemTree = false;
+
+  @override
+  void didUpdateWidget(covariant _DetailsCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.resource.key != widget.resource.key) {
+      _showCatalogItemTree = false;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final resource = widget.resource;
     final browserState = ref.watch(resourceBrowserProvider(resource.key));
     final repository = ref.read(resourceRepositoryProvider);
 
-    return detailsAsync.when(
+    return widget.detailsAsync.when(
       loading: () => const Card(child: Center(child: CircularProgressIndicator())),
       error: (error, _) => Card(child: _ErrorState(error: error)),
       data: (data) {
@@ -450,6 +465,9 @@ class _DetailsCard extends ConsumerWidget {
           );
         }
 
+        final canShowCatalogItemTree = resource.key == 'catalog_item_relations';
+        final rootCatalogItemId = _extractRelationId(data['parent_catalog_item_id']?.toString() ?? '');
+
         return Card(
           child: Padding(
             padding: const EdgeInsets.all(16),
@@ -458,7 +476,10 @@ class _DetailsCard extends ConsumerWidget {
               children: [
                 Row(
                   children: [
-                    Text('Details', style: Theme.of(context).textTheme.titleLarge),
+                    Text(
+                      _showCatalogItemTree && canShowCatalogItemTree ? 'Dependency tree' : 'Details',
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
                     const Spacer(),
                     if (resource.detailActions.isNotEmpty)
                       Padding(
@@ -510,6 +531,18 @@ class _DetailsCard extends ConsumerWidget {
                           label: const Text('Set password'),
                         ),
                       ),
+                    if (canShowCatalogItemTree)
+                      IconButton(
+                        tooltip: _showCatalogItemTree ? 'Hide dependency tree' : 'Show dependency tree',
+                        onPressed: rootCatalogItemId == null
+                            ? null
+                            : () => setState(() => _showCatalogItemTree = !_showCatalogItemTree),
+                        icon: Icon(
+                          _showCatalogItemTree
+                              ? Icons.account_tree_rounded
+                              : Icons.account_tree_outlined,
+                        ),
+                      ),
                     if (resource.supportsEdit)
                       IconButton(
                         tooltip: 'Edit',
@@ -544,44 +577,51 @@ class _DetailsCard extends ConsumerWidget {
                 ),
                 const SizedBox(height: 12),
                 Expanded(
-                  child: ListView(
-                    children: [
-                      Card(
-                        color: Colors.white,
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text('Main fields', style: Theme.of(context).textTheme.titleMedium),
-                              const SizedBox(height: 12),
-                              for (final entry in data.entries.take(12))
-                                Padding(
-                                  padding: const EdgeInsets.symmetric(vertical: 4),
-                                  child: Row(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      SizedBox(
-                                        width: 180,
-                                        child: Text(
-                                          entry.key,
-                                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                            fontWeight: FontWeight.w600,
-                                          ),
+                  child: _showCatalogItemTree && canShowCatalogItemTree && rootCatalogItemId != null
+                      ? CatalogItemDependencyTree(
+                          key: ValueKey('catalog-item-tree-$rootCatalogItemId'),
+                          repository: repository,
+                          rootItemId: rootCatalogItemId,
+                          onOpenCatalogItem: (catalogItemId) => _openCatalogItem(ref, catalogItemId),
+                        )
+                      : ListView(
+                          children: [
+                            Card(
+                              color: Colors.white,
+                              child: Padding(
+                                padding: const EdgeInsets.all(16),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text('Main fields', style: Theme.of(context).textTheme.titleMedium),
+                                    const SizedBox(height: 12),
+                                    for (final entry in data.entries.take(12))
+                                      Padding(
+                                        padding: const EdgeInsets.symmetric(vertical: 4),
+                                        child: Row(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            SizedBox(
+                                              width: 180,
+                                              child: Text(
+                                                entry.key,
+                                                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                                  fontWeight: FontWeight.w600,
+                                                ),
+                                              ),
+                                            ),
+                                            Expanded(child: Text(_displayValue(entry.value))),
+                                          ],
                                         ),
                                       ),
-                                      Expanded(child: Text(_displayValue(entry.value))),
-                                    ],
-                                  ),
+                                  ],
                                 ),
-                            ],
-                          ),
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            JsonViewCard(title: 'Raw JSON', data: data),
+                          ],
                         ),
-                      ),
-                      const SizedBox(height: 16),
-                      JsonViewCard(title: 'Raw JSON', data: data),
-                    ],
-                  ),
                 ),
               ],
             ),
@@ -635,7 +675,6 @@ class _DetailActionsMenu extends StatelessWidget {
     );
   }
 }
-
 
 Future<void> loadQuoteToWorkspace(
   BuildContext context,
@@ -720,6 +759,23 @@ void _openDetailAction(WidgetRef ref, AdminDetailAction action, Map<String, dyna
   ref.invalidate(resourceDetailsProvider(targetResource));
 }
 
+void _openCatalogItem(WidgetRef ref, String catalogItemId) {
+  final targetResource = findResourceByKey('catalog_items');
+  final filters = {'id': catalogItemId};
+  ref.read(selectedResourceProvider.notifier).select(
+    'catalog_items',
+    filters: filters,
+  );
+  ref
+      .read(resourceBrowserProvider('catalog_items').notifier)
+      .openWithFilters(
+        filters,
+        selectedId: catalogItemId,
+        updateUrl: false,
+      );
+  ref.invalidate(resourceListProvider(targetResource));
+  ref.invalidate(resourceDetailsProvider(targetResource));
+}
 
 class _SetUserPasswordDialog extends StatefulWidget {
   const _SetUserPasswordDialog();
@@ -821,8 +877,9 @@ String? _detailActionValue(AdminDetailAction action, Map<String, dynamic> data) 
   return _extractRelationId(value);
 }
 
-String _extractRelationId(String value) {
+String? _extractRelationId(String value) {
   final trimmed = value.trim();
+  if (trimmed.isEmpty) return null;
   final uuidPattern = RegExp(
     r'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}',
   );
