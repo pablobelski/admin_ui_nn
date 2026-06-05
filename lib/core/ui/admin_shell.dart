@@ -306,7 +306,7 @@ class _NavigationTree extends StatelessWidget {
           onOpenInNewTab: () => onOpenInNewTab(dashboardResource.key),
         ),
         const SizedBox(height: 8),
-        for (final group in adminNavGroups)
+        for (final group in _navigationGroupsForUi())
           if (_visibleResources(group).isNotEmpty)
           Card(
             child: ExpansionTile(
@@ -337,6 +337,47 @@ class _NavigationTree extends StatelessWidget {
     }
     return group.resources.where((resource) => !resource.requiresSysadmin).toList(growable: false);
   }
+}
+
+
+const _catalogSectionResourceKeys = {
+  'catalog_item_types',
+  'catalog_item_relations',
+};
+
+List<AdminNavGroup> _navigationGroupsForUi() {
+  final catalogSectionResources = <AdminResourceDefinition>[
+    for (final group in adminNavGroups)
+      for (final resource in group.resources)
+        if (_catalogSectionResourceKeys.contains(resource.key)) resource,
+  ];
+
+  return [
+    for (final group in adminNavGroups)
+      if (group.key == 'system_settings')
+        AdminNavGroup(
+          key: group.key,
+          title: group.title,
+          icon: group.icon,
+          resources: group.resources
+              .where((resource) => !_catalogSectionResourceKeys.contains(resource.key))
+              .toList(growable: false),
+        )
+      else if (group.key == 'catalog')
+        AdminNavGroup(
+          key: group.key,
+          title: group.title,
+          icon: group.icon,
+          resources: [
+            ...catalogSectionResources,
+            ...group.resources.where(
+              (resource) => !_catalogSectionResourceKeys.contains(resource.key),
+            ),
+          ],
+        )
+      else
+        group,
+  ];
 }
 
 enum _NavTileMenuAction { open, openInNewTab, copyLink }

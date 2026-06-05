@@ -465,8 +465,9 @@ class _DetailsCardState extends ConsumerState<_DetailsCard> {
           );
         }
 
-        final canShowCatalogItemTree = resource.key == 'catalog_item_relations';
-        final rootCatalogItemId = _extractRelationId(data['parent_catalog_item_id']?.toString() ?? '');
+        final canShowCatalogItemTree =
+            resource.key == 'catalog_item_relations' || resource.key == 'catalog_items';
+        final rootCatalogItemId = _catalogItemTreeRootId(resource.key, data, browserState.selectedId);
 
         return Card(
           child: Padding(
@@ -630,6 +631,21 @@ class _DetailsCardState extends ConsumerState<_DetailsCard> {
       },
     );
   }
+}
+
+
+String? _catalogItemTreeRootId(
+  String resourceKey,
+  Map<String, dynamic> data,
+  String? selectedId,
+) {
+  if (resourceKey == 'catalog_item_relations') {
+    return _extractRelationId(data['parent_catalog_item_id']?.toString() ?? '');
+  }
+  if (resourceKey == 'catalog_items') {
+    return _extractRelationId(data['id']?.toString() ?? selectedId ?? '');
+  }
+  return null;
 }
 
 class _DetailActionsMenu extends StatelessWidget {
