@@ -897,6 +897,7 @@ class _OptionsStepState extends State<_OptionsStep> {
   String? _itemTypeCode;
   String? _catalogItemId;
   String? _catalogVariantId;
+  String? _salesUnitCode;
 
   @override
   void dispose() {
@@ -952,6 +953,7 @@ class _OptionsStepState extends State<_OptionsStep> {
                   _itemTypeCode = value == null || value.isEmpty ? null : value;
                   _catalogItemId = null;
                   _catalogVariantId = null;
+                  _salesUnitCode = null;
                   _catalogItemController.clear();
                   _catalogVariantController.clear();
                   _resetAdditionalHandlingInputs();
@@ -974,6 +976,7 @@ class _OptionsStepState extends State<_OptionsStep> {
                   setState(() {
                     _catalogItemId = item.id;
                     _catalogVariantId = onlyVariant?.id;
+                    _salesUnitCode = _defaultSalesUnitCode(item, onlyVariant);
                     _catalogItemController.text = _itemLabel(item);
                     _catalogVariantController.text = onlyVariant == null ? '' : _variantLabel(onlyVariant);
                     _resetAdditionalHandlingInputs();
@@ -1016,6 +1019,7 @@ class _OptionsStepState extends State<_OptionsStep> {
                       searchStringForOption: _variantSearchText,
                       onSelected: (variant) => setState(() {
                         _catalogVariantId = variant.id;
+                        _salesUnitCode = _defaultSalesUnitCode(selectedItem, variant);
                         _catalogVariantController.text = _variantLabel(variant);
                       }),
                     ),
@@ -1171,7 +1175,9 @@ class _OptionsStepState extends State<_OptionsStep> {
         .where((entry) => _enabledAdditionalHandlingIds.contains(entry.catalogItemId))
         .toList(growable: false);
     final canUseHandlingInput = _additionalHandlingInputEnabled && unselectedHandlings.isNotEmpty;
-    final unitLabel = _selectedItemMeasureUnitLabel(selectedItem);
+    final salesUnitOptions = _salesUnitOptions(selectedItem, selectedVariant);
+    final salesUnitCode = _effectiveSalesUnitCode(selectedItem, selectedVariant);
+    final packageInfoLabel = _packageInfoLabel(selectedItem, selectedVariant);
 
     return Container(
       padding: const EdgeInsets.all(10),
@@ -1187,7 +1193,9 @@ class _OptionsStepState extends State<_OptionsStep> {
             canAdd: canAdd,
             addRequiresVariant: addRequiresVariant,
             selectedVariant: selectedVariant,
-            unitLabel: unitLabel,
+            salesUnitOptions: salesUnitOptions,
+            salesUnitCode: salesUnitCode,
+            packageInfoLabel: packageInfoLabel,
           ),
           if (additionalHandlingOptions.isNotEmpty) ...[
             const SizedBox(height: 8),
@@ -1220,8 +1228,14 @@ class _OptionsStepState extends State<_OptionsStep> {
     required bool canAdd,
     required bool addRequiresVariant,
     required CalculatorCatalogVariantOption? selectedVariant,
-    required String unitLabel,
+    required List<String> salesUnitOptions,
+    required String salesUnitCode,
+    required String? packageInfoLabel,
   }) {
+    final normalizedSalesUnit = salesUnitOptions.contains(salesUnitCode)
+        ? salesUnitCode
+        : (salesUnitOptions.isEmpty ? 'piece' : salesUnitOptions.first);
+
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
@@ -1237,14 +1251,39 @@ class _OptionsStepState extends State<_OptionsStep> {
           ),
         ),
         const SizedBox(width: 12),
-        ConstrainedBox(
-          constraints: const BoxConstraints(minWidth: 84, maxWidth: 150),
-          child: Text(
-            unitLabel,
-            overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.bodyMedium,
+        SizedBox(
+          width: 132,
+          child: DropdownButtonFormField<String>(
+            key: ValueKey('sales-unit-$normalizedSalesUnit-${salesUnitOptions.join('|')}'),
+            initialValue: normalizedSalesUnit,
+            isExpanded: true,
+            decoration: const InputDecoration(
+              labelText: 'Unit',
+              isDense: true,
+            ),
+            items: [
+              for (final unit in salesUnitOptions)
+                DropdownMenuItem(
+                  value: unit,
+                  child: Text(_formatUnitLabel(unit), overflow: TextOverflow.ellipsis),
+                ),
+            ],
+            onChanged: salesUnitOptions.length > 1 ? (value) => setState(() => _salesUnitCode = value) : null,
           ),
         ),
+        if (packageInfoLabel != null) ...[
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              packageInfoLabel,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+            ),
+          ),
+        ],
         const SizedBox(width: 12),
         if (addRequiresVariant && selectedVariant == null)
           Expanded(
@@ -1339,36 +1378,131 @@ class _OptionsStepState extends State<_OptionsStep> {
     });
   }
 
-  String _selectedItemMeasureUnitLabel(CalculatorCatalogItemOption? item) {
-    return _measureUnitLabel(item?.measureTypeCode);
+  List<String> _salesUnitOptions(
+    CalculatorCatalogItemOption? item,
+    CalculatorCatalogVariantOption? variant,
+  ) {
+    final roundingCode = _normalizeText(variant?.saleRoundingCode) ?? _normalizeText(item?.saleRoundingCode);
+    final packageUnit = _normalizeUnitCode(variant?.packageUnitCode) ?? _normalizeUnitCode(item?.packageUnitCode);
+    final explicit = variant != null && variant.allowedSalesUnitCodes.isNotEmpty
+        ? variant.allowedSalesUnitCodes
+        : item?.allowedSalesUnitCodes ?? const <String>[];
+
+    final candidates = <String?>[
+      if (roundingCode == 'package_only' && packageUnit != null) packageUnit,
+      if (roundingCode != 'package_only') ...explicit,
+      variant?.defaultSalesUnitCode,
+      item?.defaultSalesUnitCode,
+      item?.measureTypeCode,
+      variant?.packageUnitCode,
+      item?.packageUnitCode,
+      variant?.packageContentUnitCode,
+      item?.packageContentUnitCode,
+      'piece',
+    ];
+
+    final result = <String>[];
+    for (final raw in candidates) {
+      final unit = _normalizeUnitCode(raw);
+      if (unit == null || result.contains(unit)) continue;
+      result.add(unit);
+      if (roundingCode == 'package_only') break;
+    }
+    return result.isEmpty ? const ['piece'] : result;
   }
 
-  String _measureUnitLabel(String? rawUnit) {
-    final unit = rawUnit?.trim();
-    if (unit == null || unit.isEmpty) return 'piece';
-    switch (unit.toLowerCase()) {
+  String _effectiveSalesUnitCode(
+    CalculatorCatalogItemOption? item,
+    CalculatorCatalogVariantOption? variant,
+  ) {
+    final options = _salesUnitOptions(item, variant);
+    final selected = _normalizeUnitCode(_salesUnitCode);
+    if (selected != null && options.contains(selected)) return selected;
+    return _defaultSalesUnitCode(item, variant);
+  }
+
+  String _defaultSalesUnitCode(
+    CalculatorCatalogItemOption? item,
+    CalculatorCatalogVariantOption? variant,
+  ) {
+    final options = _salesUnitOptions(item, variant);
+    final candidates = <String?>[
+      variant?.defaultSalesUnitCode,
+      item?.defaultSalesUnitCode,
+      item?.measureTypeCode,
+      variant?.packageUnitCode,
+      item?.packageUnitCode,
+      variant?.packageContentUnitCode,
+      item?.packageContentUnitCode,
+    ];
+    for (final raw in candidates) {
+      final unit = _normalizeUnitCode(raw);
+      if (unit != null && options.contains(unit)) return unit;
+    }
+    return options.first;
+  }
+
+  String? _packageInfoLabel(
+    CalculatorCatalogItemOption? item,
+    CalculatorCatalogVariantOption? variant,
+  ) {
+    final packageUnit = _normalizeUnitCode(variant?.packageUnitCode) ?? _normalizeUnitCode(item?.packageUnitCode);
+    final contentUnit = _normalizeUnitCode(variant?.packageContentUnitCode) ?? _normalizeUnitCode(item?.packageContentUnitCode);
+    final contentQty = variant?.packageContentQty ?? item?.packageContentQty;
+    final roundingCode = _normalizeText(variant?.saleRoundingCode) ?? _normalizeText(item?.saleRoundingCode);
+    if (packageUnit == null || contentUnit == null || contentQty == null || contentQty <= 0) return null;
+    final roundingLabel = switch (roundingCode) {
+      'exact' => 'exact',
+      'ceil_package' => 'round to package',
+      'package_only' => 'package only',
+      _ => null,
+    };
+    final base = '1 ${_formatUnitLabel(packageUnit)} = ${_formatInputQuantity(contentQty)} ${_formatUnitLabel(contentUnit)}';
+    return roundingLabel == null ? base : '$base · $roundingLabel';
+  }
+
+  String? _normalizeText(String? value) {
+    final text = value?.trim().toLowerCase();
+    return text == null || text.isEmpty ? null : text;
+  }
+
+  String? _normalizeUnitCode(String? value) {
+    final text = _normalizeText(value)?.replaceAll(RegExp(r'\s+'), '_');
+    if (text == null) return null;
+    switch (text) {
       case 'm':
       case 'meter':
       case 'meters':
       case 'metre':
       case 'metres':
-        return 'meters';
-      case 'mm':
-        return 'mm';
-      case 'm2':
-      case 'sqm':
-      case 'square_meter':
-      case 'square_meters':
-        return 'm²';
+        return 'meter';
+      case 'karton':
+      case 'carton':
+      case 'box':
+      case 'package':
+        return 'carton';
+      case 'rolle':
+      case 'roll':
+        return 'roll';
       case 'stk':
+      case 'stk.':
       case 'st':
       case 'pc':
       case 'pcs':
       case 'piece':
       case 'pieces':
-        return 'pieces';
+        return 'piece';
+      case 'm2':
+      case 'sqm':
+      case 'square_meter':
+      case 'square_meters':
+        return 'sqm';
+      case 'prozent':
+      case 'percent':
+      case '%':
+        return 'percent';
       default:
-        return unit;
+        return text;
     }
   }
 
@@ -1510,6 +1644,7 @@ class _OptionsStepState extends State<_OptionsStep> {
       _itemTypeCode = null;
       _catalogItemId = null;
       _catalogVariantId = null;
+      _salesUnitCode = null;
       _catalogItemController.clear();
       _catalogVariantController.clear();
       _quantityController.text = '1';
@@ -1521,14 +1656,19 @@ class _OptionsStepState extends State<_OptionsStep> {
     final itemId = _catalogItemId;
     if (itemId == null) return;
     final quantity = num.tryParse(_quantityController.text.replaceAll(',', '.')) ?? 1;
+    final item = _findItem(itemId);
+    final variant = _findVariant(_catalogVariantId);
+    final salesUnitCode = _effectiveSalesUnitCode(item, variant);
     widget.notifier.addCatalogOption(
       catalogItemId: itemId,
       catalogVariantId: _catalogVariantId,
       quantity: quantity,
+      salesUnitCode: salesUnitCode,
       additionalHandlings: _selectedAdditionalHandlings(itemId),
     );
     setState(() {
       _catalogVariantId = null;
+      _salesUnitCode = _defaultSalesUnitCode(_findItem(itemId), null);
       _catalogVariantController.clear();
       _quantityController.text = '1';
       _resetAdditionalHandlingInputs();
@@ -1631,9 +1771,17 @@ class _SelectedOptionsTable extends StatelessWidget {
     final availableHandlings = item == null
         ? const <CalculatorAdditionalHandlingOption>[]
         : contextData.additionalHandlingByParentItemId[item.id] ?? const <CalculatorAdditionalHandlingOption>[];
+    final unitCode = option.salesUnitCode
+        ?? diagnostic?['requested_unit_code']?.toString()
+        ?? item?.defaultSalesUnitCode
+        ?? item?.measureTypeCode
+        ?? diagnostic?['unit_code']?.toString()
+        ?? 'piece';
+    final salesNote = diagnostic?['sales_note']?.toString();
     final optionTextParts = [
       if (variant?.colorName != null) variant!.colorName!,
       if (_formatLengthMm(variant?.lengthMm) != null) _formatLengthMm(variant?.lengthMm),
+      if (salesNote != null && salesNote.isNotEmpty) salesNote,
     ].whereType<String>().where((entry) => entry.isNotEmpty).toList(growable: false);
 
     return Padding(
@@ -1652,7 +1800,7 @@ class _SelectedOptionsTable extends StatelessWidget {
             flex: 5,
           ),
           _cell(context, Text('${option.quantity}'), width: 46),
-          _cell(context, Text(item?.measureTypeCode ?? diagnostic?['unit_code']?.toString() ?? 'piece'), width: 52),
+          _cell(context, Text(_formatUnitLabel(unitCode)), width: 52),
           _cell(
             context,
             _SelectedOptionInfoCell(optionTextParts: optionTextParts),
@@ -1733,6 +1881,48 @@ class _SelectedOptionsTable extends StatelessWidget {
 String _formatInputQuantity(num value) {
   if (value % 1 == 0) return value.toInt().toString();
   return value.toString();
+}
+
+String _formatUnitLabel(String? rawUnit) {
+  final unit = rawUnit?.trim();
+  if (unit == null || unit.isEmpty) return 'piece';
+  switch (unit.toLowerCase()) {
+    case 'm':
+    case 'meter':
+    case 'meters':
+    case 'metre':
+    case 'metres':
+      return 'm';
+    case 'mm':
+      return 'mm';
+    case 'm2':
+    case 'sqm':
+    case 'square_meter':
+    case 'square_meters':
+      return 'm²';
+    case 'stk':
+    case 'stk.':
+    case 'st':
+    case 'pc':
+    case 'pcs':
+    case 'piece':
+    case 'pieces':
+      return 'Stk';
+    case 'carton':
+    case 'karton':
+    case 'box':
+    case 'package':
+      return 'Karton';
+    case 'roll':
+    case 'rolle':
+      return 'Rolle';
+    case 'prozent':
+    case 'percent':
+    case '%':
+      return '%';
+    default:
+      return unit;
+  }
 }
 
 class _SelectedOptionNameCell extends StatelessWidget {
@@ -2228,9 +2418,16 @@ class _LinesTab extends StatelessWidget {
       separatorBuilder: (_, __) => const Divider(height: 1),
       itemBuilder: (context, index) {
         final line = result.visibleLines[index];
+        final unitPrice = _num(line['unitPrice']);
+        final note = '${line['note'] ?? ''}'.trim();
+        final subtitleParts = <String>[
+          'Qty ${line['quantity'] ?? 1} ${_formatUnitLabel('${line['unit'] ?? ''}')}',
+          if (unitPrice > 0) '${_moneyFormat.format(unitPrice)} / ${_formatUnitLabel('${line['unit'] ?? ''}')}',
+          if (note.isNotEmpty) note,
+        ];
         return ListTile(
           title: Text('${line['label'] ?? 'Line'}'),
-          subtitle: Text('Qty ${line['quantity'] ?? 1} ${line['unit'] ?? ''}'),
+          subtitle: Text(subtitleParts.join(' · ')),
           trailing: Text(_moneyFormat.format(_num(line['amount']))),
         );
       },

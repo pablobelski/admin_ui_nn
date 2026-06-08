@@ -110,6 +110,13 @@ class CalculatorCatalogItemOption {
     this.profileNo,
     this.shortName,
     this.measureTypeCode,
+    this.packageUnitCode,
+    this.packageContentQty,
+    this.packageContentUnitCode,
+    this.defaultSalesUnitCode,
+    this.allowedSalesUnitCodes = const [],
+    this.saleRoundingCode,
+    this.priceBasisUnitCode,
     this.defaultLengthMm,
     this.defaultColorCode,
     this.raw = const {},
@@ -124,6 +131,13 @@ class CalculatorCatalogItemOption {
       profileNo: _nullableString(json['profile_no']),
       shortName: _nullableString(json['short_name']),
       measureTypeCode: _nullableString(json['measure_type_code']),
+      packageUnitCode: _nullableString(json['package_unit_code']),
+      packageContentQty: _numOrNull(json['package_content_qty']),
+      packageContentUnitCode: _nullableString(json['package_content_unit_code']),
+      defaultSalesUnitCode: _nullableString(json['default_sales_unit_code']),
+      allowedSalesUnitCodes: _stringList(json['allowed_sales_unit_codes']),
+      saleRoundingCode: _nullableString(json['sale_rounding_code']),
+      priceBasisUnitCode: _nullableString(json['price_basis_unit_code']),
       defaultLengthMm: _lengthOrNull(json['default_length_mm']),
       defaultColorCode: _nullableString(json['default_color_code']),
       raw: json,
@@ -137,6 +151,13 @@ class CalculatorCatalogItemOption {
   final String? profileNo;
   final String? shortName;
   final String? measureTypeCode;
+  final String? packageUnitCode;
+  final num? packageContentQty;
+  final String? packageContentUnitCode;
+  final String? defaultSalesUnitCode;
+  final List<String> allowedSalesUnitCodes;
+  final String? saleRoundingCode;
+  final String? priceBasisUnitCode;
   final int? defaultLengthMm;
   final String? defaultColorCode;
   final Map<String, dynamic> raw;
@@ -161,6 +182,13 @@ class CalculatorCatalogVariantOption {
     this.coatingTypeCode,
     this.systemCode,
     this.systemName,
+    this.packageUnitCode,
+    this.packageContentQty,
+    this.packageContentUnitCode,
+    this.defaultSalesUnitCode,
+    this.allowedSalesUnitCodes = const [],
+    this.saleRoundingCode,
+    this.priceBasisUnitCode,
     this.imageFileId,
     this.raw = const {},
   });
@@ -179,6 +207,13 @@ class CalculatorCatalogVariantOption {
       coatingTypeCode: _nullableString(json['coating_type_code']),
       systemCode: _nullableString(json['system_code']),
       systemName: _nullableString(json['system_name']),
+      packageUnitCode: _nullableString(json['package_unit_code']),
+      packageContentQty: _numOrNull(json['package_content_qty']),
+      packageContentUnitCode: _nullableString(json['package_content_unit_code']),
+      defaultSalesUnitCode: _nullableString(json['default_sales_unit_code']),
+      allowedSalesUnitCodes: _stringList(json['allowed_sales_unit_codes']),
+      saleRoundingCode: _nullableString(json['sale_rounding_code']),
+      priceBasisUnitCode: _nullableString(json['price_basis_unit_code']),
       imageFileId: _nullableString(json['image_file_id']),
       raw: json,
     );
@@ -196,6 +231,13 @@ class CalculatorCatalogVariantOption {
   final String? coatingTypeCode;
   final String? systemCode;
   final String? systemName;
+  final String? packageUnitCode;
+  final num? packageContentQty;
+  final String? packageContentUnitCode;
+  final String? defaultSalesUnitCode;
+  final List<String> allowedSalesUnitCodes;
+  final String? saleRoundingCode;
+  final String? priceBasisUnitCode;
   final String? imageFileId;
   final Map<String, dynamic> raw;
 
@@ -424,6 +466,7 @@ class CalculatorSelectedOption {
     this.catalogItemId,
     this.catalogVariantId,
     this.quantity = 1,
+    this.salesUnitCode,
     this.schraegCount,
     this.additionalHandlings = const [],
   });
@@ -433,6 +476,7 @@ class CalculatorSelectedOption {
       optionCode: _nullableString(json['option_code']),
       catalogItemId: _nullableString(json['catalog_item_id']),
       catalogVariantId: _nullableString(json['catalog_variant_id']),
+      salesUnitCode: _nullableString(json['sales_unit_code']),
       quantity: _numOrDefault(json['quantity'], 1),
       schraegCount: _intOrNull(json['schraeg_count']),
       additionalHandlings: _list(json['additional_handlings'])
@@ -446,6 +490,7 @@ class CalculatorSelectedOption {
   final String? catalogItemId;
   final String? catalogVariantId;
   final num quantity;
+  final String? salesUnitCode;
   final int? schraegCount;
   final List<CalculatorSelectedAdditionalHandling> additionalHandlings;
 
@@ -458,6 +503,8 @@ class CalculatorSelectedOption {
     String? catalogVariantId,
     bool clearCatalogVariant = false,
     num? quantity,
+    String? salesUnitCode,
+    bool clearSalesUnit = false,
     int? schraegCount,
     bool clearSchraeg = false,
     List<CalculatorSelectedAdditionalHandling>? additionalHandlings,
@@ -467,6 +514,7 @@ class CalculatorSelectedOption {
       catalogItemId: clearCatalogItem ? null : catalogItemId ?? this.catalogItemId,
       catalogVariantId: clearCatalogVariant ? null : catalogVariantId ?? this.catalogVariantId,
       quantity: quantity ?? this.quantity,
+      salesUnitCode: clearSalesUnit ? null : salesUnitCode ?? this.salesUnitCode,
       schraegCount: clearSchraeg ? null : schraegCount ?? this.schraegCount,
       additionalHandlings: additionalHandlings ?? this.additionalHandlings,
     );
@@ -478,6 +526,7 @@ class CalculatorSelectedOption {
       if (catalogItemId != null && catalogItemId!.isNotEmpty) 'catalog_item_id': catalogItemId,
       if (catalogVariantId != null && catalogVariantId!.isNotEmpty) 'catalog_variant_id': catalogVariantId,
       'quantity': quantity,
+      if (salesUnitCode != null && salesUnitCode!.isNotEmpty) 'sales_unit_code': salesUnitCode,
       if (schraegCount != null && schraegCount! > 0) 'schraeg_count': schraegCount,
       if (additionalHandlings.isNotEmpty)
         'additional_handlings': additionalHandlings.map((entry) => entry.toJson()).toList(),
@@ -665,6 +714,25 @@ Map<String, List<CalculatorAdditionalHandlingOption>> _additionalHandlingMap(dyn
     options.sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
     return MapEntry(parentId, options);
   });
+}
+
+List<String> _stringList(dynamic value) {
+  if (value is List) {
+    return value
+        .map((entry) => '$entry'.trim())
+        .where((entry) => entry.isNotEmpty)
+        .toList(growable: false);
+  }
+  if (value is String) {
+    return value
+        .replaceAll('{', '')
+        .replaceAll('}', '')
+        .split(RegExp(r'[,;|]'))
+        .map((entry) => entry.trim())
+        .where((entry) => entry.isNotEmpty)
+        .toList(growable: false);
+  }
+  return const [];
 }
 
 num _numOrDefault(dynamic value, num fallback) {

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/http/admin_resource_repository.dart';
-import '../../../core/models/admin_resource.dart';
+//import '../../../core/models/admin_resource.dart';
 import '../../../core/navigation/admin_registry.dart';
 
 class CatalogItemDependencyTree extends StatefulWidget {

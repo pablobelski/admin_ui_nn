@@ -115,6 +115,7 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
     required String catalogItemId,
     String? catalogVariantId,
     num quantity = 1,
+    String? salesUnitCode,
     int? schraegCount,
     List<CalculatorSelectedAdditionalHandling> additionalHandlings = const [],
   }) {
@@ -126,6 +127,7 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
           catalogItemId: catalogItemId,
           catalogVariantId: catalogVariantId == null || catalogVariantId.trim().isEmpty ? null : catalogVariantId,
           quantity: quantity <= 0 ? 1 : quantity,
+          salesUnitCode: salesUnitCode == null || salesUnitCode.trim().isEmpty ? null : salesUnitCode.trim(),
           schraegCount: schraegCount == null || schraegCount <= 0 ? null : schraegCount.clamp(1, 2).toInt(),
           additionalHandlings: additionalHandlings,
         ),
