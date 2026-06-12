@@ -19,6 +19,7 @@ const _steps = <_StepDefinition>[
 ];
 
 final _moneyFormat = NumberFormat.currency(locale: 'de_DE', symbol: '€');
+const _customRalOptionCode = '__custom_ral__';
 
 class CalculatorWorkspacePage extends ConsumerStatefulWidget {
   const CalculatorWorkspacePage({super.key});
@@ -566,13 +567,10 @@ class _StepCard extends ConsumerWidget {
           emptyLabel: '— Covering not selected —',
         );
       case 'color':
-        return _SelectStep(
-          title: 'Frame color',
-          description: 'Uses reference domain colors: 7016, 9006, 9007, 9010. Special colors should become a separate option group.',
-          value: draft.colorCode,
-          options: calculatorContext.references['colors'] ?? const [],
-          onChanged: notifier.setColor,
-          emptyLabel: '— Color not selected —',
+        return _ColorStep(
+          contextData: calculatorContext,
+          draft: draft,
+          notifier: notifier,
         );
       case 'options':
         final result = ref.watch(calculatorResultProvider).maybeWhen(
@@ -866,6 +864,303 @@ class _SelectStep extends StatelessWidget {
   }
 }
 
+class _ColorStep extends StatefulWidget {
+  const _ColorStep({
+    required this.contextData,
+    required this.draft,
+    required this.notifier,
+  });
+
+  final CalculatorContext contextData;
+  final CalculatorDraft draft;
+  final CalculatorDraftNotifier notifier;
+
+  @override
+  State<_ColorStep> createState() => _ColorStepState();
+}
+
+class _ColorStepState extends State<_ColorStep> {
+  late final TextEditingController _customRalController;
+  var _customRalMode = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _customRalController = TextEditingController(text: _initialCustomRalCode());
+    _customRalMode = _customRalController.text.isNotEmpty;
+  }
+
+  @override
+  void didUpdateWidget(covariant _ColorStep oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final selectedCode = _normalizeRalCode(widget.draft.colorCode);
+    final isStandard = selectedCode != null && _standardColorCodes.contains(selectedCode);
+    final nextText = isStandard || selectedCode == null ? '' : selectedCode;
+    if (nextText.isNotEmpty && nextText != _customRalController.text) {
+      _customRalController.value = TextEditingValue(
+        text: nextText,
+        selection: TextSelection.collapsed(offset: nextText.length),
+      );
+    }
+    if (nextText.isNotEmpty && !_customRalMode) {
+      _customRalMode = true;
+    }
+  }
+
+  @override
+  void dispose() {
+    _customRalController.dispose();
+    super.dispose();
+  }
+
+  List<CalculatorOption> get _standardColorOptions => widget.contextData.references['colors'] ?? const [];
+  List<CalculatorOption> get _ralColorOptions => widget.contextData.references['ral_colors'] ?? const [];
+
+  Set<String> get _standardColorCodes => _standardColorOptions
+      .map((entry) => _normalizeRalCode(entry.code))
+      .whereType<String>()
+      .toSet();
+
+  String _initialCustomRalCode() {
+    final selectedCode = _normalizeRalCode(widget.draft.colorCode);
+    if (selectedCode == null || _standardColorCodes.contains(selectedCode)) return '';
+    return selectedCode;
+  }
+
+  void _setColor(String? value) {
+    final normalized = _normalizeRalCode(value);
+    widget.notifier.setColor(normalized);
+    _syncPaintOption(normalized);
+  }
+
+  void _syncPaintOption(String? normalizedColorCode) {
+    final paintItem = widget.contextData.customPaintCatalogItem;
+    if (paintItem == null) return;
+
+    final paintIndexes = <int>[];
+    for (var index = 0; index < widget.draft.options.length; index += 1) {
+      if (widget.draft.options[index].catalogItemId == paintItem.id) {
+        paintIndexes.add(index);
+      }
+    }
+
+    final needsPaint = normalizedColorCode != null && !_standardColorCodes.contains(normalizedColorCode);
+    if (needsPaint) {
+      if (paintIndexes.isEmpty) {
+        widget.notifier.addCatalogOption(
+          catalogItemId: paintItem.id,
+          quantity: 1,
+          salesUnitCode: paintItem.defaultSalesUnitCode ?? paintItem.measureTypeCode,
+        );
+      }
+      return;
+    }
+
+    for (final index in paintIndexes.reversed) {
+      widget.notifier.removeOptionAt(index);
+    }
+  }
+
+  Color? _colorForCode(String? rawCode) {
+    final code = _normalizeRalCode(rawCode);
+    if (code == null) return null;
+
+    CalculatorOption? match;
+    for (final option in [..._standardColorOptions, ..._ralColorOptions]) {
+      if (_normalizeRalCode(option.code) == code) {
+        match = option;
+        break;
+      }
+    }
+
+    return _colorFromHex(_stringFromRaw(match?.raw['color_hex'] ?? match?.raw['colorHex'] ?? match?.raw['metadata_json']?['color_hex']));
+  }
+
+  String _labelForCode(String code) {
+    for (final option in [..._standardColorOptions, ..._ralColorOptions]) {
+      if (_normalizeRalCode(option.code) == code) return option.label;
+    }
+    return 'RAL $code';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final selectedCode = _normalizeRalCode(widget.draft.colorCode);
+    final customSelected = selectedCode != null && !_standardColorCodes.contains(selectedCode);
+    final customMode = _customRalMode || customSelected;
+    final dropdownOptions = [
+      ..._standardColorOptions,
+      const CalculatorOption(id: _customRalOptionCode, code: _customRalOptionCode, label: 'Указать свой цвет'),
+    ];
+    final dropdownValue = customMode ? _customRalOptionCode : selectedCode;
+    final customColor = _colorForCode(selectedCode);
+    final paintItem = widget.contextData.customPaintCatalogItem;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Frame color', style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 8),
+        Text(
+          'Стандартные цвета берутся из reference domain colors. Полный справочник RAL берется из ral_colors. Для нестандартного цвета добавляется позиция из domain Lackierung.',
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
+        const SizedBox(height: 20),
+        _DropdownField(
+          label: 'Frame color',
+          value: dropdownValue,
+          options: dropdownOptions,
+          idSelector: (option) => option.code,
+          onChanged: (next) {
+            if (next == _customRalOptionCode) {
+              setState(() {
+                _customRalMode = true;
+              });
+              final existing = _normalizeRalCode(_customRalController.text);
+              if (existing != null && !_standardColorCodes.contains(existing)) {
+                _setColor(existing);
+              }
+              return;
+            }
+            setState(() {
+              _customRalMode = false;
+            });
+            _customRalController.clear();
+            _setColor(next);
+          },
+          emptyLabel: '— Color not selected —',
+        ),
+        const SizedBox(height: 16),
+        GridView.count(
+          crossAxisCount: 4,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          crossAxisSpacing: 8,
+          mainAxisSpacing: 8,
+          childAspectRatio: 3.2,
+          children: [
+            for (final option in _standardColorOptions)
+              _RalColorTile(
+                label: option.label,
+                color: _colorForCode(option.code),
+                selected: selectedCode == _normalizeRalCode(option.code),
+                onTap: () {
+                  setState(() {
+                    _customRalMode = false;
+                  });
+                  _customRalController.clear();
+                  _setColor(option.code);
+                },
+              ),
+            _RalColorTile(
+              label: customSelected ? _labelForCode(selectedCode) : 'Указать свой цвет',
+              color: customSelected ? customColor : null,
+              selected: customMode,
+              onTap: () {
+                setState(() {
+                  _customRalMode = true;
+                });
+                final existing = _normalizeRalCode(_customRalController.text);
+                if (existing != null && !_standardColorCodes.contains(existing)) {
+                  _setColor(existing);
+                }
+              },
+            ),
+          ],
+        ),
+        if (customMode) ...[
+          const SizedBox(height: 12),
+          TextField(
+            controller: _customRalController,
+            decoration: const InputDecoration(
+              labelText: 'Свой RAL код',
+              hintText: 'Например: 3024',
+            ),
+            keyboardType: TextInputType.number,
+            onChanged: (value) {
+              if (!_customRalMode) {
+                setState(() {
+                  _customRalMode = true;
+                });
+              }
+              final normalized = _normalizeRalCode(value);
+              if (normalized != null && normalized.length == 4) {
+                _setColor(normalized);
+              } else if (normalized == null) {
+                _setColor(null);
+              }
+            },
+          ),
+          const SizedBox(height: 8),
+          Text(
+            paintItem == null
+                ? 'Для нестандартного цвета не найдена активная позиция в domain Lackierung.'
+                : 'Для нестандартного цвета будет добавлена строка “${paintItem.name}”.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _RalColorTile extends StatelessWidget {
+  const _RalColorTile({
+    required this.label,
+    required this.color,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final Color? color;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final background = color ?? theme.colorScheme.surfaceContainerHighest;
+    final foreground = color == null || background.computeLuminance() > 0.45 ? Colors.black87 : Colors.white;
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        decoration: BoxDecoration(
+          color: background,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: selected ? theme.colorScheme.primary : theme.dividerColor,
+            width: selected ? 2 : 1,
+          ),
+        ),
+        padding: const EdgeInsets.all(8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Icon(
+              selected ? Icons.check_circle : Icons.radio_button_unchecked,
+              size: 16,
+              color: foreground,
+            ),
+            Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: foreground,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _OptionsStep extends StatefulWidget {
   const _OptionsStep({
     required this.contextData,
@@ -1077,7 +1372,11 @@ class _OptionsStepState extends State<_OptionsStep> {
 
   CalculatorCatalogItemOption? _findItem(String? id) {
     if (id == null) return null;
-    return widget.contextData.optionCatalogItems.where((entry) => entry.id == id).cast<CalculatorCatalogItemOption?>().firstOrNull;
+    final item = widget.contextData.optionCatalogItems
+        .where((entry) => entry.id == id)
+        .cast<CalculatorCatalogItemOption?>()
+        .firstOrNull;
+    return item ?? (widget.contextData.customPaintCatalogItem?.id == id ? widget.contextData.customPaintCatalogItem : null);
   }
 
   CalculatorCatalogVariantOption? _findVariant(String? id) {
@@ -1866,7 +2165,11 @@ class _SelectedOptionsTable extends StatelessWidget {
 
   CalculatorCatalogItemOption? _findItem(String? id) {
     if (id == null) return null;
-    return contextData.optionCatalogItems.where((entry) => entry.id == id).cast<CalculatorCatalogItemOption?>().firstOrNull;
+    final item = contextData.optionCatalogItems
+        .where((entry) => entry.id == id)
+        .cast<CalculatorCatalogItemOption?>()
+        .firstOrNull;
+    return item ?? (contextData.customPaintCatalogItem?.id == id ? contextData.customPaintCatalogItem : null);
   }
 
   CalculatorCatalogVariantOption? _findVariant(String? id) {
@@ -3160,6 +3463,26 @@ String _joinDistinctTextParts(Iterable<String?> values) {
     result.add(value);
   }
   return result.isEmpty ? 'Option' : result.join(' · ');
+}
+
+
+String? _normalizeRalCode(String? value) {
+  if (value == null) return null;
+  final normalized = value.trim().toUpperCase().replaceFirst(RegExp(r'^RAL\s*'), '').replaceAll(RegExp(r'\s+'), '');
+  return normalized.isEmpty ? null : normalized;
+}
+
+String? _stringFromRaw(dynamic value) {
+  if (value == null) return null;
+  final text = '$value'.trim();
+  return text.isEmpty ? null : text;
+}
+
+Color? _colorFromHex(String? value) {
+  if (value == null) return null;
+  final normalized = value.trim().replaceFirst('#', '');
+  if (!RegExp(r'^[0-9a-fA-F]{6}$').hasMatch(normalized)) return null;
+  return Color(int.parse('FF$normalized', radix: 16));
 }
 
 String _normalize(String value) {

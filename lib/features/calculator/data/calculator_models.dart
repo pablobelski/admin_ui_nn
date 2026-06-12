@@ -12,9 +12,21 @@ class CalculatorContext {
     required this.optionCatalogItems,
     required this.optionCatalogVariants,
     required this.additionalHandlingByParentItemId,
+    this.customPaintCatalogItem,
   });
 
   factory CalculatorContext.fromJson(Map<String, dynamic> json) {
+    final customPaintCatalogItem = json['customPaintCatalogItem'] is Map
+        ? CalculatorCatalogItemOption.fromJson(Map<String, dynamic>.from(json['customPaintCatalogItem'] as Map))
+        : null;
+    final optionCatalogItems = _list(json['optionCatalogItems'])
+        .map(CalculatorCatalogItemOption.fromJson)
+        .toList();
+    if (customPaintCatalogItem != null
+        && !optionCatalogItems.any((item) => item.id == customPaintCatalogItem.id)) {
+      optionCatalogItems.add(customPaintCatalogItem);
+    }
+
     return CalculatorContext(
       organizations: _list(json['organizations']).map(CalculatorOption.fromJson).toList(),
       productFamilies: _list(json['productFamilies']).map(CalculatorOption.fromJson).toList(),
@@ -25,9 +37,10 @@ class CalculatorContext {
           .map((entry) => '$entry')
           .toList(),
       optionItemTypes: _list(json['optionItemTypes']).map(CalculatorOption.fromJson).toList(),
-      optionCatalogItems: _list(json['optionCatalogItems']).map(CalculatorCatalogItemOption.fromJson).toList(),
+      optionCatalogItems: optionCatalogItems,
       optionCatalogVariants: _list(json['optionCatalogVariants']).map(CalculatorCatalogVariantOption.fromJson).toList(),
       additionalHandlingByParentItemId: _additionalHandlingMap(json['additionalHandlingByParentItemId']),
+      customPaintCatalogItem: customPaintCatalogItem,
     );
   }
 
@@ -41,6 +54,7 @@ class CalculatorContext {
   final List<CalculatorCatalogItemOption> optionCatalogItems;
   final List<CalculatorCatalogVariantOption> optionCatalogVariants;
   final Map<String, List<CalculatorAdditionalHandlingOption>> additionalHandlingByParentItemId;
+  final CalculatorCatalogItemOption? customPaintCatalogItem;
 }
 
 class CalculatorOption {
