@@ -11,6 +11,14 @@ class CalculatorRepository {
     return CalculatorContext.fromJson(response);
   }
 
+  Future<CalculatorSetContentsPreview> fetchSetContents(CalculatorDraft draft) async {
+    final response = await _client.postJson(
+      '/api/internal/calculator/set-contents',
+      body: draft.toCalculationJson(),
+    );
+    return CalculatorSetContentsPreview.fromJson(response);
+  }
+
   Future<CalculatorResult> calculate(CalculatorDraft draft) async {
     final response = await _client.postJson(
       '/api/internal/calculator/calculate',

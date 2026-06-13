@@ -13,6 +13,7 @@ const _steps = <_StepDefinition>[
   _StepDefinition('dimensions', 'Dimensions', Icons.straighten_outlined),
   _StepDefinition('covering', 'Covering', Icons.layers_outlined),
   _StepDefinition('color', 'Color', Icons.palette_outlined),
+  _StepDefinition('set_contents', 'Set contents', Icons.view_list_outlined),
   _StepDefinition('options', 'Options', Icons.tune_outlined),
   _StepDefinition('delivery', 'Delivery', Icons.local_shipping_outlined),
   _StepDefinition('summary', 'Summary', Icons.summarize_outlined),
@@ -347,7 +348,7 @@ class _Header extends StatelessWidget {
               Text('Calculator Workspace', style: Theme.of(context).textTheme.headlineSmall),
               const SizedBox(height: 4),
               Text(
-                'Internal step-by-step configurator: Product → Template → Model → Dimensions → Covering → Color → Options → Delivery → Summary.',
+                'Internal step-by-step configurator: Product → Template → Model → Dimensions → Covering → Color → Set contents → Options → Delivery → Summary.',
                 style: Theme.of(context).textTheme.bodyMedium,
               ),
             ],
@@ -571,6 +572,19 @@ class _StepCard extends ConsumerWidget {
           contextData: calculatorContext,
           draft: draft,
           notifier: notifier,
+        );
+      case 'set_contents':
+        final preview = ref.watch(calculatorSetContentsProvider);
+        final result = ref.watch(calculatorResultProvider).maybeWhen(
+              data: (value) => value,
+              orElse: () => null,
+            );
+        return _SetContentsStep(
+          contextData: calculatorContext,
+          draft: draft,
+          notifier: notifier,
+          preview: preview,
+          diagnostics: result?.setContentDiagnostics ?? const [],
         );
       case 'options':
         final result = ref.watch(calculatorResultProvider).maybeWhen(
@@ -1158,6 +1172,444 @@ class _RalColorTile extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+
+class _SetContentsStep extends StatefulWidget {
+  const _SetContentsStep({
+    required this.contextData,
+    required this.draft,
+    required this.notifier,
+    required this.preview,
+    required this.diagnostics,
+  });
+
+  final CalculatorContext contextData;
+  final CalculatorDraft draft;
+  final CalculatorDraftNotifier notifier;
+  final AsyncValue<CalculatorSetContentsPreview> preview;
+  final List<Map<String, dynamic>> diagnostics;
+
+  @override
+  State<_SetContentsStep> createState() => _SetContentsStepState();
+}
+
+class _SetContentsStepState extends State<_SetContentsStep> {
+  @override
+  Widget build(BuildContext context) {
+    widget.preview.whenData((preview) {
+      if (widget.draft.setContents.isEmpty && preview.tabs.isNotEmpty) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          widget.notifier.seedSetContentsIfEmpty(preview.tabs);
+        });
+      }
+    });
+
+    final preview = widget.preview.asData?.value;
+    final tabs = widget.draft.setContents.isNotEmpty ? widget.draft.setContents : preview?.tabs ?? const <CalculatorSetContentTab>[];
+    final isLoading = widget.preview.isLoading && widget.draft.setContents.isEmpty;
+    final source = preview?.source ?? const <String, dynamic>{};
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Set contents / Stückliste je Block', style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 8),
+        const Text(
+          'The default composition is loaded from the linked rule set row. Each tab represents one geometry block of the roof. Use + to add another block with the same default contents, then adjust quantities and profile lengths per block.',
+        ),
+        const SizedBox(height: 12),
+        if (isLoading) const LinearProgressIndicator(),
+        if (source.isNotEmpty) ...[
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _InfoChip(label: 'Rule set', value: '${source['rule_set_id'] ?? '—'}'),
+              _InfoChip(label: 'Matrix', value: '${source['matrix_code'] ?? source['matrix_name'] ?? '—'}'),
+              _InfoChip(label: 'Row', value: '${source['row_no'] ?? '—'}'),
+            ],
+          ),
+          const SizedBox(height: 12),
+        ],
+        widget.preview.maybeWhen(
+          error: (error, _) => _HintCard(
+            icon: Icons.warning_amber_outlined,
+            title: 'Set contents could not be loaded',
+            text: '$error',
+          ),
+          orElse: () => const SizedBox.shrink(),
+        ),
+        if (tabs.isEmpty && !isLoading)
+          const _HintCard(
+            icon: Icons.view_list_outlined,
+            title: 'No set contents found',
+            text: 'No linked published rule set row with result_json.components was found for this template/dimensions. Apply the SQL link script below and re-open this step.',
+          )
+        else
+          _setContentTabs(context, tabs, preview?.tabs ?? const []),
+      ],
+    );
+  }
+
+  Widget _setContentTabs(
+    BuildContext context,
+    List<CalculatorSetContentTab> tabs,
+    List<CalculatorSetContentTab> defaults,
+  ) {
+    return DefaultTabController(
+      key: ValueKey('set-content-tabs-${tabs.length}'),
+      length: tabs.length,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: TabBar(
+                  isScrollable: true,
+                  tabs: [for (final tab in tabs) Tab(text: tab.label)],
+                ),
+              ),
+              const SizedBox(width: 8),
+              FilledButton.tonalIcon(
+                onPressed: () => widget.notifier.addSetContentTabFromDefault(defaults),
+                icon: const Icon(Icons.add),
+                label: const Text('Add block'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 440,
+            child: TabBarView(
+              children: [
+                for (var tabIndex = 0; tabIndex < tabs.length; tabIndex++)
+                  _SetContentTabTable(
+                    contextData: widget.contextData,
+                    tab: tabs[tabIndex],
+                    tabIndex: tabIndex,
+                    diagnostics: _diagnosticsForTab(tabs, tabIndex),
+                    onRemoveTab: tabs.length <= 1 ? null : () => widget.notifier.removeSetContentTab(tabIndex),
+                    onToggleItem: (itemIndex) => widget.notifier.toggleSetContentItemEnabled(tabIndex, itemIndex),
+                    onQuantityChanged: (itemIndex, quantity) => widget.notifier.updateSetContentItemQuantity(tabIndex, itemIndex, quantity),
+                    onLengthChanged: (itemIndex, lengthMm) => widget.notifier.updateSetContentItemLength(tabIndex, itemIndex, lengthMm),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<Map<String, dynamic>> _diagnosticsForTab(List<CalculatorSetContentTab> tabs, int tabIndex) {
+    final offset = tabs.take(tabIndex).fold<int>(0, (sum, tab) => sum + tab.items.where((entry) => entry.enabled).length);
+    final activeCount = tabs[tabIndex].items.where((entry) => entry.enabled).length;
+    return widget.diagnostics.skip(offset).take(activeCount).toList(growable: false);
+  }
+}
+
+class _InfoChip extends StatelessWidget {
+  const _InfoChip({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Chip(
+      label: Text('$label: $value', overflow: TextOverflow.ellipsis),
+      visualDensity: VisualDensity.compact,
+    );
+  }
+}
+
+class _SetContentTabTable extends StatelessWidget {
+  const _SetContentTabTable({
+    required this.contextData,
+    required this.tab,
+    required this.tabIndex,
+    required this.diagnostics,
+    required this.onQuantityChanged,
+    required this.onLengthChanged,
+    required this.onToggleItem,
+    this.onRemoveTab,
+  });
+
+  static const _profileWidth = 72.0;
+  static const _qtyWidth = 92.0;
+  static const _unitWidth = 58.0;
+  static const _lengthWidth = 118.0;
+  static const _priceWidth = 96.0;
+  static const _toggleWidth = 44.0;
+  static const _columnGap = 16.0;
+
+  final CalculatorContext contextData;
+  final CalculatorSetContentTab tab;
+  final int tabIndex;
+  final List<Map<String, dynamic>> diagnostics;
+  final void Function(int itemIndex, num quantity) onQuantityChanged;
+  final void Function(int itemIndex, int? lengthMm) onLengthChanged;
+  final void Function(int itemIndex) onToggleItem;
+  final VoidCallback? onRemoveTab;
+
+  @override
+  Widget build(BuildContext context) {
+    final activeCount = tab.items.where((entry) => entry.enabled).length;
+    final showScrollHint = tab.items.length > 6;
+
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '${tab.label} · $activeCount/${tab.items.length} active items',
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Remove block',
+                    onPressed: onRemoveTab,
+                    icon: const Icon(Icons.delete_outline),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            _header(context),
+            const Divider(height: 1),
+            Expanded(
+              child: Stack(
+                children: [
+                  Scrollbar(
+                    child: ListView.separated(
+                      padding: EdgeInsets.only(bottom: showScrollHint ? 40 : 8),
+                      itemCount: tab.items.length,
+                      separatorBuilder: (_, __) => const Divider(height: 1),
+                      itemBuilder: (context, index) => _row(context, index),
+                    ),
+                  ),
+                  if (showScrollHint)
+                    Positioned(
+                      right: 12,
+                      bottom: 8,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.surface.withOpacity(0.92),
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(color: Theme.of(context).dividerColor),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.keyboard_arrow_down, size: 16, color: Theme.of(context).colorScheme.primary),
+                              const SizedBox(width: 4),
+                              Text('more', style: Theme.of(context).textTheme.labelSmall),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _header(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      child: Row(
+        children: [
+          _fixedCell(context, const Text('Profile'), width: _profileWidth, header: true),
+          _gap(),
+          _expandedCell(context, const Text('Name'), flex: 5, header: true),
+          _gap(),
+          _fixedCell(context, const Text('Qty'), width: _qtyWidth, header: true),
+          _gap(),
+          _fixedCell(context, const Text('Unit'), width: _unitWidth, header: true),
+          _gap(),
+          _fixedCell(context, const Text('Length'), width: _lengthWidth, header: true),
+          _gap(),
+          _fixedCell(context, const Text('Price'), width: _priceWidth, header: true),
+          _gap(),
+          const SizedBox(width: _toggleWidth),
+        ],
+      ),
+    );
+  }
+
+  Widget _row(BuildContext context, int index) {
+    final item = tab.items[index];
+    final catalogItem = _findItem(item.catalogItemId);
+    final variant = _findVariant(item.catalogVariantId);
+    final enabled = item.enabled;
+    final activeIndex = tab.items.take(index).where((entry) => entry.enabled).length;
+    final diagnostic = enabled && activeIndex < diagnostics.length ? diagnostics[activeIndex] : null;
+    final profileNo = item.profileNo ?? variant?.profileNo ?? catalogItem?.profileNo ?? diagnostic?['profile_no']?.toString();
+    final name = item.name ?? _selectedName(catalogItem, variant, item);
+    final unit = item.salesUnitCode ?? item.unitCode ?? catalogItem?.defaultSalesUnitCode ?? catalogItem?.measureTypeCode ?? diagnostic?['unit_code']?.toString() ?? 'piece';
+    final priceAmount = _num(diagnostic?['amount']);
+    final colorScheme = Theme.of(context).colorScheme;
+
+    final rowContent = Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _fixedCell(context, Text(profileNo ?? '—'), width: _profileWidth),
+        _gap(),
+        _expandedCell(
+          context,
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(name, maxLines: 2, overflow: TextOverflow.ellipsis),
+              Text(
+                [item.articleNo, item.variantSku, variant?.colorName, _formatLengthMm(variant?.lengthMm)]
+                    .whereType<String>()
+                    .where((entry) => entry.isNotEmpty)
+                    .join(' · '),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+              ),
+            ],
+          ),
+          flex: 5,
+        ),
+        _gap(),
+        _fixedCell(
+          context,
+          TextFormField(
+            key: ValueKey('set-content-qty-$tabIndex-$index-${item.quantity}-$enabled'),
+            initialValue: _formatInputQuantity(item.quantity),
+            enabled: enabled,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(isDense: true),
+            onChanged: (value) => onQuantityChanged(index, num.tryParse(value.replaceAll(',', '.')) ?? item.quantity),
+          ),
+          width: _qtyWidth,
+        ),
+        _gap(),
+        _fixedCell(context, Text(_formatUnitLabel(unit)), width: _unitWidth),
+        _gap(),
+        _fixedCell(
+          context,
+          item.isProfile
+              ? TextFormField(
+                  key: ValueKey('set-content-length-$tabIndex-$index-${item.lengthMm ?? ''}-$enabled'),
+                  initialValue: item.lengthMm == null ? '' : '${item.lengthMm}',
+                  enabled: enabled,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(isDense: true, suffixText: 'mm'),
+                  onChanged: (value) => onLengthChanged(index, int.tryParse(value.trim())),
+                )
+              : Text(_formatLengthMm(item.lengthMm) ?? '—'),
+          width: _lengthWidth,
+        ),
+        _gap(),
+        _fixedCell(
+          context,
+          Text(priceAmount > 0 ? _moneyFormat.format(priceAmount) : '—'),
+          width: _priceWidth,
+        ),
+      ],
+    );
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 160),
+      color: enabled ? Colors.transparent : colorScheme.surfaceContainerHighest.withOpacity(0.55),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: AnimatedOpacity(
+              duration: const Duration(milliseconds: 160),
+              opacity: enabled ? 1 : 0.46,
+              child: rowContent,
+            ),
+          ),
+          _gap(),
+          SizedBox(
+            width: _toggleWidth,
+            child: IconButton(
+              tooltip: enabled ? 'Exclude from calculation' : 'Include in calculation',
+              onPressed: () => onToggleItem(index),
+              icon: Icon(enabled ? Icons.check_circle_outline : Icons.remove_circle_outline),
+              color: enabled ? colorScheme.primary : colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _gap() => const SizedBox(width: _columnGap);
+
+  Widget _fixedCell(
+    BuildContext context,
+    Widget child, {
+    required double width,
+    bool header = false,
+  }) {
+    final style = header
+        ? Theme.of(context).textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w700)
+        : Theme.of(context).textTheme.bodyMedium;
+    return SizedBox(
+      width: width,
+      child: DefaultTextStyle.merge(style: style, child: child),
+    );
+  }
+
+  Widget _expandedCell(
+    BuildContext context,
+    Widget child, {
+    int flex = 1,
+    bool header = false,
+  }) {
+    final style = header
+        ? Theme.of(context).textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w700)
+        : Theme.of(context).textTheme.bodyMedium;
+    return Expanded(
+      flex: flex,
+      child: DefaultTextStyle.merge(style: style, child: child),
+    );
+  }
+
+  CalculatorCatalogItemOption? _findItem(String? id) {
+    if (id == null) return null;
+    return contextData.optionCatalogItems.where((entry) => entry.id == id).cast<CalculatorCatalogItemOption?>().firstOrNull;
+  }
+
+  CalculatorCatalogVariantOption? _findVariant(String? id) {
+    if (id == null) return null;
+    return contextData.optionCatalogVariants.where((entry) => entry.id == id).cast<CalculatorCatalogVariantOption?>().firstOrNull;
+  }
+
+  String _selectedName(CalculatorCatalogItemOption? item, CalculatorCatalogVariantOption? variant, CalculatorSetContentItem selected) {
+    return _joinDistinctTextParts([
+      selected.itemTypeCode ?? item?.itemTypeCode,
+      item?.name ?? selected.name,
+      variant?.variantSku ?? selected.variantSku,
+    ]);
   }
 }
 
@@ -2715,25 +3167,73 @@ class _LinesTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (result.visibleLines.isEmpty) return const Center(child: Text('No lines.'));
-    return ListView.separated(
+
+    final baseLines = result.visibleLines.take(1).toList(growable: false);
+    final afterBase = result.visibleLines.skip(baseLines.length).toList(growable: false);
+    final setContentLineCount = result.setContentDiagnostics
+        .where((entry) => entry['price_found'] == true && _num(entry['amount']) > 0)
+        .length;
+    final setContentLines = afterBase.take(setContentLineCount).toList(growable: false);
+    final optionLines = afterBase.skip(setContentLines.length).toList(growable: false);
+
+    return ListView(
       padding: const EdgeInsets.all(12),
-      itemCount: result.visibleLines.length,
-      separatorBuilder: (_, __) => const Divider(height: 1),
-      itemBuilder: (context, index) {
-        final line = result.visibleLines[index];
-        final unitPrice = _num(line['unitPrice']);
-        final note = '${line['note'] ?? ''}'.trim();
-        final subtitleParts = <String>[
-          'Qty ${line['quantity'] ?? 1} ${_formatUnitLabel('${line['unit'] ?? ''}')}',
-          if (unitPrice > 0) '${_moneyFormat.format(unitPrice)} / ${_formatUnitLabel('${line['unit'] ?? ''}')}',
-          if (note.isNotEmpty) note,
-        ];
-        return ListTile(
-          title: Text('${line['label'] ?? 'Line'}'),
-          subtitle: Text(subtitleParts.join(' · ')),
-          trailing: Text(_moneyFormat.format(_num(line['amount']))),
-        );
-      },
+      children: [
+        if (baseLines.isNotEmpty) ...[
+          _sectionHeader(context, 'Base price'),
+          ..._lineTiles(baseLines),
+        ],
+        if (setContentLines.isNotEmpty) ...[
+          _sectionHeader(context, 'Set contents', '${setContentLines.length} priced line(s)'),
+          ..._lineTiles(setContentLines),
+        ],
+        if (optionLines.isNotEmpty) ...[
+          _sectionHeader(context, 'Options / additional handling', '${optionLines.length} priced line(s)'),
+          ..._lineTiles(optionLines),
+        ],
+      ],
+    );
+  }
+
+  Widget _sectionHeader(BuildContext context, String title, [String? suffix]) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 10, bottom: 6),
+      child: Row(
+        children: [
+          Text(title, style: Theme.of(context).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700)),
+          if (suffix != null) ...[
+            const SizedBox(width: 8),
+            Text(suffix, style: Theme.of(context).textTheme.labelSmall?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+          ],
+        ],
+      ),
+    );
+  }
+
+  List<Widget> _lineTiles(List<Map<String, dynamic>> lines) {
+    final widgets = <Widget>[];
+    for (var i = 0; i < lines.length; i++) {
+      widgets.add(_lineTile(lines[i]));
+      if (i < lines.length - 1) widgets.add(const Divider(height: 1));
+    }
+    return widgets;
+  }
+
+  Widget _lineTile(Map<String, dynamic> line) {
+    final unitPrice = _num(line['unitPrice']);
+    final note = '${line['note'] ?? ''}'.trim();
+    final unit = _formatUnitLabel('${line['unit'] ?? ''}');
+    final subtitleParts = <String>[
+      'Qty ${line['quantity'] ?? 1} $unit',
+      if (unitPrice > 0) '${_moneyFormat.format(unitPrice)} / $unit',
+      if (note.isNotEmpty) note,
+    ];
+    return ListTile(
+      dense: true,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+      title: Text('${line['label'] ?? 'Line'}', maxLines: 2, overflow: TextOverflow.ellipsis),
+      subtitle: Text(subtitleParts.join(' · '), maxLines: 2, overflow: TextOverflow.ellipsis),
+      trailing: Text(_moneyFormat.format(_num(line['amount']))),
     );
   }
 }
@@ -3415,6 +3915,8 @@ bool _isStepComplete(String key, CalculatorDraft draft) {
       return draft.coveringCode != null;
     case 'color':
       return draft.colorCode != null;
+    case 'set_contents':
+      return draft.setContents.isNotEmpty;
     case 'options':
       return draft.options.isNotEmpty;
     case 'delivery':
@@ -3440,6 +3942,10 @@ String _stepHint(String key, CalculatorDraft draft) {
       return draft.coveringCode ?? 'optional';
     case 'color':
       return draft.colorCode ?? 'optional';
+    case 'set_contents':
+      return draft.setContents.isEmpty
+          ? 'auto from rule set'
+          : '${draft.setContents.length} block(s), ${draft.setContents.fold<int>(0, (sum, tab) => sum + tab.items.length)} items';
     case 'options':
       return draft.options.isEmpty ? 'none' : '${draft.options.length} selected';
     case 'delivery':

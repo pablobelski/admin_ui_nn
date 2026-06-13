@@ -12,6 +12,14 @@ final calculatorContextProvider = FutureProvider<CalculatorContext>((ref) async 
   return ref.watch(calculatorRepositoryProvider).fetchContext();
 });
 
+final calculatorSetContentsProvider = FutureProvider.autoDispose<CalculatorSetContentsPreview>((ref) async {
+  final draft = ref.watch(calculatorDraftProvider);
+  if (draft.templateId == null || draft.templateId!.isEmpty) {
+    return const CalculatorSetContentsPreview(tabs: [], source: {}, trace: [], warnings: [], raw: {});
+  }
+  return ref.watch(calculatorRepositoryProvider).fetchSetContents(draft);
+});
+
 class LoadedQuoteNotifier extends Notifier<LoadedQuote?> {
   @override
   LoadedQuote? build() => null;
@@ -52,12 +60,14 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
         clearProductFamily: value == null || value.isEmpty,
         clearTemplate: true,
         clearModel: true,
+        setContents: const [],
       );
 
   void setTemplate(String? value) => state = state.copyWith(
         templateId: value,
         clearTemplate: value == null || value.isEmpty,
         clearModel: true,
+        setContents: const [],
       );
 
   void setPriceMode(String? value) {
@@ -68,26 +78,31 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
   void setModel(String? value) => state = state.copyWith(
         modelCode: value,
         clearModel: value == null || value.isEmpty,
+        setContents: const [],
       );
 
   void setWidth(String value) => state = state.copyWith(
         widthMm: int.tryParse(value),
         clearWidth: value.trim().isEmpty,
+        setContents: const [],
       );
 
   void setDepth(String value) => state = state.copyWith(
         depthMm: int.tryParse(value),
         clearDepth: value.trim().isEmpty,
+        setContents: const [],
       );
 
   void setHeight(String value) => state = state.copyWith(
         heightMm: int.tryParse(value),
         clearHeight: value.trim().isEmpty,
+        setContents: const [],
       );
 
   void setCovering(String? value) => state = state.copyWith(
         coveringCode: value,
         clearCovering: value == null || value.isEmpty,
+        setContents: const [],
       );
 
   void setColor(String? value) => state = state.copyWith(
@@ -135,6 +150,79 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
     );
   }
 
+
+
+  void seedSetContentsIfEmpty(List<CalculatorSetContentTab> tabs) {
+    if (state.setContents.isNotEmpty || tabs.isEmpty) return;
+    state = state.copyWith(setContents: tabs);
+  }
+
+  void setSetContents(List<CalculatorSetContentTab> tabs) {
+    state = state.copyWith(setContents: tabs);
+  }
+
+  void addSetContentTabFromDefault(List<CalculatorSetContentTab> defaults) {
+    final source = state.setContents.isNotEmpty
+        ? state.setContents.first
+        : defaults.isNotEmpty
+            ? defaults.first
+            : null;
+    if (source == null) return;
+    final nextIndex = state.setContents.length + 1;
+    state = state.copyWith(
+      setContents: [
+        ...state.setContents,
+        source.duplicateAs(nextIndex),
+      ],
+    );
+  }
+
+  void removeSetContentTab(int tabIndex) {
+    if (tabIndex < 0 || tabIndex >= state.setContents.length) return;
+    final next = [...state.setContents]..removeAt(tabIndex);
+    state = state.copyWith(
+      setContents: [
+        for (var i = 0; i < next.length; i++) next[i].copyWith(id: 'part-${i + 1}', label: 'Block ${i + 1}'),
+      ],
+    );
+  }
+
+  void updateSetContentItemQuantity(int tabIndex, int itemIndex, num quantity) {
+    if (tabIndex < 0 || tabIndex >= state.setContents.length) return;
+    final tab = state.setContents[tabIndex];
+    if (itemIndex < 0 || itemIndex >= tab.items.length) return;
+    final items = [...tab.items];
+    items[itemIndex] = items[itemIndex].copyWith(quantity: quantity <= 0 ? 1 : quantity);
+    final tabs = [...state.setContents];
+    tabs[tabIndex] = tab.copyWith(items: items);
+    state = state.copyWith(setContents: tabs);
+  }
+
+  void updateSetContentItemLength(int tabIndex, int itemIndex, int? lengthMm) {
+    if (tabIndex < 0 || tabIndex >= state.setContents.length) return;
+    final tab = state.setContents[tabIndex];
+    if (itemIndex < 0 || itemIndex >= tab.items.length) return;
+    final items = [...tab.items];
+    items[itemIndex] = items[itemIndex].copyWith(
+      lengthMm: lengthMm,
+      clearLength: lengthMm == null,
+    );
+    final tabs = [...state.setContents];
+    tabs[tabIndex] = tab.copyWith(items: items);
+    state = state.copyWith(setContents: tabs);
+  }
+
+
+  void toggleSetContentItemEnabled(int tabIndex, int itemIndex) {
+    if (tabIndex < 0 || tabIndex >= state.setContents.length) return;
+    final tab = state.setContents[tabIndex];
+    if (itemIndex < 0 || itemIndex >= tab.items.length) return;
+    final items = [...tab.items];
+    items[itemIndex] = items[itemIndex].copyWith(enabled: !items[itemIndex].enabled);
+    final tabs = [...state.setContents];
+    tabs[tabIndex] = tab.copyWith(items: items);
+    state = state.copyWith(setContents: tabs);
+  }
 
   void updateOptionAdditionalHandlings(
     int index,

@@ -345,6 +345,214 @@ class CalculatorSelectedAdditionalHandling {
   }
 }
 
+
+class CalculatorSetContentsPreview {
+  const CalculatorSetContentsPreview({
+    required this.tabs,
+    required this.source,
+    required this.trace,
+    required this.warnings,
+    required this.raw,
+  });
+
+  factory CalculatorSetContentsPreview.fromJson(Map<String, dynamic> json) {
+    return CalculatorSetContentsPreview(
+      tabs: _list(json['tabs']).map(CalculatorSetContentTab.fromJson).toList(),
+      source: _map(json['source']),
+      trace: _list(json['trace']),
+      warnings: _list(json['warnings']),
+      raw: json,
+    );
+  }
+
+  final List<CalculatorSetContentTab> tabs;
+  final Map<String, dynamic> source;
+  final List<Map<String, dynamic>> trace;
+  final List<Map<String, dynamic>> warnings;
+  final Map<String, dynamic> raw;
+}
+
+class CalculatorSetContentTab {
+  const CalculatorSetContentTab({
+    required this.id,
+    required this.label,
+    required this.items,
+    this.geometryKey = const {},
+  });
+
+  factory CalculatorSetContentTab.fromJson(Map<String, dynamic> json) {
+    return CalculatorSetContentTab(
+      id: _string(json['id']).isEmpty ? 'part-1' : _string(json['id']),
+      label: _string(json['label']).isEmpty ? 'Block 1' : _string(json['label']),
+      geometryKey: _map(json['geometry_key']),
+      items: _list(json['items']).map(CalculatorSetContentItem.fromJson).toList(),
+    );
+  }
+
+  final String id;
+  final String label;
+  final Map<String, dynamic> geometryKey;
+  final List<CalculatorSetContentItem> items;
+
+  CalculatorSetContentTab copyWith({
+    String? id,
+    String? label,
+    Map<String, dynamic>? geometryKey,
+    List<CalculatorSetContentItem>? items,
+  }) {
+    return CalculatorSetContentTab(
+      id: id ?? this.id,
+      label: label ?? this.label,
+      geometryKey: geometryKey ?? this.geometryKey,
+      items: items ?? this.items,
+    );
+  }
+
+  CalculatorSetContentTab duplicateAs(int index) {
+    return CalculatorSetContentTab(
+      id: 'part-$index',
+      label: 'Block $index',
+      geometryKey: geometryKey,
+      items: items.map((entry) => entry.copyWith()).toList(),
+    );
+  }
+
+  Map<String, dynamic> toCalculationJson() {
+    return {
+      'id': id,
+      'label': label,
+      if (geometryKey.isNotEmpty) 'geometry_key': geometryKey,
+      'items': items.where((entry) => entry.enabled).map((entry) => entry.toCalculationJson()).toList(),
+    };
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'label': label,
+      if (geometryKey.isNotEmpty) 'geometry_key': geometryKey,
+      'items': items.map((entry) => entry.toJson()).toList(),
+    };
+  }
+}
+
+class CalculatorSetContentItem {
+  const CalculatorSetContentItem({
+    required this.catalogItemId,
+    this.catalogVariantId,
+    this.quantity = 1,
+    this.salesUnitCode,
+    this.lengthMm,
+    this.name,
+    this.itemTypeCode,
+    this.baseCode,
+    this.profileNo,
+    this.articleNo,
+    this.variantSku,
+    this.unitCode,
+    this.editableLength = false,
+    this.enabled = true,
+    this.raw = const {},
+  });
+
+  factory CalculatorSetContentItem.fromJson(Map<String, dynamic> json) {
+    final itemTypeCode = _nullableString(json['item_type_code']);
+    final editable = json['editable_length'] == true || (itemTypeCode ?? '').toLowerCase().contains('profile');
+    return CalculatorSetContentItem(
+      catalogItemId: _string(json['catalog_item_id']),
+      catalogVariantId: _nullableString(json['catalog_variant_id']),
+      quantity: _numOrDefault(json['quantity'], 1),
+      salesUnitCode: _nullableString(json['sales_unit_code']),
+      lengthMm: _intOrNull(json['length_mm']),
+      name: _nullableString(json['name']),
+      itemTypeCode: itemTypeCode,
+      baseCode: _nullableString(json['base_code']),
+      profileNo: _nullableString(json['profile_no']),
+      articleNo: _nullableString(json['article_no']),
+      variantSku: _nullableString(json['variant_sku']),
+      unitCode: _nullableString(json['unit_code']),
+      editableLength: editable,
+      enabled: json['enabled'] != false,
+      raw: json,
+    );
+  }
+
+  final String catalogItemId;
+  final String? catalogVariantId;
+  final num quantity;
+  final String? salesUnitCode;
+  final int? lengthMm;
+  final String? name;
+  final String? itemTypeCode;
+  final String? baseCode;
+  final String? profileNo;
+  final String? articleNo;
+  final String? variantSku;
+  final String? unitCode;
+  final bool editableLength;
+  final bool enabled;
+  final Map<String, dynamic> raw;
+
+  bool get isProfile => editableLength || (itemTypeCode ?? '').toLowerCase().contains('profile');
+
+  CalculatorSetContentItem copyWith({
+    String? catalogItemId,
+    bool clearCatalogItem = false,
+    String? catalogVariantId,
+    bool clearCatalogVariant = false,
+    num? quantity,
+    String? salesUnitCode,
+    bool clearSalesUnit = false,
+    int? lengthMm,
+    bool clearLength = false,
+    String? name,
+    String? itemTypeCode,
+    String? baseCode,
+    String? profileNo,
+    String? articleNo,
+    String? variantSku,
+    String? unitCode,
+    bool? editableLength,
+    bool? enabled,
+    Map<String, dynamic>? raw,
+  }) {
+    return CalculatorSetContentItem(
+      catalogItemId: clearCatalogItem ? '' : catalogItemId ?? this.catalogItemId,
+      catalogVariantId: clearCatalogVariant ? null : catalogVariantId ?? this.catalogVariantId,
+      quantity: quantity ?? this.quantity,
+      salesUnitCode: clearSalesUnit ? null : salesUnitCode ?? this.salesUnitCode,
+      lengthMm: clearLength ? null : lengthMm ?? this.lengthMm,
+      name: name ?? this.name,
+      itemTypeCode: itemTypeCode ?? this.itemTypeCode,
+      baseCode: baseCode ?? this.baseCode,
+      profileNo: profileNo ?? this.profileNo,
+      articleNo: articleNo ?? this.articleNo,
+      variantSku: variantSku ?? this.variantSku,
+      unitCode: unitCode ?? this.unitCode,
+      editableLength: editableLength ?? this.editableLength,
+      enabled: enabled ?? this.enabled,
+      raw: raw ?? this.raw,
+    );
+  }
+
+  Map<String, dynamic> toCalculationJson() {
+    return {
+      'catalog_item_id': catalogItemId,
+      if (catalogVariantId != null && catalogVariantId!.isNotEmpty) 'catalog_variant_id': catalogVariantId,
+      'quantity': quantity,
+      if (salesUnitCode != null && salesUnitCode!.isNotEmpty) 'sales_unit_code': salesUnitCode,
+      if (lengthMm != null && lengthMm! > 0) 'length_mm': lengthMm,
+    };
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      ...toCalculationJson(),
+      if (!enabled) 'enabled': false,
+    };
+  }
+}
+
 class CalculatorDraft {
   const CalculatorDraft({
     this.organizationId,
@@ -359,6 +567,7 @@ class CalculatorDraft {
     this.colorCode,
     this.handoverTypeCode,
     this.options = const [],
+    this.setContents = const [],
   });
 
   factory CalculatorDraft.fromCalculationJson(Map<String, dynamic> json, {String? productFamilyId}) {
@@ -369,6 +578,13 @@ class CalculatorDraft {
             .map((entry) => CalculatorSelectedOption.fromJson(Map<String, dynamic>.from(entry)))
             .toList()
         : <CalculatorSelectedOption>[];
+    final setContents = json['set_contents'] is List
+        ? (json['set_contents'] as List)
+            .whereType<Map>()
+            .map((entry) => CalculatorSetContentTab.fromJson(Map<String, dynamic>.from(entry)))
+            .where((tab) => tab.items.isNotEmpty)
+            .toList()
+        : <CalculatorSetContentTab>[];
 
     return CalculatorDraft(
       organizationId: _nullableString(json['organization_id']),
@@ -383,6 +599,7 @@ class CalculatorDraft {
       colorCode: _nullableString(json['color_code']),
       handoverTypeCode: _nullableString(json['handover_type_code']),
       options: options,
+      setContents: setContents,
     );
   }
 
@@ -398,6 +615,7 @@ class CalculatorDraft {
   final String? colorCode;
   final String? handoverTypeCode;
   final List<CalculatorSelectedOption> options;
+  final List<CalculatorSetContentTab> setContents;
 
   CalculatorDraft copyWith({
     String? organizationId,
@@ -422,6 +640,7 @@ class CalculatorDraft {
     String? handoverTypeCode,
     bool clearHandover = false,
     List<CalculatorSelectedOption>? options,
+    List<CalculatorSetContentTab>? setContents,
   }) {
     return CalculatorDraft(
       organizationId: clearOrganization ? null : organizationId ?? this.organizationId,
@@ -436,10 +655,16 @@ class CalculatorDraft {
       colorCode: clearColor ? null : colorCode ?? this.colorCode,
       handoverTypeCode: clearHandover ? null : handoverTypeCode ?? this.handoverTypeCode,
       options: options ?? this.options,
+      setContents: setContents ?? this.setContents,
     );
   }
 
   Map<String, dynamic> toCalculationJson() {
+    final activeSetContents = setContents
+        .map((entry) => entry.toCalculationJson())
+        .where((entry) => (entry['items'] as List).isNotEmpty)
+        .toList();
+
     return {
       if (organizationId != null && organizationId!.isNotEmpty) 'organization_id': organizationId,
       if (templateId != null && templateId!.isNotEmpty) 'template_id': templateId,
@@ -454,6 +679,7 @@ class CalculatorDraft {
       if (colorCode != null && colorCode!.isNotEmpty) 'color_code': colorCode,
       if (handoverTypeCode != null && handoverTypeCode!.isNotEmpty) 'handover_type_code': handoverTypeCode,
       'options': options.map((entry) => entry.toJson()).toList(),
+      'set_contents': activeSetContents,
       'language_code': 'de',
     };
   }
@@ -481,6 +707,7 @@ class CalculatorSelectedOption {
     this.catalogVariantId,
     this.quantity = 1,
     this.salesUnitCode,
+    this.lengthMm,
     this.schraegCount,
     this.additionalHandlings = const [],
   });
@@ -491,6 +718,7 @@ class CalculatorSelectedOption {
       catalogItemId: _nullableString(json['catalog_item_id']),
       catalogVariantId: _nullableString(json['catalog_variant_id']),
       salesUnitCode: _nullableString(json['sales_unit_code']),
+      lengthMm: _intOrNull(json['length_mm']),
       quantity: _numOrDefault(json['quantity'], 1),
       schraegCount: _intOrNull(json['schraeg_count']),
       additionalHandlings: _list(json['additional_handlings'])
@@ -505,6 +733,7 @@ class CalculatorSelectedOption {
   final String? catalogVariantId;
   final num quantity;
   final String? salesUnitCode;
+  final int? lengthMm;
   final int? schraegCount;
   final List<CalculatorSelectedAdditionalHandling> additionalHandlings;
 
@@ -519,6 +748,8 @@ class CalculatorSelectedOption {
     num? quantity,
     String? salesUnitCode,
     bool clearSalesUnit = false,
+    int? lengthMm,
+    bool clearLength = false,
     int? schraegCount,
     bool clearSchraeg = false,
     List<CalculatorSelectedAdditionalHandling>? additionalHandlings,
@@ -529,6 +760,7 @@ class CalculatorSelectedOption {
       catalogVariantId: clearCatalogVariant ? null : catalogVariantId ?? this.catalogVariantId,
       quantity: quantity ?? this.quantity,
       salesUnitCode: clearSalesUnit ? null : salesUnitCode ?? this.salesUnitCode,
+      lengthMm: clearLength ? null : lengthMm ?? this.lengthMm,
       schraegCount: clearSchraeg ? null : schraegCount ?? this.schraegCount,
       additionalHandlings: additionalHandlings ?? this.additionalHandlings,
     );
@@ -541,6 +773,7 @@ class CalculatorSelectedOption {
       if (catalogVariantId != null && catalogVariantId!.isNotEmpty) 'catalog_variant_id': catalogVariantId,
       'quantity': quantity,
       if (salesUnitCode != null && salesUnitCode!.isNotEmpty) 'sales_unit_code': salesUnitCode,
+      if (lengthMm != null && lengthMm! > 0) 'length_mm': lengthMm,
       if (schraegCount != null && schraegCount! > 0) 'schraeg_count': schraegCount,
       if (additionalHandlings.isNotEmpty)
         'additional_handlings': additionalHandlings.map((entry) => entry.toJson()).toList(),
@@ -561,7 +794,9 @@ class CalculatorResult {
     required this.bom,
     required this.baseBom,
     required this.optionBom,
+    required this.setContentBom,
     required this.optionDiagnostics,
+    required this.setContentDiagnostics,
     required this.trace,
     required this.raw,
   });
@@ -579,7 +814,9 @@ class CalculatorResult {
       bom: _list(json['bom']),
       baseBom: _list(json['baseBom'] ?? json['base_bom']),
       optionBom: _list(json['optionBom'] ?? json['option_bom']),
+      setContentBom: _list(json['setContentBom'] ?? json['set_content_bom']),
       optionDiagnostics: _list(json['optionDiagnostics'] ?? json['option_diagnostics']),
+      setContentDiagnostics: _list(json['setContentDiagnostics'] ?? json['set_content_diagnostics']),
       trace: _list(json['trace']),
       raw: json,
     );
@@ -596,7 +833,9 @@ class CalculatorResult {
   final List<Map<String, dynamic>> bom;
   final List<Map<String, dynamic>> baseBom;
   final List<Map<String, dynamic>> optionBom;
+  final List<Map<String, dynamic>> setContentBom;
   final List<Map<String, dynamic>> optionDiagnostics;
+  final List<Map<String, dynamic>> setContentDiagnostics;
   final List<Map<String, dynamic>> trace;
   final Map<String, dynamic> raw;
 }
