@@ -12,12 +12,52 @@ final calculatorContextProvider = FutureProvider<CalculatorContext>((ref) async 
   return ref.watch(calculatorRepositoryProvider).fetchContext();
 });
 
+class CalculatorSetContentsRefreshTickNotifier extends Notifier<int> {
+  @override
+  int build() => 0;
+
+  void bump() {
+    state = state + 1;
+  }
+}
+
+final calculatorSetContentsRefreshTickProvider =
+    NotifierProvider.autoDispose<CalculatorSetContentsRefreshTickNotifier, int>(
+  CalculatorSetContentsRefreshTickNotifier.new,
+);
+
 final calculatorSetContentsProvider = FutureProvider.autoDispose<CalculatorSetContentsPreview>((ref) async {
-  final draft = ref.watch(calculatorDraftProvider);
-  if (draft.templateId == null || draft.templateId!.isEmpty) {
+  final key = ref.watch(
+    calculatorDraftProvider.select(
+      (draft) => (
+        templateId: draft.templateId,
+        priceMode: draft.priceMode,
+        modelCode: draft.modelCode,
+        widthMm: draft.widthMm,
+        depthMm: draft.depthMm,
+        heightMm: draft.heightMm,
+        coveringCode: draft.coveringCode,
+        colorCode: draft.colorCode,
+      ),
+    ),
+  );
+  ref.watch(calculatorSetContentsRefreshTickProvider);
+
+  if (key.templateId == null || key.templateId!.isEmpty) {
     return const CalculatorSetContentsPreview(tabs: [], source: {}, trace: [], warnings: [], raw: {});
   }
-  return ref.watch(calculatorRepositoryProvider).fetchSetContents(draft);
+
+  final requestDraft = CalculatorDraft(
+    templateId: key.templateId,
+    priceMode: key.priceMode,
+    modelCode: key.modelCode,
+    widthMm: key.widthMm,
+    depthMm: key.depthMm,
+    heightMm: key.heightMm,
+    coveringCode: key.coveringCode,
+    colorCode: key.colorCode,
+  );
+  return ref.watch(calculatorRepositoryProvider).fetchSetContents(requestDraft);
 });
 
 class LoadedQuoteNotifier extends Notifier<LoadedQuote?> {
@@ -84,19 +124,16 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
   void setWidth(String value) => state = state.copyWith(
         widthMm: int.tryParse(value),
         clearWidth: value.trim().isEmpty,
-        setContents: const [],
       );
 
   void setDepth(String value) => state = state.copyWith(
         depthMm: int.tryParse(value),
         clearDepth: value.trim().isEmpty,
-        setContents: const [],
       );
 
   void setHeight(String value) => state = state.copyWith(
         heightMm: int.tryParse(value),
         clearHeight: value.trim().isEmpty,
-        setContents: const [],
       );
 
   void setCovering(String? value) => state = state.copyWith(
@@ -153,12 +190,111 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
 
 
   void seedSetContentsIfEmpty(List<CalculatorSetContentTab> tabs) {
-    if (state.setContents.isNotEmpty || tabs.isEmpty) return;
-    state = state.copyWith(setContents: tabs);
+    if (tabs.isEmpty) return;
+    if (state.setContents.isEmpty) {
+      state = state.copyWith(setContents: tabs);
+      return;
+    }
+    if (state.setContents.any((tab) => tab.items.isNotEmpty)) return;
+    state = state.copyWith(setContents: _materializeSetContentDefaults(tabs, state.setContents));
   }
 
   void setSetContents(List<CalculatorSetContentTab> tabs) {
     state = state.copyWith(setContents: tabs);
+  }
+
+  void setSetContentsFromDefaults(List<CalculatorSetContentTab> defaults) {
+    if (defaults.isEmpty) {
+      state = state.copyWith(setContents: const []);
+      return;
+    }
+    state = state.copyWith(setContents: _materializeSetContentDefaults(defaults, state.setContents));
+  }
+
+  void setSetContentBlockCount(int count) {
+    final normalizedCount = count.clamp(1, 20).toInt();
+    final current = state.setContents;
+    CalculatorSetContentTab? sourceWithItems;
+    for (final tab in current) {
+      if (tab.items.isNotEmpty) {
+        sourceWithItems = tab;
+        break;
+      }
+    }
+    final next = <CalculatorSetContentTab>[];
+    for (var i = 0; i < normalizedCount; i++) {
+      if (i < current.length) {
+        next.add(current[i].copyWith(id: 'part-${i + 1}', label: 'Block ${i + 1}'));
+      } else if (sourceWithItems != null) {
+        next.add(sourceWithItems.duplicateAs(i + 1).copyWith(geometryKey: const {}));
+      } else {
+        next.add(CalculatorSetContentTab(id: 'part-${i + 1}', label: 'Block ${i + 1}', items: const []));
+      }
+    }
+    state = state.copyWith(setContents: next);
+  }
+
+  void incrementSetContentBlockCount() {
+    final currentCount = state.setContents.isEmpty ? 1 : state.setContents.length;
+    setSetContentBlockCount(currentCount + 1);
+  }
+
+  void updateSetContentBlockGeometry(int tabIndex, String key, String value) {
+    final normalizedKey = key.trim();
+    if (normalizedKey.isEmpty) return;
+    _ensureSetContentBlockCount(tabIndex + 1);
+    if (tabIndex < 0 || tabIndex >= state.setContents.length) return;
+    final parsed = int.tryParse(value.trim());
+    final tabs = [...state.setContents];
+    tabs[tabIndex] = tabs[tabIndex].withGeometryValue(normalizedKey, parsed);
+    state = state.copyWith(setContents: tabs);
+  }
+
+  void setSetContentItemsEnabled(List<({int tabIndex, int itemIndex})> refs, bool enabled) {
+    if (refs.isEmpty) return;
+    final tabs = [...state.setContents];
+    var changed = false;
+    for (final ref in refs) {
+      if (ref.tabIndex < 0 || ref.tabIndex >= tabs.length) continue;
+      final tab = tabs[ref.tabIndex];
+      if (ref.itemIndex < 0 || ref.itemIndex >= tab.items.length) continue;
+      final items = [...tab.items];
+      if (items[ref.itemIndex].enabled == enabled) continue;
+      items[ref.itemIndex] = items[ref.itemIndex].copyWith(enabled: enabled);
+      tabs[ref.tabIndex] = tab.copyWith(items: items);
+      changed = true;
+    }
+    if (changed) state = state.copyWith(setContents: tabs);
+  }
+
+  void _ensureSetContentBlockCount(int minCount) {
+    if (state.setContents.length >= minCount) return;
+    setSetContentBlockCount(minCount);
+  }
+
+  List<CalculatorSetContentTab> _materializeSetContentDefaults(
+    List<CalculatorSetContentTab> defaults,
+    List<CalculatorSetContentTab> current,
+  ) {
+    final defaultTab = defaults.first;
+    final blockCount = current.isEmpty ? defaults.length : current.length;
+    final result = <CalculatorSetContentTab>[];
+    for (var i = 0; i < blockCount; i++) {
+      final currentTab = i < current.length ? current[i] : null;
+      final defaultForIndex = i < defaults.length ? defaults[i] : defaultTab.duplicateAs(i + 1);
+      result.add(
+        defaultForIndex.copyWith(
+          id: 'part-${i + 1}',
+          label: 'Block ${i + 1}',
+          geometryKey: {
+            ...defaultForIndex.geometryKey,
+            if (currentTab != null) ...currentTab.geometryKey,
+          },
+          items: defaultForIndex.items.map((entry) => entry.copyWith()).toList(),
+        ),
+      );
+    }
+    return result;
   }
 
   void addSetContentTabFromDefault(List<CalculatorSetContentTab> defaults) {

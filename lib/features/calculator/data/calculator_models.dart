@@ -408,6 +408,12 @@ class CalculatorSetContentTab {
     );
   }
 
+  int? geometryInt(String key) => _intOrNull(geometryKey[key]);
+
+  int? get blockWidthMm => geometryInt('width_mm');
+  int? get blockDepthMm => geometryInt('depth_mm');
+  int? get blockHeightMm => geometryInt('height_mm');
+
   CalculatorSetContentTab duplicateAs(int index) {
     return CalculatorSetContentTab(
       id: 'part-$index',
@@ -415,6 +421,16 @@ class CalculatorSetContentTab {
       geometryKey: geometryKey,
       items: items.map((entry) => entry.copyWith()).toList(),
     );
+  }
+
+  CalculatorSetContentTab withGeometryValue(String key, int? value) {
+    final nextGeometry = <String, dynamic>{...geometryKey};
+    if (value == null || value <= 0) {
+      nextGeometry.remove(key);
+    } else {
+      nextGeometry[key] = value;
+    }
+    return copyWith(geometryKey: nextGeometry);
   }
 
   Map<String, dynamic> toCalculationJson() {
@@ -456,21 +472,31 @@ class CalculatorSetContentItem {
   });
 
   factory CalculatorSetContentItem.fromJson(Map<String, dynamic> json) {
-    final itemTypeCode = _nullableString(json['item_type_code']);
-    final editable = json['editable_length'] == true || (itemTypeCode ?? '').toLowerCase().contains('profile');
+    final sourceComponent = _map(json['source_component']);
+    String? metaString(String snakeKey, [String? camelKey]) {
+      return _nullableString(json[snakeKey]) ?? _nullableString(sourceComponent[snakeKey]) ?? (camelKey == null ? null : _nullableString(sourceComponent[camelKey]));
+    }
+
+    final itemTypeCode = metaString('item_type_code', 'itemTypeCode');
+    final lengthMm = _intOrNull(json['length_mm'] ?? sourceComponent['length_mm'] ?? sourceComponent['lengthMm']);
+    final editable = json['editable_length'] == true
+        || sourceComponent['editable_length'] == true
+        || sourceComponent['editableLength'] == true
+        || (itemTypeCode ?? '').toLowerCase().contains('profile')
+        || (lengthMm != null && lengthMm > 1);
     return CalculatorSetContentItem(
       catalogItemId: _string(json['catalog_item_id']),
       catalogVariantId: _nullableString(json['catalog_variant_id']),
       quantity: _numOrDefault(json['quantity'], 1),
       salesUnitCode: _nullableString(json['sales_unit_code']),
-      lengthMm: _intOrNull(json['length_mm']),
-      name: _nullableString(json['name']),
+      lengthMm: lengthMm,
+      name: metaString('name') ?? metaString('component_name', 'componentName'),
       itemTypeCode: itemTypeCode,
-      baseCode: _nullableString(json['base_code']),
-      profileNo: _nullableString(json['profile_no']),
-      articleNo: _nullableString(json['article_no']),
-      variantSku: _nullableString(json['variant_sku']),
-      unitCode: _nullableString(json['unit_code']),
+      baseCode: metaString('base_code', 'baseCode'),
+      profileNo: metaString('profile_no', 'profileNo'),
+      articleNo: metaString('article_no', 'articleNo'),
+      variantSku: metaString('variant_sku', 'variantSku'),
+      unitCode: metaString('unit_code', 'unitCode'),
       editableLength: editable,
       enabled: json['enabled'] != false,
       raw: json,
@@ -493,7 +519,9 @@ class CalculatorSetContentItem {
   final bool enabled;
   final Map<String, dynamic> raw;
 
-  bool get isProfile => editableLength || (itemTypeCode ?? '').toLowerCase().contains('profile');
+  bool get isProfile => editableLength || (itemTypeCode ?? '').toLowerCase().contains('profile') || (lengthMm != null && lengthMm! > 1);
+
+  bool get isAccessory => (itemTypeCode ?? '').toLowerCase().contains('accessory');
 
   CalculatorSetContentItem copyWith({
     String? catalogItemId,
@@ -536,12 +564,25 @@ class CalculatorSetContentItem {
   }
 
   Map<String, dynamic> toCalculationJson() {
+    final sourceComponent = {
+      ..._map(raw['source_component']),
+      if (name != null && name!.isNotEmpty) 'name': name,
+      if (itemTypeCode != null && itemTypeCode!.isNotEmpty) 'item_type_code': itemTypeCode,
+      if (baseCode != null && baseCode!.isNotEmpty) 'base_code': baseCode,
+      if (profileNo != null && profileNo!.isNotEmpty) 'profile_no': profileNo,
+      if (articleNo != null && articleNo!.isNotEmpty) 'article_no': articleNo,
+      if (variantSku != null && variantSku!.isNotEmpty) 'variant_sku': variantSku,
+      if (unitCode != null && unitCode!.isNotEmpty) 'unit_code': unitCode,
+      if (editableLength) 'editable_length': true,
+    };
+
     return {
       'catalog_item_id': catalogItemId,
       if (catalogVariantId != null && catalogVariantId!.isNotEmpty) 'catalog_variant_id': catalogVariantId,
       'quantity': quantity,
       if (salesUnitCode != null && salesUnitCode!.isNotEmpty) 'sales_unit_code': salesUnitCode,
       if (lengthMm != null && lengthMm! > 0) 'length_mm': lengthMm,
+      if (sourceComponent.isNotEmpty) 'source_component': sourceComponent,
     };
   }
 

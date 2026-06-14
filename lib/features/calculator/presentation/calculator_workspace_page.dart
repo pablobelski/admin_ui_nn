@@ -14,6 +14,7 @@ const _steps = <_StepDefinition>[
   _StepDefinition('covering', 'Covering', Icons.layers_outlined),
   _StepDefinition('color', 'Color', Icons.palette_outlined),
   _StepDefinition('set_contents', 'Set contents', Icons.view_list_outlined),
+  _StepDefinition('accessory', 'Accessory', Icons.build_outlined),
   _StepDefinition('options', 'Options', Icons.tune_outlined),
   _StepDefinition('delivery', 'Delivery', Icons.local_shipping_outlined),
   _StepDefinition('summary', 'Summary', Icons.summarize_outlined),
@@ -532,6 +533,52 @@ class _StepCard extends ConsumerWidget {
     );
   }
 
+
+  Future<void> _confirmAndReloadSetContents(
+    BuildContext context,
+    WidgetRef ref,
+    CalculatorDraftNotifier notifier,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Update set contents?'),
+        content: const Text(
+          'The component set will be loaded again from the linked rule-set row. Current row quantities and profile lengths will be replaced by the initial component defaults.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Update'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      final preview = await ref.read(calculatorRepositoryProvider).fetchSetContents(
+            draft.copyWith(setContents: const []),
+          );
+      notifier.setSetContentsFromDefaults(preview.tabs);
+      ref.read(calculatorSetContentsRefreshTickProvider.notifier).bump();
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Set contents updated from defaults.')),
+      );
+    } catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Set contents update failed: $error')),
+      );
+    }
+  }
+
   Widget _buildStep(BuildContext context, WidgetRef ref, String key) {
     final notifier = ref.read(calculatorDraftProvider.notifier);
     switch (key) {
@@ -585,6 +632,23 @@ class _StepCard extends ConsumerWidget {
           notifier: notifier,
           preview: preview,
           diagnostics: result?.setContentDiagnostics ?? const [],
+          onUpdateFromDefaults: () => _confirmAndReloadSetContents(context, ref, notifier),
+        );
+      case 'accessory':
+        final result = ref.watch(calculatorResultProvider).maybeWhen(
+              data: (value) => value,
+              orElse: () => null,
+            );
+        return _AccessoryStep(
+          contextData: calculatorContext,
+          draft: draft,
+          notifier: notifier,
+          diagnostics: result?.setContentDiagnostics ?? const [],
+          onFastenersPressed: () {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Fasteners import will be connected in the next iteration.')),
+            );
+          },
         );
       case 'options':
         final result = ref.watch(calculatorResultProvider).maybeWhen(
@@ -729,6 +793,7 @@ class _DimensionsStepState extends State<_DimensionsStep> {
   late final TextEditingController _width;
   late final TextEditingController _depth;
   late final TextEditingController _height;
+  late final TextEditingController _blockCount;
 
   @override
   void initState() {
@@ -736,6 +801,7 @@ class _DimensionsStepState extends State<_DimensionsStep> {
     _width = TextEditingController(text: widget.draft.widthMm?.toString() ?? '');
     _depth = TextEditingController(text: widget.draft.depthMm?.toString() ?? '');
     _height = TextEditingController(text: widget.draft.heightMm?.toString() ?? '');
+    _blockCount = TextEditingController(text: _setContentBlockCount(widget.draft).toString());
   }
 
   @override
@@ -744,6 +810,7 @@ class _DimensionsStepState extends State<_DimensionsStep> {
     _sync(_width, widget.draft.widthMm);
     _sync(_depth, widget.draft.depthMm);
     _sync(_height, widget.draft.heightMm);
+    _sync(_blockCount, _setContentBlockCount(widget.draft));
   }
 
   void _sync(TextEditingController controller, int? value) {
@@ -756,7 +823,12 @@ class _DimensionsStepState extends State<_DimensionsStep> {
     _width.dispose();
     _depth.dispose();
     _height.dispose();
+    _blockCount.dispose();
     super.dispose();
+  }
+
+  int _setContentBlockCount(CalculatorDraft draft) {
+    return draft.setContents.isEmpty ? 1 : draft.setContents.length;
   }
 
   @override
@@ -777,14 +849,243 @@ class _DimensionsStepState extends State<_DimensionsStep> {
             _NumberField(label: 'Height mm', controller: _height, onChanged: widget.notifier.setHeight),
           ],
         ),
+        const SizedBox(height: 24),
+        _SetContentBlockDimensionsEditor(
+          draft: widget.draft,
+          blockCountController: _blockCount,
+          onBlockCountChanged: (value) {
+            final count = int.tryParse(value.trim());
+            if (count == null) return;
+            widget.notifier.setSetContentBlockCount(count);
+          },
+          onIncrementBlockCount: widget.notifier.incrementSetContentBlockCount,
+          onRemoveBlock: widget.notifier.removeSetContentTab,
+          onBlockGeometryChanged: widget.notifier.updateSetContentBlockGeometry,
+        ),
         const SizedBox(height: 20),
         const _HintCard(
           icon: Icons.grid_on_outlined,
           title: 'Matrix-aware matching',
-          text: 'For roof_matrix: width + depth. For height_width_grid: width + height. This should later be driven by template.ui_schema_json.',
+          text: 'For roof_matrix: width + depth. For height_width_grid: width + height. Set Content blocks can be preset here and still added/removed independently in Set contents.',
         ),
       ],
     );
+  }
+}
+
+class _SetContentBlockDimensionsEditor extends StatelessWidget {
+  const _SetContentBlockDimensionsEditor({
+    required this.draft,
+    required this.blockCountController,
+    required this.onBlockCountChanged,
+    required this.onIncrementBlockCount,
+    required this.onRemoveBlock,
+    required this.onBlockGeometryChanged,
+  });
+
+  final CalculatorDraft draft;
+  final TextEditingController blockCountController;
+  final ValueChanged<String> onBlockCountChanged;
+  final VoidCallback onIncrementBlockCount;
+  final ValueChanged<int> onRemoveBlock;
+  final void Function(int tabIndex, String key, String value) onBlockGeometryChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final tabs = draft.setContents.isEmpty
+        ? const [CalculatorSetContentTab(id: 'part-1', label: 'Block 1', items: [])]
+        : draft.setContents;
+    final warnings = _warningsFor(tabs);
+
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Set Content blocks', style: Theme.of(context).textTheme.titleSmall),
+                      const SizedBox(height: 4),
+                      const Text(
+                        'Preset the number and dimensions of geometry blocks. These tabs are used by Set contents, but blocks can still be added or removed there independently.',
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 16),
+                SizedBox(
+                  width: 210,
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: blockCountController,
+                          keyboardType: TextInputType.number,
+                          decoration: const InputDecoration(
+                            labelText: 'Blocks',
+                            helperText: '1–20',
+                          ),
+                          onChanged: onBlockCountChanged,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: IconButton.filledTonal(
+                          tooltip: 'Add block',
+                          onPressed: onIncrementBlockCount,
+                          icon: const Icon(Icons.add),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            for (var i = 0; i < tabs.length; i++) ...[
+              _blockRow(context, tabs[i], i),
+              if (i < tabs.length - 1) const Divider(height: 20),
+            ],
+            if (warnings.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              _HintCard(
+                icon: Icons.warning_amber_outlined,
+                title: 'Block dimensions need review',
+                text: warnings.join('\n'),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _blockRow(BuildContext context, CalculatorSetContentTab tab, int index) {
+    final canRemove = draft.setContents.length > 1;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 100,
+          child: Padding(
+            padding: const EdgeInsets.only(top: 12),
+            child: Text(tab.label.isEmpty ? 'Block ${index + 1}' : tab.label),
+          ),
+        ),
+        const SizedBox(width: 12),
+        _dimensionField(
+          context,
+          tabId: tab.id,
+          fieldKey: 'width_mm',
+          label: 'Width',
+          value: tab.blockWidthMm,
+          maxValue: draft.widthMm,
+          index: index,
+        ),
+        const SizedBox(width: 12),
+        _dimensionField(
+          context,
+          tabId: tab.id,
+          fieldKey: 'depth_mm',
+          label: 'Depth',
+          value: tab.blockDepthMm,
+          maxValue: draft.depthMm,
+          index: index,
+        ),
+        const SizedBox(width: 12),
+        _dimensionField(
+          context,
+          tabId: tab.id,
+          fieldKey: 'height_mm',
+          label: 'Height',
+          value: tab.blockHeightMm,
+          maxValue: draft.heightMm,
+          index: index,
+        ),
+        const SizedBox(width: 4),
+        Padding(
+          padding: const EdgeInsets.only(top: 4),
+          child: IconButton(
+            tooltip: canRemove ? 'Remove block' : 'At least one block is required',
+            onPressed: canRemove ? () => onRemoveBlock(index) : null,
+            icon: const Icon(Icons.delete_outline),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _dimensionField(
+    BuildContext context, {
+    required String tabId,
+    required String fieldKey,
+    required String label,
+    required int? value,
+    required int? maxValue,
+    required int index,
+  }) {
+    final error = _dimensionError(value, maxValue, label);
+    return SizedBox(
+      width: 150,
+      child: TextFormField(
+        key: ValueKey('set-content-block-$tabId-$fieldKey'),
+        initialValue: value?.toString() ?? '',
+        keyboardType: TextInputType.number,
+        decoration: InputDecoration(
+          labelText: '$label mm',
+          suffixText: 'mm',
+          errorText: error,
+        ),
+        onChanged: (input) => onBlockGeometryChanged(index, fieldKey, input),
+      ),
+    );
+  }
+
+  String? _dimensionError(int? value, int? maxValue, String label) {
+    if (value == null || maxValue == null || maxValue <= 0) return null;
+    if (value > maxValue) return '>${_formatLengthMm(maxValue)}';
+    return null;
+  }
+
+  List<String> _warningsFor(List<CalculatorSetContentTab> tabs) {
+    final warnings = <String>[];
+    for (var i = 0; i < tabs.length; i++) {
+      final tab = tabs[i];
+      if (draft.widthMm != null && tab.blockWidthMm != null && tab.blockWidthMm! > draft.widthMm!) {
+        warnings.add('${tab.label}: width ${_formatLengthMm(tab.blockWidthMm)} is greater than main width ${_formatLengthMm(draft.widthMm)}.');
+      }
+      if (draft.depthMm != null && tab.blockDepthMm != null && tab.blockDepthMm! > draft.depthMm!) {
+        warnings.add('${tab.label}: depth ${_formatLengthMm(tab.blockDepthMm)} is greater than main depth ${_formatLengthMm(draft.depthMm)}.');
+      }
+      if (draft.heightMm != null && tab.blockHeightMm != null && tab.blockHeightMm! > draft.heightMm!) {
+        warnings.add('${tab.label}: height ${_formatLengthMm(tab.blockHeightMm)} is greater than main height ${_formatLengthMm(draft.heightMm)}.');
+      }
+    }
+
+    final widthValues = tabs.map((tab) => tab.blockWidthMm).whereType<int>().toList(growable: false);
+    if (draft.widthMm != null && widthValues.length > 1) {
+      final sum = widthValues.fold<int>(0, (total, value) => total + value);
+      if (sum > draft.widthMm!) {
+        warnings.add('Sum of block widths ${_formatLengthMm(sum)} is greater than main width ${_formatLengthMm(draft.widthMm)}.');
+      }
+    }
+    final depthValues = tabs.map((tab) => tab.blockDepthMm).whereType<int>().toList(growable: false);
+    if (draft.depthMm != null && depthValues.length > 1) {
+      final sum = depthValues.fold<int>(0, (total, value) => total + value);
+      if (sum > draft.depthMm!) {
+        warnings.add('Sum of block depths ${_formatLengthMm(sum)} is greater than main depth ${_formatLengthMm(draft.depthMm)}.');
+      }
+    }
+    return warnings;
   }
 }
 
@@ -1183,6 +1484,7 @@ class _SetContentsStep extends StatefulWidget {
     required this.notifier,
     required this.preview,
     required this.diagnostics,
+    required this.onUpdateFromDefaults,
   });
 
   final CalculatorContext contextData;
@@ -1190,6 +1492,7 @@ class _SetContentsStep extends StatefulWidget {
   final CalculatorDraftNotifier notifier;
   final AsyncValue<CalculatorSetContentsPreview> preview;
   final List<Map<String, dynamic>> diagnostics;
+  final Future<void> Function() onUpdateFromDefaults;
 
   @override
   State<_SetContentsStep> createState() => _SetContentsStepState();
@@ -1199,7 +1502,9 @@ class _SetContentsStepState extends State<_SetContentsStep> {
   @override
   Widget build(BuildContext context) {
     widget.preview.whenData((preview) {
-      if (widget.draft.setContents.isEmpty && preview.tabs.isNotEmpty) {
+      final needsSeed = widget.draft.setContents.isEmpty ||
+          widget.draft.setContents.every((tab) => tab.items.isEmpty);
+      if (needsSeed && preview.tabs.isNotEmpty) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (!mounted) return;
           widget.notifier.seedSetContentsIfEmpty(preview.tabs);
@@ -1215,7 +1520,19 @@ class _SetContentsStepState extends State<_SetContentsStep> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Set contents / Stückliste je Block', style: Theme.of(context).textTheme.titleMedium),
+        Row(
+          children: [
+            Expanded(
+              child: Text('Set contents / Stückliste je Block', style: Theme.of(context).textTheme.titleMedium),
+            ),
+            const SizedBox(width: 12),
+            FilledButton.tonalIcon(
+              onPressed: widget.draft.templateId == null ? null : widget.onUpdateFromDefaults,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Update'),
+            ),
+          ],
+        ),
         const SizedBox(height: 8),
         const Text(
           'The default composition is loaded from the linked rule set row. Each tab represents one geometry block of the roof. Use + to add another block with the same default contents, then adjust quantities and profile lengths per block.',
@@ -1327,7 +1644,24 @@ class _InfoChip extends StatelessWidget {
   }
 }
 
-class _SetContentTabTable extends StatelessWidget {
+class _SetContentVisibleRow {
+  const _SetContentVisibleRow({required this.itemIndex, required this.item});
+
+  final int itemIndex;
+  final CalculatorSetContentItem item;
+}
+
+List<_SetContentVisibleRow> _visibleSetContentRows(CalculatorContext contextData, CalculatorSetContentTab tab) {
+  final rows = <_SetContentVisibleRow>[];
+  for (var i = 0; i < tab.items.length; i++) {
+    final item = tab.items[i];
+    if (_isAccessorySetContentItem(contextData, item)) continue;
+    rows.add(_SetContentVisibleRow(itemIndex: i, item: item));
+  }
+  return rows;
+}
+
+class _SetContentTabTable extends StatefulWidget {
   const _SetContentTabTable({
     required this.contextData,
     required this.tab,
@@ -1357,9 +1691,64 @@ class _SetContentTabTable extends StatelessWidget {
   final VoidCallback? onRemoveTab;
 
   @override
+  State<_SetContentTabTable> createState() => _SetContentTabTableState();
+}
+
+class _SetContentTabTableState extends State<_SetContentTabTable> {
+  static const _profileWidth = _SetContentTabTable._profileWidth;
+  static const _qtyWidth = _SetContentTabTable._qtyWidth;
+  static const _unitWidth = _SetContentTabTable._unitWidth;
+  static const _lengthWidth = _SetContentTabTable._lengthWidth;
+  static const _priceWidth = _SetContentTabTable._priceWidth;
+  static const _toggleWidth = _SetContentTabTable._toggleWidth;
+  static const _columnGap = _SetContentTabTable._columnGap;
+
+  final _scrollController = ScrollController();
+  var _isAtListEnd = false;
+
+  CalculatorContext get contextData => widget.contextData;
+  CalculatorSetContentTab get tab => widget.tab;
+  int get tabIndex => widget.tabIndex;
+  List<Map<String, dynamic>> get diagnostics => widget.diagnostics;
+  void Function(int itemIndex, num quantity) get onQuantityChanged => widget.onQuantityChanged;
+  void Function(int itemIndex, int? lengthMm) get onLengthChanged => widget.onLengthChanged;
+  void Function(int itemIndex) get onToggleItem => widget.onToggleItem;
+  VoidCallback? get onRemoveTab => widget.onRemoveTab;
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController.addListener(_syncScrollHint);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _syncScrollHint());
+  }
+
+  @override
+  void didUpdateWidget(covariant _SetContentTabTable oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _syncScrollHint());
+  }
+
+  @override
+  void dispose() {
+    _scrollController.removeListener(_syncScrollHint);
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _syncScrollHint() {
+    if (!mounted || !_scrollController.hasClients) return;
+    final position = _scrollController.position;
+    final atEnd = position.maxScrollExtent <= 0 || position.pixels >= position.maxScrollExtent - 2;
+    if (atEnd == _isAtListEnd) return;
+    setState(() => _isAtListEnd = atEnd);
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final activeCount = tab.items.where((entry) => entry.enabled).length;
-    final showScrollHint = tab.items.length > 6;
+    final visibleRows = _visibleSetContentRows(contextData, tab);
+    final activeCount = visibleRows.where((entry) => entry.item.enabled).length;
+    final hiddenAccessoryCount = tab.items.length - visibleRows.length;
+    final showScrollHint = visibleRows.length > 6 && !_isAtListEnd;
 
     return Card(
       margin: EdgeInsets.zero,
@@ -1374,7 +1763,7 @@ class _SetContentTabTable extends StatelessWidget {
                 children: [
                   Expanded(
                     child: Text(
-                      '${tab.label} · $activeCount/${tab.items.length} active items',
+                      '${tab.label} · $activeCount/${visibleRows.length} active set items${hiddenAccessoryCount > 0 ? ' · $hiddenAccessoryCount accessory moved' : ''}',
                       style: Theme.of(context).textTheme.titleSmall,
                     ),
                   ),
@@ -1390,42 +1779,51 @@ class _SetContentTabTable extends StatelessWidget {
             _header(context),
             const Divider(height: 1),
             Expanded(
-              child: Stack(
-                children: [
-                  Scrollbar(
-                    child: ListView.separated(
-                      padding: EdgeInsets.only(bottom: showScrollHint ? 40 : 8),
-                      itemCount: tab.items.length,
-                      separatorBuilder: (_, __) => const Divider(height: 1),
-                      itemBuilder: (context, index) => _row(context, index),
-                    ),
-                  ),
-                  if (showScrollHint)
-                    Positioned(
-                      right: 12,
-                      bottom: 8,
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          color: Theme.of(context).colorScheme.surface.withOpacity(0.92),
-                          borderRadius: BorderRadius.circular(999),
-                          border: Border.all(color: Theme.of(context).dividerColor),
-                        ),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.keyboard_arrow_down, size: 16, color: Theme.of(context).colorScheme.primary),
-                              const SizedBox(width: 4),
-                              Text('more', style: Theme.of(context).textTheme.labelSmall),
-                            ],
-                          ),
-                        ),
+              child: visibleRows.isEmpty
+                  ? const Center(
+                      child: Padding(
+                        padding: EdgeInsets.all(16),
+                        child: Text('Only accessory components were found in this block. They are shown in the Accessory step.'),
+                      ),
+                    )
+                  : Scrollbar(
+                      controller: _scrollController,
+                      child: ListView.separated(
+                        controller: _scrollController,
+                        padding: const EdgeInsets.only(bottom: 8),
+                        itemCount: visibleRows.length,
+                        separatorBuilder: (_, __) => const Divider(height: 1),
+                        itemBuilder: (context, index) => _row(context, visibleRows[index]),
                       ),
                     ),
-                ],
-              ),
             ),
+            if (showScrollHint) ...[
+              const Divider(height: 1),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 5, 12, 2),
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(color: Theme.of(context).dividerColor),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.keyboard_arrow_down, size: 16, color: Theme.of(context).colorScheme.primary),
+                          const SizedBox(width: 4),
+                          Text('more', style: Theme.of(context).textTheme.labelSmall),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ],
         ),
       ),
@@ -1455,8 +1853,9 @@ class _SetContentTabTable extends StatelessWidget {
     );
   }
 
-  Widget _row(BuildContext context, int index) {
-    final item = tab.items[index];
+  Widget _row(BuildContext context, _SetContentVisibleRow row) {
+    final index = row.itemIndex;
+    final item = row.item;
     final catalogItem = _findItem(item.catalogItemId);
     final variant = _findVariant(item.catalogVariantId);
     final enabled = item.enabled;
@@ -1498,7 +1897,7 @@ class _SetContentTabTable extends StatelessWidget {
         _fixedCell(
           context,
           TextFormField(
-            key: ValueKey('set-content-qty-$tabIndex-$index-${item.quantity}-$enabled'),
+            key: ValueKey('set-content-qty-$tabIndex-$index-${item.catalogItemId}-${item.catalogVariantId ?? ''}-$enabled'),
             initialValue: _formatInputQuantity(item.quantity),
             enabled: enabled,
             keyboardType: TextInputType.number,
@@ -1514,7 +1913,7 @@ class _SetContentTabTable extends StatelessWidget {
           context,
           item.isProfile
               ? TextFormField(
-                  key: ValueKey('set-content-length-$tabIndex-$index-${item.lengthMm ?? ''}-$enabled'),
+                  key: ValueKey('set-content-length-$tabIndex-$index-${item.catalogItemId}-${item.catalogVariantId ?? ''}-$enabled'),
                   initialValue: item.lengthMm == null ? '' : '${item.lengthMm}',
                   enabled: enabled,
                   keyboardType: TextInputType.number,
@@ -1535,7 +1934,7 @@ class _SetContentTabTable extends StatelessWidget {
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 160),
-      color: enabled ? Colors.transparent : colorScheme.surfaceContainerHighest.withOpacity(0.55),
+      color: enabled ? Colors.transparent : colorScheme.surfaceContainerHighest.withValues(alpha: 0.55),
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1611,6 +2010,366 @@ class _SetContentTabTable extends StatelessWidget {
       variant?.variantSku ?? selected.variantSku,
     ]);
   }
+}
+
+
+bool _isAccessorySetContentItem(CalculatorContext contextData, CalculatorSetContentItem item) {
+  final catalogItem = contextData.optionCatalogItems
+      .where((entry) => entry.id == item.catalogItemId)
+      .cast<CalculatorCatalogItemOption?>()
+      .firstOrNull;
+  final itemTypeCode = (item.itemTypeCode ?? catalogItem?.itemTypeCode ?? '').trim().toLowerCase();
+  return itemTypeCode == 'accessory' || itemTypeCode.contains('accessory');
+}
+
+class _AccessoryStep extends StatelessWidget {
+  const _AccessoryStep({
+    required this.contextData,
+    required this.draft,
+    required this.notifier,
+    required this.diagnostics,
+    required this.onFastenersPressed,
+  });
+
+  final CalculatorContext contextData;
+  final CalculatorDraft draft;
+  final CalculatorDraftNotifier notifier;
+  final List<Map<String, dynamic>> diagnostics;
+  final VoidCallback onFastenersPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final lines = _accessoryAggregateLines(contextData, draft, diagnostics);
+    final totalQuantity = lines.fold<num>(0, (sum, line) => sum + line.quantity);
+    final activeQuantity = lines.fold<num>(0, (sum, line) => sum + (line.enabled ? line.quantity : 0));
+    final totalAmount = lines.fold<num>(0, (sum, line) => sum + line.amount);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text('Accessory / Zubehör', style: Theme.of(context).textTheme.titleMedium),
+            ),
+            const SizedBox(width: 12),
+            FilledButton.tonalIcon(
+              onPressed: onFastenersPressed,
+              icon: const Icon(Icons.construction_outlined),
+              label: const Text('Fasteners'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        const Text(
+          'Accessory components are moved out of Set contents and collected here from all blocks. Equal catalog item/SKU/unit/length lines are summed; disabling a line excludes all its source components from calculation.',
+        ),
+        const SizedBox(height: 16),
+        if (lines.isEmpty)
+          const _HintCard(
+            icon: Icons.build_outlined,
+            title: 'No accessories in Set contents',
+            text: 'Add or update Set contents first. All catalog items with item type accessory will be shown here automatically instead of inside Set contents.',
+          )
+        else ...[
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _InfoChip(label: 'Accessory lines', value: '${lines.length}'),
+              _InfoChip(label: 'Active qty', value: _formatInputQuantity(activeQuantity)),
+              _InfoChip(label: 'Total qty', value: _formatInputQuantity(totalQuantity)),
+              _InfoChip(label: 'Cost', value: totalAmount > 0 ? _moneyFormat.format(totalAmount) : '—'),
+            ],
+          ),
+          const SizedBox(height: 12),
+          _AccessoryTable(
+            lines: lines,
+            onToggleLine: (line) {
+              notifier.setSetContentItemsEnabled(
+                line.sourceRefs.map((ref) => (tabIndex: ref.tabIndex, itemIndex: ref.itemIndex)).toList(growable: false),
+                !line.enabled,
+              );
+            },
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _AccessoryTable extends StatelessWidget {
+  const _AccessoryTable({required this.lines, required this.onToggleLine});
+
+  static const _toggleWidth = _SetContentTabTable._toggleWidth;
+
+  final List<_AccessoryAggregateLine> lines;
+  final ValueChanged<_AccessoryAggregateLine> onToggleLine;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _header(context),
+            const Divider(height: 1),
+            for (var i = 0; i < lines.length; i++) ...[
+              _row(context, lines[i]),
+              if (i < lines.length - 1) const Divider(height: 1),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _header(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _cell(context, const Text('Pr. Nr.'), width: 82, header: true),
+          _cell(context, const Text('Accessory name'), flex: 5, header: true),
+          _cell(context, const Text('Qty'), width: 72, header: true),
+          _cell(context, const Text('Unit'), width: 64, header: true),
+          _cell(context, const Text('Cost'), width: 104, header: true),
+          const SizedBox(width: _toggleWidth),
+        ],
+      ),
+    );
+  }
+
+  Widget _row(BuildContext context, _AccessoryAggregateLine line) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final enabled = line.enabled;
+    final rowContent = Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _cell(context, Text(line.primaryCode ?? '—'), width: 82),
+        _cell(
+          context,
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(line.name, maxLines: 3, overflow: TextOverflow.ellipsis),
+              if (line.secondaryInfo.isNotEmpty) ...[
+                const SizedBox(height: 2),
+                Text(
+                  line.secondaryInfo,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                ),
+              ],
+            ],
+          ),
+          flex: 5,
+        ),
+        _cell(context, Text(_formatInputQuantity(line.quantity)), width: 72),
+        _cell(context, Text(_formatUnitLabel(line.unitCode)), width: 64),
+        _cell(context, Text(line.hasAmount ? _moneyFormat.format(line.amount) : '—'), width: 104),
+      ],
+    );
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 160),
+      color: enabled ? Colors.transparent : colorScheme.surfaceContainerHighest.withValues(alpha: 0.55),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: AnimatedOpacity(
+              duration: const Duration(milliseconds: 160),
+              opacity: enabled ? 1 : 0.46,
+              child: rowContent,
+            ),
+          ),
+          SizedBox(
+            width: _toggleWidth,
+            child: IconButton(
+              tooltip: enabled ? 'Exclude accessory line from calculation' : 'Include accessory line in calculation',
+              onPressed: () => onToggleLine(line),
+              icon: Icon(enabled ? Icons.check_circle_outline : Icons.remove_circle_outline),
+              color: enabled ? colorScheme.primary : colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _cell(
+    BuildContext context,
+    Widget child, {
+    double? width,
+    int? flex,
+    bool header = false,
+  }) {
+    final textStyle = header ? Theme.of(context).textTheme.labelMedium : Theme.of(context).textTheme.bodySmall;
+    final content = DefaultTextStyle.merge(
+      style: textStyle,
+      child: Padding(
+        padding: const EdgeInsets.only(right: 8),
+        child: child,
+      ),
+    );
+    if (width != null) return SizedBox(width: width, child: content);
+    return Expanded(flex: flex ?? 1, child: content);
+  }
+}
+
+class _AccessorySourceRef {
+  const _AccessorySourceRef({
+    required this.tabIndex,
+    required this.itemIndex,
+    required this.enabled,
+  });
+
+  final int tabIndex;
+  final int itemIndex;
+  final bool enabled;
+}
+
+class _AccessoryAggregateLine {
+  _AccessoryAggregateLine({
+    required this.key,
+    required this.catalogItemId,
+    required this.catalogVariantId,
+    required this.name,
+    required this.unitCode,
+    required this.quantity,
+    required this.primaryCode,
+    required this.secondaryInfo,
+    required this.blockLabels,
+    required this.sourceRefs,
+    this.amount = 0,
+    this.hasAmount = false,
+  });
+
+  final String key;
+  final String catalogItemId;
+  final String? catalogVariantId;
+  final String name;
+  final String unitCode;
+  num quantity;
+  final String? primaryCode;
+  final String secondaryInfo;
+  final List<String> blockLabels;
+  final List<_AccessorySourceRef> sourceRefs;
+  num amount;
+  bool hasAmount;
+
+  bool get enabled => sourceRefs.any((entry) => entry.enabled);
+}
+
+List<_AccessoryAggregateLine> _accessoryAggregateLines(
+  CalculatorContext contextData,
+  CalculatorDraft draft,
+  List<Map<String, dynamic>> diagnostics,
+) {
+  final result = <String, _AccessoryAggregateLine>{};
+  var activeOptionIndex = 0;
+
+  for (var tabIndex = 0; tabIndex < draft.setContents.length; tabIndex++) {
+    final tab = draft.setContents[tabIndex];
+    for (var itemIndex = 0; itemIndex < tab.items.length; itemIndex++) {
+      final item = tab.items[itemIndex];
+      Map<String, dynamic>? diagnostic;
+      if (item.enabled) {
+        diagnostic = activeOptionIndex < diagnostics.length ? diagnostics[activeOptionIndex] : null;
+        activeOptionIndex += 1;
+      }
+
+      if (!_isAccessorySetContentItem(contextData, item)) continue;
+
+      final catalogItem = contextData.optionCatalogItems
+          .where((entry) => entry.id == item.catalogItemId)
+          .cast<CalculatorCatalogItemOption?>()
+          .firstOrNull;
+      final variant = contextData.optionCatalogVariants
+          .where((entry) => entry.id == item.catalogVariantId)
+          .cast<CalculatorCatalogVariantOption?>()
+          .firstOrNull;
+      final unitCode = item.salesUnitCode
+          ?? item.unitCode
+          ?? catalogItem?.defaultSalesUnitCode
+          ?? catalogItem?.measureTypeCode
+          ?? 'piece';
+      final key = '${item.catalogItemId}|${item.catalogVariantId ?? ''}|$unitCode|${item.lengthMm ?? ''}';
+      final primaryCode = _firstNonEmptyText([
+        item.articleNo,
+        variant?.articleNo,
+        item.profileNo,
+        variant?.profileNo,
+        item.baseCode,
+        catalogItem?.baseCode,
+        item.variantSku,
+        variant?.variantSku,
+      ]);
+      final name = _joinDistinctTextParts([
+        item.name ?? catalogItem?.name,
+        variant?.variantSku ?? item.variantSku,
+      ]);
+      final secondaryInfo = _joinDistinctTextParts([
+        item.itemTypeCode ?? catalogItem?.itemTypeCode,
+        variant?.colorName,
+        _formatLengthMm(item.lengthMm ?? variant?.lengthMm),
+      ]);
+      final blockLabel = tab.label.isEmpty ? tab.id : tab.label;
+      final amount = _num(diagnostic?['amount']);
+      final hasAmount = item.enabled && diagnostic != null && diagnostic.containsKey('amount');
+
+      final existing = result[key];
+      final sourceRef = _AccessorySourceRef(tabIndex: tabIndex, itemIndex: itemIndex, enabled: item.enabled);
+      if (existing == null) {
+        result[key] = _AccessoryAggregateLine(
+          key: key,
+          catalogItemId: item.catalogItemId,
+          catalogVariantId: item.catalogVariantId,
+          name: name,
+          unitCode: unitCode,
+          quantity: item.quantity,
+          primaryCode: primaryCode,
+          secondaryInfo: secondaryInfo == 'Option' ? '' : secondaryInfo,
+          blockLabels: [blockLabel],
+          sourceRefs: [sourceRef],
+          amount: amount,
+          hasAmount: hasAmount,
+        );
+      } else {
+        existing.quantity += item.quantity;
+        existing.amount += amount;
+        existing.hasAmount = existing.hasAmount || hasAmount;
+        existing.sourceRefs.add(sourceRef);
+        if (!existing.blockLabels.contains(blockLabel)) existing.blockLabels.add(blockLabel);
+      }
+    }
+  }
+
+  final lines = result.values.toList(growable: false)
+    ..sort((a, b) {
+      final codeCompare = (a.primaryCode ?? '').compareTo(b.primaryCode ?? '');
+      if (codeCompare != 0) return codeCompare;
+      return a.name.compareTo(b.name);
+    });
+  return lines;
+}
+
+String? _firstNonEmptyText(Iterable<String?> values) {
+  for (final raw in values) {
+    final value = raw?.trim();
+    if (value != null && value.isNotEmpty) return value;
+  }
+  return null;
 }
 
 class _OptionsStep extends StatefulWidget {
@@ -3917,6 +4676,8 @@ bool _isStepComplete(String key, CalculatorDraft draft) {
       return draft.colorCode != null;
     case 'set_contents':
       return draft.setContents.isNotEmpty;
+    case 'accessory':
+      return draft.setContents.isNotEmpty;
     case 'options':
       return draft.options.isNotEmpty;
     case 'delivery':
@@ -3926,6 +4687,21 @@ bool _isStepComplete(String key, CalculatorDraft draft) {
     default:
       return false;
   }
+}
+
+
+int _accessorySourceItemCountFromDraft(CalculatorDraft draft) {
+  var count = 0;
+  for (final tab in draft.setContents) {
+    for (final item in tab.items) {
+      if (!item.enabled) continue;
+      final itemTypeCode = (item.itemTypeCode ?? '').trim().toLowerCase();
+      if (itemTypeCode == 'accessory' || itemTypeCode.contains('accessory')) {
+        count += 1;
+      }
+    }
+  }
+  return count;
 }
 
 String _stepHint(String key, CalculatorDraft draft) {
@@ -3946,6 +4722,11 @@ String _stepHint(String key, CalculatorDraft draft) {
       return draft.setContents.isEmpty
           ? 'auto from rule set'
           : '${draft.setContents.length} block(s), ${draft.setContents.fold<int>(0, (sum, tab) => sum + tab.items.length)} items';
+    case 'accessory':
+      final accessorySourceItems = _accessorySourceItemCountFromDraft(draft);
+      return accessorySourceItems == 0
+          ? (draft.setContents.isEmpty ? 'none' : 'from Set contents')
+          : '$accessorySourceItems source item(s)';
     case 'options':
       return draft.options.isEmpty ? 'none' : '${draft.options.length} selected';
     case 'delivery':
