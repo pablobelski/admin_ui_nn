@@ -1,3 +1,5 @@
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -1129,15 +1131,548 @@ class _ModelStep extends StatelessWidget {
       );
     }
 
-    return _SelectStep(
-      title: 'Model / construction type',
-      description: 'Roof models are filtered by both product family and configurator template.',
-      value: draft.modelCode,
-      options: roofModelState.options,
-      onChanged: onChanged,
-      emptyLabel: '— Model not selected —',
+    final selectedModel = roofModelState.options
+        .where((option) => option.code == draft.modelCode)
+        .cast<CalculatorOption?>()
+        .firstOrNull;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Model / construction type', style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 8),
+        const Text('Roof models are filtered by both product family and configurator template.'),
+        const SizedBox(height: 20),
+        _DropdownField(
+          label: 'Model / construction type',
+          value: draft.modelCode,
+          options: roofModelState.options,
+          idSelector: (option) => option.code,
+          onChanged: onChanged,
+          emptyLabel: '— Model not selected —',
+        ),
+        const SizedBox(height: 16),
+        _ModelGeometryPreview(
+          modelCode: draft.modelCode,
+          modelLabel: selectedModel?.label,
+        ),
+      ],
     );
   }
+}
+
+class _ModelGeometryPreview extends StatelessWidget {
+  const _ModelGeometryPreview({
+    required this.modelCode,
+    required this.modelLabel,
+  });
+
+  final String? modelCode;
+  final String? modelLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final label = (modelLabel?.trim().isNotEmpty ?? false)
+        ? modelLabel!.trim()
+        : ((modelCode?.trim().isNotEmpty ?? false) ? modelCode!.trim() : 'No model selected');
+    final hasSelection = modelCode?.trim().isNotEmpty ?? false;
+
+    return Card(
+      margin: EdgeInsets.zero,
+      color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.45),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.schema_outlined, size: 18, color: colorScheme.primary),
+                const SizedBox(width: 8),
+                Text('Geometry preview', style: theme.textTheme.titleSmall),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              hasSelection
+                  ? 'Simple generated scheme for $label.'
+                  : 'Select a model to show a simple generated scheme.',
+              style: theme.textTheme.bodySmall?.copyWith(color: colorScheme.onSurfaceVariant),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              height: 230,
+              width: double.infinity,
+              child: CustomPaint(
+                painter: _ModelGeometryPreviewPainter(
+                  modelCode: modelCode,
+                  modelLabel: modelLabel,
+                  lineColor: colorScheme.onSurface,
+                  mutedLineColor: colorScheme.onSurfaceVariant,
+                  accentColor: colorScheme.primary,
+                  surfaceColor: colorScheme.surface,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+enum _ModelGeometryKind {
+  rectangle,
+  saddle,
+  gable,
+  trapezoid,
+  withGable,
+  custom,
+  polygon,
+}
+
+class _ModelGeometryPreviewPainter extends CustomPainter {
+  const _ModelGeometryPreviewPainter({
+    required this.modelCode,
+    required this.modelLabel,
+    required this.lineColor,
+    required this.mutedLineColor,
+    required this.accentColor,
+    required this.surfaceColor,
+  });
+
+  final String? modelCode;
+  final String? modelLabel;
+  final Color lineColor;
+  final Color mutedLineColor;
+  final Color accentColor;
+  final Color surfaceColor;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final kind = _modelGeometryKind(modelCode, modelLabel);
+    final stroke = Paint()
+      ..color = lineColor
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+    final thinStroke = Paint()
+      ..color = mutedLineColor.withValues(alpha: 0.72)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.2
+      ..strokeCap = StrokeCap.round;
+    final accentStroke = Paint()
+      ..color = accentColor
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.2
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+    final fillPaint = Paint()
+      ..color = surfaceColor.withValues(alpha: 0.44)
+      ..style = PaintingStyle.fill;
+
+    switch (kind) {
+      case _ModelGeometryKind.saddle:
+        _drawSaddle(canvas, size, stroke, thinStroke, accentStroke, fillPaint);
+        break;
+      case _ModelGeometryKind.gable:
+        _drawGable(canvas, size, stroke, thinStroke, accentStroke, fillPaint);
+        break;
+      case _ModelGeometryKind.trapezoid:
+        _drawTrapezoid(canvas, size, stroke, thinStroke, accentStroke, fillPaint);
+        break;
+      case _ModelGeometryKind.withGable:
+        _drawWithGable(canvas, size, stroke, thinStroke, accentStroke, fillPaint);
+        break;
+      case _ModelGeometryKind.custom:
+        _drawCustom(canvas, size, stroke, thinStroke, accentStroke, fillPaint);
+        break;
+      case _ModelGeometryKind.polygon:
+        _drawPolygon(canvas, size, stroke, thinStroke, accentStroke, fillPaint);
+        break;
+      case _ModelGeometryKind.rectangle:
+        _drawRectangle(canvas, size, stroke, thinStroke, accentStroke, fillPaint);
+        break;
+    }
+
+    _drawMiniTopView(canvas, size, kind, stroke, thinStroke);
+  }
+
+  _ModelGeometryKind _modelGeometryKind(String? code, String? label) {
+    final value = _normalizeModelText('${code ?? ''} ${label ?? ''}');
+    if (value.trim().isEmpty) return _ModelGeometryKind.rectangle;
+    if (value.contains('satteldach') || value.contains('sattel')) return _ModelGeometryKind.saddle;
+    if (value.contains('giebeldach')) return _ModelGeometryKind.gable;
+    if (value.contains('mit giebel')) return _ModelGeometryKind.withGable;
+    if (value.contains('trapez')) return _ModelGeometryKind.trapezoid;
+    if (value.contains('nach mass') || value.contains('custom') || value.contains('sonder')) return _ModelGeometryKind.custom;
+    if (value.contains('vieleck') || value.contains('polygon')) return _ModelGeometryKind.polygon;
+    return _ModelGeometryKind.rectangle;
+  }
+
+  String _normalizeModelText(String value) {
+    return value
+        .toLowerCase()
+        .replaceAll('ä', 'a')
+        .replaceAll('ö', 'o')
+        .replaceAll('ü', 'u')
+        .replaceAll('ß', 'ss')
+        .replaceAll('_', ' ')
+        .replaceAll('-', ' ');
+  }
+
+  void _drawRectangle(
+    Canvas canvas,
+    Size size,
+    Paint stroke,
+    Paint thinStroke,
+    Paint accentStroke,
+    Paint fillPaint,
+  ) {
+    final points = _PerspectivePoints.fromSize(size);
+    final roof = Path()
+      ..moveTo(points.backLeft.dx, points.backLeft.dy)
+      ..lineTo(points.backRight.dx, points.backRight.dy)
+      ..lineTo(points.frontRight.dx, points.frontRight.dy)
+      ..lineTo(points.frontLeft.dx, points.frontLeft.dy)
+      ..close();
+    canvas.drawPath(roof, fillPaint);
+    canvas.drawPath(roof, stroke);
+    _drawPerspectiveGrid(canvas, points, thinStroke);
+    _drawPosts(canvas, size, points, stroke);
+    _drawDimensions(canvas, size, points, accentStroke);
+  }
+
+  void _drawSaddle(
+    Canvas canvas,
+    Size size,
+    Paint stroke,
+    Paint thinStroke,
+    Paint accentStroke,
+    Paint fillPaint,
+  ) {
+    final points = _PerspectivePoints.fromSize(size);
+    final backRidge = Offset((points.backLeft.dx + points.backRight.dx) / 2, points.backLeft.dy - size.height * 0.14);
+    final frontRidge = Offset((points.frontLeft.dx + points.frontRight.dx) / 2, points.frontLeft.dy - size.height * 0.18);
+    final leftPlane = Path()
+      ..moveTo(points.backLeft.dx, points.backLeft.dy)
+      ..lineTo(backRidge.dx, backRidge.dy)
+      ..lineTo(frontRidge.dx, frontRidge.dy)
+      ..lineTo(points.frontLeft.dx, points.frontLeft.dy)
+      ..close();
+    final rightPlane = Path()
+      ..moveTo(backRidge.dx, backRidge.dy)
+      ..lineTo(points.backRight.dx, points.backRight.dy)
+      ..lineTo(points.frontRight.dx, points.frontRight.dy)
+      ..lineTo(frontRidge.dx, frontRidge.dy)
+      ..close();
+    canvas.drawPath(leftPlane, fillPaint);
+    canvas.drawPath(rightPlane, fillPaint);
+    canvas.drawPath(leftPlane, stroke);
+    canvas.drawPath(rightPlane, stroke);
+    canvas.drawLine(backRidge, frontRidge, accentStroke);
+    for (var i = 1; i <= 4; i++) {
+      final t = i / 5;
+      final left = _lerp(points.frontLeft, points.backLeft, t);
+      final right = _lerp(points.frontRight, points.backRight, t);
+      final ridge = _lerp(frontRidge, backRidge, t);
+      canvas.drawLine(left, ridge, thinStroke);
+      canvas.drawLine(ridge, right, thinStroke);
+    }
+    _drawPosts(canvas, size, points, stroke);
+    _drawDimensions(canvas, size, points, accentStroke);
+  }
+
+  void _drawGable(
+    Canvas canvas,
+    Size size,
+    Paint stroke,
+    Paint thinStroke,
+    Paint accentStroke,
+    Paint fillPaint,
+  ) {
+    final points = _PerspectivePoints.fromSize(size);
+    final top = Offset((points.frontLeft.dx + points.frontRight.dx) / 2, points.frontLeft.dy - size.height * 0.24);
+    final backTop = Offset((points.backLeft.dx + points.backRight.dx) / 2, points.backLeft.dy - size.height * 0.20);
+    final roof = Path()
+      ..moveTo(points.frontLeft.dx, points.frontLeft.dy)
+      ..lineTo(top.dx, top.dy)
+      ..lineTo(points.frontRight.dx, points.frontRight.dy)
+      ..lineTo(points.backRight.dx, points.backRight.dy)
+      ..lineTo(backTop.dx, backTop.dy)
+      ..lineTo(points.backLeft.dx, points.backLeft.dy)
+      ..close();
+    canvas.drawPath(roof, fillPaint);
+    canvas.drawPath(roof, stroke);
+    canvas.drawLine(top, backTop, accentStroke);
+    canvas.drawLine(points.frontLeft, points.backLeft, thinStroke);
+    canvas.drawLine(points.frontRight, points.backRight, thinStroke);
+    canvas.drawLine(points.backLeft, backTop, thinStroke);
+    canvas.drawLine(backTop, points.backRight, thinStroke);
+    _drawPosts(canvas, size, points, stroke);
+    _drawDimensions(canvas, size, points, accentStroke);
+  }
+
+  void _drawTrapezoid(
+    Canvas canvas,
+    Size size,
+    Paint stroke,
+    Paint thinStroke,
+    Paint accentStroke,
+    Paint fillPaint,
+  ) {
+    final points = _PerspectivePoints(
+      frontLeft: Offset(size.width * 0.26, size.height * 0.36),
+      frontRight: Offset(size.width * 0.72, size.height * 0.36),
+      backLeft: Offset(size.width * 0.40, size.height * 0.14),
+      backRight: Offset(size.width * 0.84, size.height * 0.17),
+    );
+    final roof = Path()
+      ..moveTo(points.backLeft.dx, points.backLeft.dy)
+      ..lineTo(points.backRight.dx, points.backRight.dy)
+      ..lineTo(points.frontRight.dx, points.frontRight.dy)
+      ..lineTo(points.frontLeft.dx, points.frontLeft.dy)
+      ..close();
+    canvas.drawPath(roof, fillPaint);
+    canvas.drawPath(roof, stroke);
+    _drawPerspectiveGrid(canvas, points, thinStroke);
+    _drawPosts(canvas, size, points, stroke);
+    _drawDimensions(canvas, size, points, accentStroke);
+  }
+
+  void _drawWithGable(
+    Canvas canvas,
+    Size size,
+    Paint stroke,
+    Paint thinStroke,
+    Paint accentStroke,
+    Paint fillPaint,
+  ) {
+    _drawRectangle(canvas, size, stroke, thinStroke, accentStroke, fillPaint);
+    final points = _PerspectivePoints.fromSize(size);
+    final peak = Offset((points.backLeft.dx + points.backRight.dx) / 2, points.backLeft.dy - size.height * 0.17);
+    canvas.drawLine(points.backLeft, peak, accentStroke);
+    canvas.drawLine(peak, points.backRight, accentStroke);
+    canvas.drawLine(peak, Offset((points.frontLeft.dx + points.frontRight.dx) / 2, points.frontLeft.dy - size.height * 0.12), thinStroke);
+  }
+
+  void _drawCustom(
+    Canvas canvas,
+    Size size,
+    Paint stroke,
+    Paint thinStroke,
+    Paint accentStroke,
+    Paint fillPaint,
+  ) {
+    _drawRectangle(canvas, size, stroke, thinStroke, accentStroke, fillPaint);
+    final rect = Rect.fromLTWH(size.width * 0.38, size.height * 0.36, size.width * 0.22, size.height * 0.18);
+    _drawDashedRect(canvas, rect, accentStroke);
+    _drawText(canvas, 'nach Maß', Offset(rect.left, rect.bottom + 8), accentColor, 11);
+  }
+
+  void _drawPolygon(
+    Canvas canvas,
+    Size size,
+    Paint stroke,
+    Paint thinStroke,
+    Paint accentStroke,
+    Paint fillPaint,
+  ) {
+    final polygon = <Offset>[
+      Offset(size.width * 0.22, size.height * 0.62),
+      Offset(size.width * 0.18, size.height * 0.42),
+      Offset(size.width * 0.36, size.height * 0.26),
+      Offset(size.width * 0.68, size.height * 0.28),
+      Offset(size.width * 0.84, size.height * 0.48),
+      Offset(size.width * 0.72, size.height * 0.68),
+    ];
+    final path = Path()..moveTo(polygon.first.dx, polygon.first.dy);
+    for (final point in polygon.skip(1)) {
+      path.lineTo(point.dx, point.dy);
+    }
+    path.close();
+    canvas.drawPath(path, fillPaint);
+    canvas.drawPath(path, stroke);
+    for (var i = 0; i < polygon.length; i++) {
+      canvas.drawLine(polygon[i], polygon[(i + 2) % polygon.length], thinStroke);
+    }
+    _drawDimensionLine(canvas, polygon[0] + const Offset(0, 28), polygon[5] + const Offset(0, 28), 'Länge', accentStroke);
+    _drawDimensionLine(canvas, polygon[4] + const Offset(22, 0), polygon[5] + const Offset(22, 0), 'Tiefe', accentStroke);
+  }
+
+  void _drawPerspectiveGrid(Canvas canvas, _PerspectivePoints points, Paint thinStroke) {
+    for (var i = 1; i <= 5; i++) {
+      final t = i / 6;
+      canvas.drawLine(_lerp(points.frontLeft, points.backLeft, t), _lerp(points.frontRight, points.backRight, t), thinStroke);
+    }
+    for (var i = 1; i <= 4; i++) {
+      final t = i / 5;
+      canvas.drawLine(_lerp(points.frontLeft, points.frontRight, t), _lerp(points.backLeft, points.backRight, t), thinStroke);
+    }
+  }
+
+  double _postHeight(Size size) => size.height * 0.52;
+
+  void _drawPosts(Canvas canvas, Size size, _PerspectivePoints points, Paint stroke) {
+    final height = _postHeight(size);
+    for (final point in [points.frontLeft, points.frontRight, points.backLeft, points.backRight]) {
+      canvas.drawLine(point, point + Offset(0, height), stroke);
+    }
+  }
+
+  void _drawDimensions(Canvas canvas, Size size, _PerspectivePoints points, Paint accentStroke) {
+    final postHeight = _postHeight(size);
+    _drawDimensionLine(
+      canvas,
+      points.frontLeft + Offset(0, postHeight + 16),
+      points.frontRight + Offset(0, postHeight + 16),
+      'Länge',
+      accentStroke,
+    );
+    _drawDimensionLine(
+      canvas,
+      points.frontRight + Offset(20, postHeight + 6),
+      points.backRight + Offset(20, postHeight + 6),
+      'Tiefe',
+      accentStroke,
+    );
+    _drawDimensionLine(
+      canvas,
+      points.frontLeft + const Offset(-24, 0),
+      points.frontLeft + Offset(-24, postHeight),
+      'Höhe',
+      accentStroke,
+    );
+  }
+
+  void _drawDimensionLine(Canvas canvas, Offset start, Offset end, String label, Paint paint) {
+    canvas.drawLine(start, end, paint);
+    final direction = end - start;
+    final length = direction.distance;
+    if (length > 0) {
+      final unit = direction / length;
+      final normal = Offset(-unit.dy, unit.dx);
+      canvas.drawLine(start - unit * 5 + normal * 5, start + unit * 5 - normal * 5, paint);
+      canvas.drawLine(end - unit * 5 + normal * 5, end + unit * 5 - normal * 5, paint);
+    }
+    _drawText(canvas, label, _lerp(start, end, 0.5) + const Offset(0, 6), accentColor, 16, isBold: true);
+  }
+
+  void _drawMiniTopView(Canvas canvas, Size size, _ModelGeometryKind kind, Paint stroke, Paint thinStroke) {
+    final rect = Rect.fromLTWH(8, 8, 86, 42);
+    if (kind == _ModelGeometryKind.trapezoid) {
+      final path = Path()
+        ..moveTo(rect.left + 14, rect.bottom)
+        ..lineTo(rect.left + 26, rect.top)
+        ..lineTo(rect.right, rect.top + 4)
+        ..lineTo(rect.right - 8, rect.bottom)
+        ..close();
+      canvas.drawPath(path, stroke);
+      return;
+    }
+    if (kind == _ModelGeometryKind.polygon) {
+      final path = Path()
+        ..moveTo(rect.left + 6, rect.bottom - 8)
+        ..lineTo(rect.left + 4, rect.top + 12)
+        ..lineTo(rect.left + 22, rect.top)
+        ..lineTo(rect.right - 12, rect.top + 2)
+        ..lineTo(rect.right, rect.top + 22)
+        ..lineTo(rect.right - 18, rect.bottom)
+        ..close();
+      canvas.drawPath(path, stroke);
+      return;
+    }
+    canvas.drawRect(rect, stroke);
+    for (var i = 1; i <= 6; i++) {
+      final x = rect.left + rect.width * i / 7;
+      canvas.drawLine(Offset(x, rect.top), Offset(x, rect.bottom), thinStroke);
+    }
+    if (kind == _ModelGeometryKind.saddle || kind == _ModelGeometryKind.gable || kind == _ModelGeometryKind.withGable) {
+      canvas.drawLine(Offset(rect.left, rect.center.dy), Offset(rect.right, rect.center.dy), stroke);
+    }
+  }
+
+  void _drawDashedRect(Canvas canvas, Rect rect, Paint paint) {
+    _drawDashedLine(canvas, rect.topLeft, rect.topRight, paint);
+    _drawDashedLine(canvas, rect.topRight, rect.bottomRight, paint);
+    _drawDashedLine(canvas, rect.bottomRight, rect.bottomLeft, paint);
+    _drawDashedLine(canvas, rect.bottomLeft, rect.topLeft, paint);
+  }
+
+  void _drawDashedLine(Canvas canvas, Offset start, Offset end, Paint paint) {
+    final vector = end - start;
+    final length = vector.distance;
+    if (length == 0) return;
+    final unit = vector / length;
+    var drawn = 0.0;
+    const dash = 7.0;
+    const gap = 5.0;
+    while (drawn < length) {
+      final next = (drawn + dash).clamp(0, length).toDouble();
+      canvas.drawLine(start + unit * drawn, start + unit * next, paint);
+      drawn += dash + gap;
+    }
+  }
+
+  void _drawText(
+    Canvas canvas,
+    String text,
+    Offset offset,
+    Color color,
+    double fontSize, {
+    bool isBold = false,
+  }) {
+    final painter = TextPainter(
+      text: TextSpan(
+        text: text,
+        style: TextStyle(
+          color: color,
+          fontSize: fontSize,
+          fontWeight: isBold ? FontWeight.w700 : FontWeight.w500,
+        ),
+      ),
+      textDirection: ui.TextDirection.ltr,
+    )..layout();
+    painter.paint(canvas, offset - Offset(painter.width / 2, painter.height / 2));
+  }
+
+  Offset _lerp(Offset a, Offset b, double t) => Offset.lerp(a, b, t)!;
+
+  @override
+  bool shouldRepaint(covariant _ModelGeometryPreviewPainter oldDelegate) {
+    return oldDelegate.modelCode != modelCode ||
+        oldDelegate.modelLabel != modelLabel ||
+        oldDelegate.lineColor != lineColor ||
+        oldDelegate.mutedLineColor != mutedLineColor ||
+        oldDelegate.accentColor != accentColor ||
+        oldDelegate.surfaceColor != surfaceColor;
+  }
+}
+
+class _PerspectivePoints {
+  const _PerspectivePoints({
+    required this.frontLeft,
+    required this.frontRight,
+    required this.backLeft,
+    required this.backRight,
+  });
+
+  factory _PerspectivePoints.fromSize(Size size) {
+    return _PerspectivePoints(
+      frontLeft: Offset(size.width * 0.24, size.height * 0.34),
+      frontRight: Offset(size.width * 0.72, size.height * 0.34),
+      backLeft: Offset(size.width * 0.34, size.height * 0.12),
+      backRight: Offset(size.width * 0.82, size.height * 0.12),
+    );
+  }
+
+  final Offset frontLeft;
+  final Offset frontRight;
+  final Offset backLeft;
+  final Offset backRight;
 }
 
 class _SelectStep extends StatelessWidget {
@@ -1702,6 +2237,12 @@ class _SetContentTabTableState extends State<_SetContentTabTable> {
   static const _priceWidth = _SetContentTabTable._priceWidth;
   static const _toggleWidth = _SetContentTabTable._toggleWidth;
   static const _columnGap = _SetContentTabTable._columnGap;
+  static const _rowExtent = 60.0;
+  static const _titleHeight = 48.0;
+  static const _headerHeight = 32.0;
+  static const _footerHeight = 34.0;
+  static const _verticalPadding = 12.0;
+  static const _dividerHeight = 1.0;
 
   final _scrollController = ScrollController();
   var _isAtListEnd = false;
@@ -1748,85 +2289,126 @@ class _SetContentTabTableState extends State<_SetContentTabTable> {
     final visibleRows = _visibleSetContentRows(contextData, tab);
     final activeCount = visibleRows.where((entry) => entry.item.enabled).length;
     final hiddenAccessoryCount = tab.items.length - visibleRows.length;
-    final showScrollHint = visibleRows.length > 6 && !_isAtListEnd;
 
-    return Card(
-      margin: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      '${tab.label} · $activeCount/${visibleRows.length} active set items${hiddenAccessoryCount > 0 ? ' · $hiddenAccessoryCount accessory moved' : ''}',
-                      style: Theme.of(context).textTheme.titleSmall,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final maxHeight = constraints.maxHeight.isFinite ? constraints.maxHeight : 440.0;
+        const fixedHeightWithoutFooter = _verticalPadding +
+            _titleHeight +
+            _headerHeight +
+            _dividerHeight +
+            _dividerHeight;
+        final slotsWithoutFooter = visibleRows.isEmpty
+            ? 0
+            : ((maxHeight - fixedHeightWithoutFooter) / _rowExtent).floor().clamp(1, visibleRows.length).toInt();
+        final hasHiddenRows = visibleRows.length > slotsWithoutFooter;
+        final showScrollHint = hasHiddenRows && !_isAtListEnd;
+        final fixedHeight = fixedHeightWithoutFooter + (showScrollHint ? _dividerHeight + _footerHeight : 0);
+        final visibleSlots = visibleRows.isEmpty
+            ? 0
+            : ((maxHeight - fixedHeight) / _rowExtent).floor().clamp(1, visibleRows.length).toInt();
+        final listHeight = visibleRows.isEmpty ? null : visibleSlots * _rowExtent;
+
+        return Card(
+          margin: EdgeInsets.zero,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                SizedBox(
+                  height: _titleHeight,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 0),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            '${tab.label} · $activeCount/${visibleRows.length} active set items${hiddenAccessoryCount > 0 ? ' · $hiddenAccessoryCount accessory moved' : ''}',
+                            style: Theme.of(context).textTheme.titleSmall,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: 'Remove block',
+                          onPressed: onRemoveTab,
+                          icon: const Icon(Icons.delete_outline),
+                        ),
+                      ],
                     ),
                   ),
-                  IconButton(
-                    tooltip: 'Remove block',
-                    onPressed: onRemoveTab,
-                    icon: const Icon(Icons.delete_outline),
-                  ),
-                ],
-              ),
-            ),
-            const Divider(height: 1),
-            _header(context),
-            const Divider(height: 1),
-            Expanded(
-              child: visibleRows.isEmpty
-                  ? const Center(
+                ),
+                const Divider(height: 1),
+                SizedBox(height: _headerHeight, child: _header(context)),
+                const Divider(height: 1),
+                if (visibleRows.isEmpty)
+                  const Expanded(
+                    child: Center(
                       child: Padding(
                         padding: EdgeInsets.all(16),
                         child: Text('Only accessory components were found in this block. They are shown in the Accessory step.'),
                       ),
-                    )
-                  : Scrollbar(
+                    ),
+                  )
+                else
+                  SizedBox(
+                    height: listHeight,
+                    child: Scrollbar(
                       controller: _scrollController,
-                      child: ListView.separated(
+                      child: ListView.builder(
                         controller: _scrollController,
-                        padding: const EdgeInsets.only(bottom: 8),
+                        padding: EdgeInsets.zero,
+                        itemExtent: _rowExtent,
                         itemCount: visibleRows.length,
-                        separatorBuilder: (_, __) => const Divider(height: 1),
-                        itemBuilder: (context, index) => _row(context, visibleRows[index]),
-                      ),
-                    ),
-            ),
-            if (showScrollHint) ...[
-              const Divider(height: 1),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(12, 5, 12, 2),
-                child: Align(
-                  alignment: Alignment.centerRight,
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                      borderRadius: BorderRadius.circular(999),
-                      border: Border.all(color: Theme.of(context).dividerColor),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.keyboard_arrow_down, size: 16, color: Theme.of(context).colorScheme.primary),
-                          const SizedBox(width: 4),
-                          Text('more', style: Theme.of(context).textTheme.labelSmall),
-                        ],
+                        itemBuilder: (context, index) => DecoratedBox(
+                          decoration: BoxDecoration(
+                            border: index == visibleRows.length - 1
+                                ? null
+                                : Border(
+                                    bottom: BorderSide(color: Theme.of(context).dividerColor, width: 1),
+                                  ),
+                          ),
+                          child: _row(context, visibleRows[index]),
+                        ),
                       ),
                     ),
                   ),
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
+                if (showScrollHint) ...[
+                  const Divider(height: 1),
+                  SizedBox(
+                    height: _footerHeight,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
+                      child: Align(
+                        alignment: Alignment.centerRight,
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                            borderRadius: BorderRadius.circular(999),
+                            border: Border.all(color: Theme.of(context).dividerColor),
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.keyboard_arrow_down, size: 16, color: Theme.of(context).colorScheme.primary),
+                                const SizedBox(width: 4),
+                                Text('more', style: Theme.of(context).textTheme.labelSmall),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -1935,7 +2517,7 @@ class _SetContentTabTableState extends State<_SetContentTabTable> {
     return AnimatedContainer(
       duration: const Duration(milliseconds: 160),
       color: enabled ? Colors.transparent : colorScheme.surfaceContainerHighest.withValues(alpha: 0.55),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
