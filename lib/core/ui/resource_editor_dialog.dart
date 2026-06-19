@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../http/admin_resource_repository.dart';
 import '../models/admin_resource.dart';
+import 'media_file_picker.dart';
 import 'searchable_select_form_field.dart';
 
 class ResourceEditorDialog extends StatefulWidget {
@@ -27,6 +28,7 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
   late final Map<String, TextEditingController> _controllers;
   late final Map<String, bool> _boolValues;
   late final Map<String, Future<List<Map<String, dynamic>>>> _lookupFutures;
+  final Set<String> _uploadingFields = <String>{};
 
   @override
   void initState() {
@@ -56,8 +58,50 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
     return key == 'is_active' || key == 'is_default' || key == 'enabled';
   }
 
+  dynamic _valueAtPath(Map<String, dynamic>? source, String key) {
+    if (source == null) return null;
+    if (!key.contains('.')) return source[key];
+
+    dynamic cursor = source;
+    for (final part in key.split('.')) {
+      if (cursor is Map<String, dynamic>) {
+        cursor = cursor[part];
+      } else if (cursor is Map) {
+        cursor = cursor[part];
+      } else {
+        return null;
+      }
+    }
+    return cursor;
+  }
+
+  void _setPayloadValue(Map<String, dynamic> target, String key, dynamic value) {
+    if (!key.contains('.')) {
+      target[key] = value;
+      return;
+    }
+
+    final parts = key.split('.');
+    var cursor = target;
+    for (final part in parts.take(parts.length - 1)) {
+      final existing = cursor[part];
+      if (existing is Map<String, dynamic>) {
+        cursor = existing;
+      } else if (existing is Map) {
+        final converted = Map<String, dynamic>.from(existing);
+        cursor[part] = converted;
+        cursor = converted;
+      } else {
+        final created = <String, dynamic>{};
+        cursor[part] = created;
+        cursor = created;
+      }
+    }
+    cursor[parts.last] = value;
+  }
+
   String _initialText(String key) {
-    final value = widget.initialData?[key];
+    final value = _valueAtPath(widget.initialData, key);
     if (value == null) return '';
     if (value is Map || value is List) {
       return const JsonEncoder.withIndent('  ').convert(value);
@@ -132,6 +176,10 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
 
     if (field.type == AdminFieldType.date) {
       return _buildDateField(field);
+    }
+
+    if (field.type == AdminFieldType.file) {
+      return _buildFileField(field);
     }
 
     if (field.options.isNotEmpty) {
@@ -215,6 +263,71 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
     );
   }
 
+  Widget _buildFileField(AdminField field) {
+    final controller = _controllers[field.key]!;
+    final isUploading = _uploadingFields.contains(field.key);
+
+    return TextFormField(
+      controller: controller,
+      readOnly: field.readOnly,
+      decoration: InputDecoration(
+        labelText: field.label,
+        helperText: field.helperText ?? 'Upload file to Media Library and save its asset file id.',
+        suffixIcon: isUploading
+            ? const Padding(
+                padding: EdgeInsets.all(12),
+                child: SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              )
+            : IconButton(
+                tooltip: 'Upload file',
+                icon: const Icon(Icons.upload_file_outlined),
+                onPressed: field.readOnly || widget.repository == null
+                    ? null
+                    : () => _pickAndUploadFile(field),
+              ),
+      ),
+    );
+  }
+
+  Future<void> _pickAndUploadFile(AdminField field) async {
+    final picked = await pickMediaFile(accept: field.accept);
+    if (picked == null) return;
+
+    setState(() {
+      _uploadingFields.add(field.key);
+    });
+
+    try {
+      final uploaded = await widget.repository!.uploadMediaFile(
+        filename: picked.filename,
+        contentType: picked.mimeType,
+        dataBase64: picked.base64Data,
+        purpose: field.filePurpose ?? '${widget.resource.key}/${field.key.replaceAll('.', '_')}',
+        metadata: {
+          'resource_key': widget.resource.key,
+          'field_key': field.key,
+          'file_size_bytes': picked.sizeBytes,
+        },
+      );
+      _controllers[field.key]!.text = uploaded['id']?.toString() ?? '';
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('File upload failed: $error')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _uploadingFields.remove(field.key);
+        });
+      }
+    }
+  }
+
   Widget _buildDateField(AdminField field) {
     final controller = _controllers[field.key]!;
 
@@ -289,31 +402,31 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
       if (!field.includeInPayload) continue;
 
       if (field.type == AdminFieldType.boolType) {
-        payload[field.key] = _boolValues[field.key] ?? false;
+        _setPayloadValue(payload, field.key, _boolValues[field.key] ?? false);
         continue;
       }
 
       final rawValue = _controllers[field.key]!.text.trim();
       if (rawValue.isEmpty) {
+        final existingValue = _valueAtPath(widget.initialData, field.key);
         if (widget.initialData != null &&
             !field.readOnly &&
-            field.lookup != null &&
-            widget.initialData!.containsKey(field.key) &&
-            widget.initialData![field.key] != null) {
-          payload[field.key] = null;
+            (field.lookup != null || field.type == AdminFieldType.file) &&
+            existingValue != null) {
+          _setPayloadValue(payload, field.key, null);
         }
         continue;
       }
 
       switch (field.type) {
         case AdminFieldType.number:
-          payload[field.key] = num.tryParse(rawValue) ?? rawValue;
+          _setPayloadValue(payload, field.key, num.tryParse(rawValue) ?? rawValue);
           break;
         case AdminFieldType.json:
-          payload[field.key] = jsonDecode(rawValue);
+          _setPayloadValue(payload, field.key, jsonDecode(rawValue));
           break;
         default:
-          payload[field.key] = rawValue;
+          _setPayloadValue(payload, field.key, rawValue);
       }
     }
 

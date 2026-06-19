@@ -77,6 +77,26 @@ class AdminResourceRepository {
     return _client.putJson('${resource.endpoint}/$id', body: body);
   }
 
+
+  Future<Map<String, dynamic>> uploadMediaFile({
+    required String filename,
+    required String contentType,
+    required String dataBase64,
+    required String purpose,
+    Map<String, dynamic> metadata = const {},
+  }) {
+    return _client.postJson(
+      '/api/admin/media-files/upload',
+      body: {
+        'filename': filename,
+        'content_type': contentType,
+        'data_base64': dataBase64,
+        'purpose': purpose,
+        'metadata': metadata,
+      },
+    );
+  }
+
   Future<void> delete(AdminResourceDefinition resource, String id) {
     return _client.delete('${resource.endpoint}/$id');
   }

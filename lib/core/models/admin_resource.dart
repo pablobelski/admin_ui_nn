@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-enum AdminFieldType { text, longText, number, boolType, date, json, password }
+enum AdminFieldType { text, longText, number, boolType, date, json, password, file }
 
 class AdminSelectOption {
   const AdminSelectOption({
@@ -38,6 +38,8 @@ class AdminField {
     this.options = const [],
     this.helperText,
     this.includeInPayload = true,
+    this.filePurpose,
+    this.accept,
   });
 
   final String key;
@@ -48,6 +50,8 @@ class AdminField {
   final List<AdminSelectOption> options;
   final String? helperText;
   final bool includeInPayload;
+  final String? filePurpose;
+  final String? accept;
 }
 
 class AdminColumn {
