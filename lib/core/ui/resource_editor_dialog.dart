@@ -4,7 +4,9 @@ import 'package:flutter/material.dart';
 
 import '../http/admin_resource_repository.dart';
 import '../models/admin_resource.dart';
+import 'media_file_actions.dart';
 import 'media_file_picker.dart';
+import 'media_preview_dialog.dart';
 import 'searchable_select_form_field.dart';
 
 class ResourceEditorDialog extends StatefulWidget {
@@ -266,6 +268,7 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
   Widget _buildFileField(AdminField field) {
     final controller = _controllers[field.key]!;
     final isUploading = _uploadingFields.contains(field.key);
+    final hasFile = controller.text.trim().isNotEmpty;
 
     return TextFormField(
       controller: controller,
@@ -273,24 +276,92 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
       decoration: InputDecoration(
         labelText: field.label,
         helperText: field.helperText ?? 'Upload file to Media Library and save its asset file id.',
-        suffixIcon: isUploading
-            ? const Padding(
-                padding: EdgeInsets.all(12),
-                child: SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
+        suffixIcon: SizedBox(
+          width: isUploading ? 48 : 138,
+          child: isUploading
+              ? const Padding(
+                  padding: EdgeInsets.all(12),
+                  child: SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                )
+              : Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      tooltip: 'Preview file',
+                      icon: const Icon(Icons.visibility_outlined),
+                      onPressed: hasFile && widget.repository != null
+                          ? () => _showFieldMedia(field)
+                          : null,
+                    ),
+                    IconButton(
+                      tooltip: 'Download file',
+                      icon: const Icon(Icons.download_outlined),
+                      onPressed: hasFile && widget.repository != null
+                          ? () => _downloadFieldMedia(field)
+                          : null,
+                    ),
+                    IconButton(
+                      tooltip: 'Upload file',
+                      icon: const Icon(Icons.upload_file_outlined),
+                      onPressed: field.readOnly || widget.repository == null
+                          ? null
+                          : () => _pickAndUploadFile(field),
+                    ),
+                  ],
                 ),
-              )
-            : IconButton(
-                tooltip: 'Upload file',
-                icon: const Icon(Icons.upload_file_outlined),
-                onPressed: field.readOnly || widget.repository == null
-                    ? null
-                    : () => _pickAndUploadFile(field),
-              ),
+        ),
       ),
     );
+  }
+
+  MediaFileRef? _mediaRefForField(AdminField field) {
+    final fileId = _controllers[field.key]?.text.trim() ?? '';
+    if (fileId.isEmpty) return null;
+    return MediaFileRef(
+      fieldKey: field.key,
+      label: field.label,
+      fileId: fileId,
+    );
+  }
+
+  Future<void> _showFieldMedia(AdminField field) async {
+    final ref = _mediaRefForField(field);
+    if (ref == null || widget.repository == null) return;
+    await showDialog<void>(
+      context: context,
+      builder: (_) => MediaPreviewDialog(
+        repository: widget.repository!,
+        files: [ref],
+      ),
+    );
+  }
+
+  Future<void> _downloadFieldMedia(AdminField field) async {
+    final ref = _mediaRefForField(field);
+    if (ref == null || widget.repository == null) return;
+
+    try {
+      final data = await widget.repository!.fetchMediaFileUrl(ref.fileId);
+      final file = Map<String, dynamic>.from((data['file'] as Map?) ?? const <String, dynamic>{});
+      final url = data['url']?.toString() ?? file['public_url']?.toString() ?? '';
+      if (url.isEmpty) {
+        throw StateError('Media URL is empty');
+      }
+      downloadMediaUrl(
+        url,
+        filename: file['original_filename']?.toString(),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('File download failed: $error')),
+      );
+    }
   }
 
   Future<void> _pickAndUploadFile(AdminField field) async {

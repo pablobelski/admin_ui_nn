@@ -97,6 +97,11 @@ class AdminResourceRepository {
     );
   }
 
+
+  Future<Map<String, dynamic>> fetchMediaFileUrl(String fileId) {
+    return _client.getJson('/api/admin/media-files/$fileId/url');
+  }
+
   Future<void> delete(AdminResourceDefinition resource, String id) {
     return _client.delete('${resource.endpoint}/$id');
   }

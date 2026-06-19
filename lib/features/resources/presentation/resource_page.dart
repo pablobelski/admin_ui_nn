@@ -11,6 +11,8 @@ import '../../../core/navigation/admin_providers.dart';
 import '../../../core/navigation/admin_registry.dart';
 import '../../../core/ui/admin_list_table.dart';
 import '../../../core/ui/json_view_card.dart';
+import '../../../core/ui/media_file_actions.dart';
+import '../../../core/ui/media_preview_dialog.dart';
 import '../../../core/ui/resizable_split_pane.dart';
 import '../../../core/ui/scrollable_areas.dart';
 import '../../../core/ui/resource_editor_dialog.dart';
@@ -468,6 +470,7 @@ class _DetailsCardState extends ConsumerState<_DetailsCard> {
         final canShowCatalogItemTree =
             resource.key == 'catalog_item_relations' || resource.key == 'catalog_items';
         final rootCatalogItemId = _catalogItemTreeRootId(resource.key, data, browserState.selectedId);
+        final mediaFiles = _mediaFileRefsFor(resource, data);
 
         return Card(
           child: Padding(
@@ -543,6 +546,18 @@ class _DetailsCardState extends ConsumerState<_DetailsCard> {
                               ? Icons.account_tree_rounded
                               : Icons.account_tree_outlined,
                         ),
+                      ),
+                    if (mediaFiles.isNotEmpty)
+                      IconButton(
+                        tooltip: 'Preview media',
+                        onPressed: () => _showMediaPreview(context, repository, mediaFiles),
+                        icon: const Icon(Icons.visibility_outlined),
+                      ),
+                    if (mediaFiles.isNotEmpty)
+                      IconButton(
+                        tooltip: mediaFiles.length == 1 ? 'Download file' : 'Download files',
+                        onPressed: () => _downloadMediaFiles(context, repository, mediaFiles),
+                        icon: const Icon(Icons.download_outlined),
                       ),
                     if (resource.supportsEdit)
                       IconButton(
@@ -629,6 +644,126 @@ class _DetailsCardState extends ConsumerState<_DetailsCard> {
           ),
         );
       },
+    );
+  }
+}
+
+
+List<MediaFileRef> _mediaFileRefsFor(
+  AdminResourceDefinition resource,
+  Map<String, dynamic> data,
+) {
+  final refs = <MediaFileRef>[];
+  final seen = <String>{};
+
+  void addRef(String fieldKey, String label, Object? rawValue) {
+    final fileId = rawValue?.toString().trim() ?? '';
+    if (fileId.isEmpty || !_looksLikeUuid(fileId) || !seen.add(fileId)) {
+      return;
+    }
+    refs.add(MediaFileRef(
+      fieldKey: fieldKey,
+      label: label,
+      fileId: fileId,
+    ));
+  }
+
+  if (resource.key == 'asset_files') {
+    final label = data['original_filename']?.toString().trim();
+    addRef('id', label == null || label.isEmpty ? 'Media file' : label, data['id']);
+  }
+
+  for (final field in resource.formFields) {
+    if (field.type == AdminFieldType.file) {
+      addRef(field.key, field.label, _valueAtPath(data, field.key));
+    }
+  }
+
+  for (final entry in data.entries) {
+    final key = entry.key;
+    if (key == 'file_id' || key.endsWith('_file_id')) {
+      addRef(key, _humanizeFileFieldKey(key), entry.value);
+    }
+  }
+
+  return refs;
+}
+
+dynamic _valueAtPath(Map<String, dynamic> source, String key) {
+  if (!key.contains('.')) return source[key];
+
+  dynamic cursor = source;
+  for (final part in key.split('.')) {
+    if (cursor is Map<String, dynamic>) {
+      cursor = cursor[part];
+    } else if (cursor is Map) {
+      cursor = cursor[part];
+    } else {
+      return null;
+    }
+  }
+  return cursor;
+}
+
+bool _looksLikeUuid(String value) {
+  return RegExp(
+    r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
+  ).hasMatch(value);
+}
+
+String _humanizeFileFieldKey(String key) {
+  final words = key
+      .replaceAll('.', ' ')
+      .replaceAll('_', ' ')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
+  if (words.isEmpty) return 'Media file';
+  return words[0].toUpperCase() + words.substring(1);
+}
+
+Future<void> _showMediaPreview(
+  BuildContext context,
+  AdminResourceRepository repository,
+  List<MediaFileRef> files,
+) {
+  return showDialog<void>(
+    context: context,
+    builder: (_) => MediaPreviewDialog(
+      repository: repository,
+      files: files,
+    ),
+  );
+}
+
+Future<void> _downloadMediaFiles(
+  BuildContext context,
+  AdminResourceRepository repository,
+  List<MediaFileRef> files,
+) async {
+  try {
+    for (final fileRef in files) {
+      final data = await repository.fetchMediaFileUrl(fileRef.fileId);
+      final file = Map<String, dynamic>.from((data['file'] as Map?) ?? const <String, dynamic>{});
+      final url = data['url']?.toString() ?? file['public_url']?.toString() ?? '';
+      if (url.isEmpty) {
+        throw StateError('Media URL is empty for ${fileRef.label}');
+      }
+      downloadMediaUrl(
+        url,
+        filename: file['original_filename']?.toString(),
+      );
+    }
+
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(files.length == 1 ? 'File download started' : 'File downloads started: ${files.length}'),
+      ),
+    );
+  } catch (error) {
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('File download failed: $error')),
     );
   }
 }
