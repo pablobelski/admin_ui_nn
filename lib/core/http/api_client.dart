@@ -101,6 +101,28 @@ class ApiException implements Exception {
   final int statusCode;
   final String body;
 
+  String get displayMessage {
+    try {
+      final decoded = jsonDecode(body);
+      if (decoded is Map<String, dynamic>) {
+        final message = decoded['message']?.toString().trim() ?? '';
+        final code = decoded['code']?.toString().trim() ?? '';
+        final details = decoded['details']?.toString().trim() ?? '';
+        return [
+          'HTTP $statusCode',
+          if (message.isNotEmpty) message,
+          if (code.isNotEmpty) 'code: $code',
+          if (details.isNotEmpty) 'details: $details',
+        ].join(' | ');
+      }
+    } catch (_) {
+      // Fall back to the raw body below.
+    }
+
+    final rawBody = body.trim();
+    return rawBody.isEmpty ? 'HTTP $statusCode' : 'HTTP $statusCode | $rawBody';
+  }
+
   @override
-  String toString() => 'ApiException(statusCode: $statusCode, body: $body)';
+  String toString() => displayMessage;
 }

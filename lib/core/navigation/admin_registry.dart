@@ -81,6 +81,13 @@ const configuratorTemplateLookup = AdminLookup(
   showIdInDropdown: false,
 );
 
+const documentTemplateLookup = AdminLookup(
+  endpoint: '/api/admin/document-templates',
+  labelKeys: ['code', 'name', 'document_type_code', 'version'],
+  limit: 1000,
+  showIdInDropdown: false,
+);
+
 const roofModelLookup = AdminLookup(
   endpoint: '/api/admin/roof-models',
   labelKeys: ['code', 'name'],
@@ -227,6 +234,15 @@ const systemOptionPriceListPurposeOptions = <AdminSelectOption>[
   AdminSelectOption(value: 'calculator_options', label: 'Calculator options'),
 ];
 
+const mediaPurposeOptions = <AdminSelectOption>[
+  AdminSelectOption(value: 'generated-documents/quotes', label: 'Generated quote documents'),
+  AdminSelectOption(value: 'catalog_media', label: 'Catalog media'),
+  AdminSelectOption(value: 'document_template', label: 'Document templates'),
+  AdminSelectOption(value: 'email_template', label: 'Email templates'),
+  AdminSelectOption(value: 'media', label: 'General media'),
+  AdminSelectOption(value: 'others', label: 'Others'),
+];
+
 const additionalHandlingDependencyTypeOptions = <AdminSelectOption>[
   AdminSelectOption(value: 'additional_handling', label: 'Additional handling'),
 ];
@@ -257,6 +273,15 @@ const priceListScopeOptions = <AdminSelectOption>[
   AdminSelectOption(value: 'b2b', label: 'B2B'),
   AdminSelectOption(value: 'internal', label: 'Internal'),
   AdminSelectOption(value: 'supplier', label: 'Supplier'),
+  AdminSelectOption(value: 'other', label: 'Other'),
+];
+
+const documentTypeOptions = <AdminSelectOption>[
+  AdminSelectOption(value: 'calculation', label: 'Calculation'),
+  AdminSelectOption(value: 'offer', label: 'Offer'),
+  AdminSelectOption(value: 'order', label: 'Order'),
+  AdminSelectOption(value: 'invoice', label: 'Invoice'),
+  AdminSelectOption(value: 'delivery_note', label: 'Delivery note'),
   AdminSelectOption(value: 'other', label: 'Other'),
 ];
 
@@ -374,7 +399,7 @@ const adminNavGroups = <AdminNavGroup>[
         icon: Icons.perm_media_outlined,
         requiresSysadmin: true,
         supportsCreate: false,
-        supportsDelete: false,
+        supportsDelete: true,
         columns: [
           AdminColumn(key: 'original_filename', label: 'File', isPrimary: true, flex: 2),
           AdminColumn(key: 'mime_type', label: 'MIME'),
@@ -383,7 +408,7 @@ const adminNavGroups = <AdminNavGroup>[
           AdminColumn(key: 'storage_key', label: 'Storage key', flex: 3),
         ],
         listFilters: [
-          AdminResourceFilter(key: 'storage_provider', label: 'Storage provider'),
+          AdminResourceFilter(key: 'purpose', label: 'Purpose', options: mediaPurposeOptions),
           AdminResourceFilter(key: 'bucket_name', label: 'Bucket'),
           AdminResourceFilter(key: 'mime_type', label: 'MIME type'),
         ],
@@ -646,6 +671,13 @@ const adminNavGroups = <AdminNavGroup>[
             sourceValueKey: 'id',
             icon: Icons.event_note_outlined,
           ),
+          AdminDetailAction(
+            label: 'Show generated documents',
+            targetResourceKey: 'generated_documents',
+            filterKey: 'quote_id',
+            sourceValueKey: 'id',
+            icon: Icons.picture_as_pdf_outlined,
+          ),
         ],
       ),
       AdminResourceDefinition(
@@ -715,6 +747,69 @@ const adminNavGroups = <AdminNavGroup>[
           AdminField(key: 'actor_user_id', label: 'Actor', lookup: userLookup, readOnly: true),
           AdminField(key: 'payload_json', label: 'Payload JSON', type: AdminFieldType.json, readOnly: true),
           AdminField(key: 'notes', label: 'Notes', type: AdminFieldType.longText, readOnly: true),
+        ],
+      ),
+      AdminResourceDefinition(
+        key: 'generated_documents',
+        title: 'Generated Documents',
+        endpoint: '/api/admin/generated-documents',
+        icon: Icons.picture_as_pdf_outlined,
+        supportsCreate: false,
+        supportsEdit: false,
+        supportsDelete: false,
+        columns: [
+          AdminColumn(key: 'quote_id', label: 'Quote', flex: 2, lookup: quoteLookup),
+          AdminColumn(key: 'document_type_code', label: 'Type', isPrimary: true),
+          AdminColumn(key: 'document_type_label', label: 'Label'),
+          AdminColumn(key: 'output_filename', label: 'Filename', flex: 3),
+          AdminColumn(key: 'status_code', label: 'Status'),
+          AdminColumn(key: 'created_at', label: 'Created', flex: 2),
+        ],
+        listFilters: [
+          AdminResourceFilter(key: 'quote_id', label: 'Quote', lookup: quoteLookup),
+          AdminResourceFilter(key: 'document_type_code', label: 'Document type', options: documentTypeOptions),
+          AdminResourceFilter(key: 'document_template_id', label: 'Template', lookup: documentTemplateLookup),
+          AdminResourceFilter(key: 'status_code', label: 'Status'),
+        ],
+        formFields: [
+          AdminField(key: 'quote_id', label: 'Quote', lookup: quoteLookup, readOnly: true),
+          AdminField(key: 'entity_type_code', label: 'Entity type', readOnly: true),
+          AdminField(key: 'entity_id', label: 'Entity id', readOnly: true),
+          AdminField(key: 'document_template_id', label: 'Document template', lookup: documentTemplateLookup, readOnly: true),
+          AdminField(key: 'document_type_code', label: 'Document type', readOnly: true),
+          AdminField(key: 'document_type_label', label: 'Document type label', readOnly: true),
+          AdminField(key: 'output_filename', label: 'Output filename', readOnly: true),
+          AdminField(key: 'status_code', label: 'Status', readOnly: true),
+          AdminField(key: 'file_id', label: 'PDF file', type: AdminFieldType.file, readOnly: true, includeInPayload: false),
+          AdminField(key: 'asset_file_id', label: 'Asset file', type: AdminFieldType.file, readOnly: true, includeInPayload: false),
+          AdminField(key: 'payload_json', label: 'Payload JSON', type: AdminFieldType.json, readOnly: true),
+          AdminField(key: 'metadata_json', label: 'Metadata JSON', type: AdminFieldType.json, readOnly: true),
+        ],
+        detailActions: [
+          AdminDetailAction(
+            label: 'Show quote',
+            targetResourceKey: 'quotes',
+            filterKey: 'id',
+            sourceValueKey: 'quote_id',
+            selectTargetRow: true,
+            icon: Icons.request_quote_outlined,
+          ),
+          AdminDetailAction(
+            label: 'Show document template',
+            targetResourceKey: 'document_templates',
+            filterKey: 'id',
+            sourceValueKey: 'document_template_id',
+            selectTargetRow: true,
+            icon: Icons.file_copy_outlined,
+          ),
+          AdminDetailAction(
+            label: 'Show PDF in Media Library',
+            targetResourceKey: 'asset_files',
+            filterKey: 'id',
+            sourceValueKey: 'file_id',
+            selectTargetRow: true,
+            icon: Icons.perm_media_outlined,
+          ),
         ],
       ),
     ],
@@ -1950,6 +2045,7 @@ const adminNavGroups = <AdminNavGroup>[
         title: 'Document Templates',
         endpoint: '/api/admin/document-templates',
         icon: Icons.file_copy_outlined,
+        supportsDelete: true,
         columns: [
           AdminColumn(key: 'code', label: 'Code', isPrimary: true),
           AdminColumn(key: 'name', label: 'Name', flex: 2),
@@ -1960,7 +2056,11 @@ const adminNavGroups = <AdminNavGroup>[
         formFields: [
           AdminField(key: 'code', label: 'Code'),
           AdminField(key: 'name', label: 'Name'),
-          AdminField(key: 'document_type_code', label: 'Document type'),
+          AdminField(
+            key: 'document_type_code',
+            label: 'Document type',
+            options: documentTypeOptions,
+          ),
           AdminField(key: 'template_type_code', label: 'Template type', options: templateTypeOptions),
           AdminField(key: 'scope_code', label: 'Scope', options: scopeOptions),
           AdminField(key: 'version', label: 'Version', type: AdminFieldType.number),

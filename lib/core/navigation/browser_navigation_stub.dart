@@ -26,4 +26,6 @@ void openAdminResourceInNewTab(
       Map<String, String> filters = const {},
     }) {}
 
+void openExternalUrlInNewTab(String url) {}
+
 void setAdminRouteListener(void Function()? listener) {}

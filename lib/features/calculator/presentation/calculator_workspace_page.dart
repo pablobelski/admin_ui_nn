@@ -4,8 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import '../../../core/navigation/browser_navigation.dart';
 import '../../../core/ui/json_view_card.dart';
 import '../data/calculator_models.dart';
+import '../data/calculator_repository.dart';
 import 'calculator_providers.dart';
 
 const _steps = <_StepDefinition>[
@@ -123,6 +125,7 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
                             savedQuote: _savedQuote,
                             isSavingQuote: _isSavingQuote,
                             onSaveQuote: () => _showSaveQuoteDialog(context),
+                            onPrint: () => _showPrintDialog(context),
                           ),
                         ),
                       ],
@@ -161,6 +164,7 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
                             savedQuote: _savedQuote,
                             isSavingQuote: _isSavingQuote,
                             onSaveQuote: () => _showSaveQuoteDialog(context),
+                            onPrint: () => _showPrintDialog(context),
                           ),
                         ),
                       ],
@@ -278,6 +282,26 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
 
     if (mode == null || !context.mounted) return;
     await _saveQuote(context, mode);
+  }
+
+  Future<void> _showPrintDialog(BuildContext context) async {
+    final loadedQuote = ref.read(loadedQuoteProvider);
+    final quoteId = loadedQuote?.id ?? _savedQuote?.id;
+    if (quoteId == null || quoteId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Save the quote before printing.')),
+      );
+      return;
+    }
+
+    final repository = ref.read(calculatorRepositoryProvider);
+    await showDialog<void>(
+      context: context,
+      builder: (_) => _PrintDialog(
+        quoteId: quoteId,
+        repository: repository,
+      ),
+    );
   }
 
   Future<void> _saveQuote(BuildContext context, SaveQuoteMode mode) async {
@@ -4197,6 +4221,7 @@ class _ResultPanel extends StatelessWidget {
     required this.resultAsync,
     required this.draft,
     required this.onSaveQuote,
+    required this.onPrint,
     required this.isSavingQuote,
     this.loadedQuote,
     this.savedQuote,
@@ -4206,6 +4231,7 @@ class _ResultPanel extends StatelessWidget {
   final CalculatorDraft draft;
   final LoadedQuote? loadedQuote;
   final VoidCallback onSaveQuote;
+  final VoidCallback onPrint;
   final bool isSavingQuote;
   final SavedQuote? savedQuote;
 
@@ -4240,7 +4266,9 @@ class _ResultPanel extends StatelessWidget {
                   canSaveAsOption: false,
                   isSavingQuote: isSavingQuote,
                   savedQuote: savedQuote,
+                  canPrint: loadedQuote != null || savedQuote != null,
                   onSaveQuote: onSaveQuote,
+                  onPrint: onPrint,
                 ),
               ],
             );
@@ -4290,7 +4318,9 @@ class _ResultPanel extends StatelessWidget {
                 canSaveAsOption: draft.canSaveAsOptionFor(loadedQuote),
                 isSavingQuote: isSavingQuote,
                 savedQuote: savedQuote,
+                canPrint: loadedQuote != null || savedQuote != null,
                 onSaveQuote: onSaveQuote,
+                onPrint: onPrint,
               ),
             ],
           );
@@ -4306,14 +4336,18 @@ class _ResultActions extends StatelessWidget {
     required this.canSaveAsOption,
     required this.isSavingQuote,
     required this.savedQuote,
+    required this.canPrint,
     required this.onSaveQuote,
+    required this.onPrint,
   });
 
   final bool canSaveQuote;
   final bool canSaveAsOption;
   final bool isSavingQuote;
   final SavedQuote? savedQuote;
+  final bool canPrint;
   final VoidCallback onSaveQuote;
+  final VoidCallback onPrint;
 
   @override
   Widget build(BuildContext context) {
@@ -4351,11 +4385,215 @@ class _ResultActions extends StatelessWidget {
           ),
           const SizedBox(width: 8),
           FilledButton.icon(
-            onPressed: null,
-            icon: const Icon(Icons.description_outlined),
-            label: const Text('create offer'),
+            onPressed: canPrint && !isSavingQuote ? onPrint : null,
+            icon: const Icon(Icons.print_outlined),
+            label: const Text('print'),
           ),
         ],
+      ),
+    );
+  }
+}
+
+
+class _PrintDialog extends StatefulWidget {
+  const _PrintDialog({
+    required this.quoteId,
+    required this.repository,
+  });
+
+  final String quoteId;
+  final CalculatorRepository repository;
+
+  @override
+  State<_PrintDialog> createState() => _PrintDialogState();
+}
+
+class _PrintDialogState extends State<_PrintDialog> {
+  late final Future<PrintDialogData> _dataFuture;
+  PrintTemplateOption? _selectedTemplate;
+  List<GeneratedDocument> _documents = const [];
+  bool _isPrinting = false;
+  String? _statusText;
+  String? _errorText;
+
+  @override
+  void initState() {
+    super.initState();
+    _dataFuture = _load();
+  }
+
+  Future<PrintDialogData> _load() async {
+    final data = await widget.repository.fetchPrintDialogData(widget.quoteId);
+    _selectedTemplate = data.templates.isNotEmpty ? data.templates.first : null;
+    _documents = data.recentDocuments.take(3).toList(growable: false);
+    return data;
+  }
+
+  Future<void> _print() async {
+    final template = _selectedTemplate;
+    if (template == null || _isPrinting) return;
+
+    setState(() {
+      _isPrinting = true;
+      _statusText = null;
+      _errorText = null;
+    });
+
+    try {
+      final document = await widget.repository.printPdf(
+        quoteId: widget.quoteId,
+        documentTemplateId: template.id,
+      );
+      if (!mounted) return;
+      setState(() {
+        _documents = [
+          document,
+          ..._documents.where((entry) => entry.id != document.id),
+        ].take(3).toList(growable: false);
+        _statusText = 'PDF generated';
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _errorText = '$error');
+    } finally {
+      if (mounted) setState(() => _isPrinting = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Print'),
+      content: SizedBox(
+        width: 560,
+        child: FutureBuilder<PrintDialogData>(
+          future: _dataFuture,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState != ConnectionState.done) {
+              return const SizedBox(
+                height: 120,
+                child: Center(child: CircularProgressIndicator()),
+              );
+            }
+
+            if (snapshot.hasError) {
+              return _HintCard(
+                icon: Icons.error_outline,
+                title: 'Print data failed',
+                text: '${snapshot.error}',
+              );
+            }
+
+            final data = snapshot.data!;
+            final templates = data.templates;
+            if (templates.isEmpty) {
+              return const _HintCard(
+                icon: Icons.print_disabled_outlined,
+                title: 'No print templates',
+                text: 'No active document_templates with settings_json.print.enabled = true and source_asset_file_id were found.',
+              );
+            }
+
+            final selectedId = templates.any((entry) => entry.id == _selectedTemplate?.id)
+                ? _selectedTemplate!.id
+                : templates.first.id;
+            _selectedTemplate = templates.firstWhere((entry) => entry.id == selectedId);
+
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                DropdownButtonFormField<String>(
+                  initialValue: selectedId,
+                  decoration: const InputDecoration(
+                    labelText: 'Document type',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: [
+                    for (final template in templates)
+                      DropdownMenuItem(
+                        value: template.id,
+                        child: Text(
+                          template.displayName,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                  ],
+                  onChanged: _isPrinting
+                      ? null
+                      : (value) {
+                          final next = templates.where((entry) => entry.id == value).firstOrNull;
+                          if (next == null) return;
+                          setState(() => _selectedTemplate = next);
+                        },
+                ),
+                if (_statusText != null) ...[
+                  const SizedBox(height: 12),
+                  Text(_statusText!, style: TextStyle(color: Theme.of(context).colorScheme.primary)),
+                ],
+                if (_errorText != null) ...[
+                  const SizedBox(height: 12),
+                  Text(_errorText!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                ],
+                const SizedBox(height: 18),
+                Text('Generated documents', style: Theme.of(context).textTheme.titleSmall),
+                const SizedBox(height: 8),
+                if (_documents.isEmpty)
+                  const Text('No generated PDF yet.')
+                else
+                  ..._documents.map((document) => _GeneratedDocumentTile(document: document)),
+              ],
+            );
+          },
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _isPrinting ? null : () => Navigator.of(context).pop(),
+          child: const Text('Close'),
+        ),
+        FilledButton.icon(
+          onPressed: _selectedTemplate == null || _isPrinting ? null : _print,
+          icon: _isPrinting
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.print_outlined),
+          label: const Text('Print'),
+        ),
+      ],
+    );
+  }
+}
+
+class _GeneratedDocumentTile extends StatelessWidget {
+  const _GeneratedDocumentTile({required this.document});
+
+  final GeneratedDocument document;
+
+  @override
+  Widget build(BuildContext context) {
+    final subtitle = [
+      if ((document.documentTypeCode ?? '').isNotEmpty) document.documentTypeCode,
+      if ((document.createdAt ?? '').isNotEmpty) document.createdAt,
+    ].whereType<String>().join(' · ');
+    final url = document.url;
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ListTile(
+        dense: true,
+        leading: const Icon(Icons.picture_as_pdf_outlined),
+        title: Text(document.filename, overflow: TextOverflow.ellipsis),
+        subtitle: subtitle.isEmpty ? null : Text(subtitle, overflow: TextOverflow.ellipsis),
+        trailing: TextButton.icon(
+          onPressed: url == null || url.isEmpty ? null : () => openExternalUrlInNewTab(url),
+          icon: const Icon(Icons.open_in_new, size: 16),
+          label: const Text('View / Download PDF'),
+        ),
       ),
     );
   }

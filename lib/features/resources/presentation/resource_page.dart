@@ -169,8 +169,15 @@ class _ToolbarState extends ConsumerState<_Toolbar> {
                     ),
                   );
                   if (payload == null) return;
-                  await repository.create(widget.resource, payload);
-                  ref.invalidate(resourceListProvider(widget.resource));
+                  try {
+                    await repository.create(widget.resource, payload);
+                    ref.invalidate(resourceListProvider(widget.resource));
+                  } catch (error) {
+                    if (!context.mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Create failed: $error')),
+                    );
+                  }
                 },
                 icon: const Icon(Icons.add),
                 label: const Text('Create'),
@@ -497,6 +504,14 @@ class _DetailsCardState extends ConsumerState<_DetailsCard> {
                     if (resource.key == 'quotes')
                       Padding(
                         padding: const EdgeInsets.only(right: 8),
+                        child: _QuoteDocumentsMenu(
+                          repository: repository,
+                          quote: data,
+                        ),
+                      ),
+                    if (resource.key == 'quotes')
+                      Padding(
+                        padding: const EdgeInsets.only(right: 8),
                         child: OutlinedButton.icon(
                           onPressed: () => loadQuoteToWorkspace(context, ref, data),
                           icon: const Icon(Icons.upload_file_outlined, size: 18),
@@ -572,9 +587,20 @@ class _DetailsCardState extends ConsumerState<_DetailsCard> {
                             ),
                           );
                           if (payload == null) return;
-                          await repository.update(resource, browserState.selectedId!, payload);
-                          ref.invalidate(resourceListProvider(resource));
-                          ref.invalidate(resourceDetailsProvider(resource));
+                          try {
+                            await repository.update(
+                              resource,
+                              browserState.selectedId!,
+                              payload,
+                            );
+                            ref.invalidate(resourceListProvider(resource));
+                            ref.invalidate(resourceDetailsProvider(resource));
+                          } catch (error) {
+                            if (!context.mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('Update failed: $error')),
+                            );
+                          }
                         },
                         icon: const Icon(Icons.edit_outlined),
                       ),
@@ -582,10 +608,39 @@ class _DetailsCardState extends ConsumerState<_DetailsCard> {
                       IconButton(
                         tooltip: 'Delete',
                         onPressed: () async {
-                          await repository.delete(resource, browserState.selectedId!);
-                          ref.read(resourceBrowserProvider(resource.key).notifier).select(null);
-                          ref.invalidate(resourceListProvider(resource));
-                          ref.invalidate(resourceDetailsProvider(resource));
+                          final selectedId = browserState.selectedId;
+                          if (selectedId == null) return;
+
+                          final confirmed = await showDialog<bool>(
+                            context: context,
+                            builder: (dialogContext) => AlertDialog(
+                              title: const Text('Delete row?'),
+                              content: const Text('Delete this record?'),
+                              actions: [
+                                TextButton(
+                                  onPressed: () => Navigator.of(dialogContext).pop(false),
+                                  child: const Text('Cancel'),
+                                ),
+                                FilledButton.tonal(
+                                  onPressed: () => Navigator.of(dialogContext).pop(true),
+                                  child: const Text('Delete'),
+                                ),
+                              ],
+                            ),
+                          );
+                          if (confirmed != true) return;
+
+                          try {
+                            await repository.delete(resource, selectedId);
+                            ref.read(resourceBrowserProvider(resource.key).notifier).select(null);
+                            ref.invalidate(resourceListProvider(resource));
+                            ref.invalidate(resourceDetailsProvider(resource));
+                          } catch (error) {
+                            if (!context.mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('Delete failed: $error')),
+                            );
+                          }
                         },
                         icon: const Icon(Icons.delete_outline),
                       ),
@@ -825,6 +880,158 @@ class _DetailActionsMenu extends StatelessWidget {
       ),
     );
   }
+}
+
+class _QuoteDocumentMenuAction {
+  const _QuoteDocumentMenuAction({
+    required this.fileId,
+    required this.label,
+  });
+
+  final String fileId;
+  final String label;
+}
+
+class _QuoteDocumentsMenu extends StatelessWidget {
+  const _QuoteDocumentsMenu({
+    required this.repository,
+    required this.quote,
+  });
+
+  final AdminResourceRepository repository;
+  final Map<String, dynamic> quote;
+
+  @override
+  Widget build(BuildContext context) {
+    final quoteId = quote['id']?.toString().trim() ?? '';
+    if (quoteId.isEmpty) {
+      return OutlinedButton.icon(
+        onPressed: null,
+        icon: const Icon(Icons.picture_as_pdf_outlined, size: 18),
+        label: const Text('View documents'),
+      );
+    }
+
+    return FutureBuilder<ResourceListResponse>(
+      future: repository.fetchList(
+        findResourceByKey('generated_documents'),
+        limit: 20,
+        filters: {'quote_id': quoteId},
+      ),
+      builder: (context, snapshot) {
+        final rows = snapshot.data?.items ?? const <Map<String, dynamic>>[];
+        final actions = rows
+            .map(_quoteDocumentMenuAction)
+            .whereType<_QuoteDocumentMenuAction>()
+            .toList(growable: false);
+        final isLoading = snapshot.connectionState == ConnectionState.waiting;
+        final isEnabled = actions.isNotEmpty && !isLoading;
+
+        return PopupMenuButton<_QuoteDocumentMenuAction>(
+          tooltip: 'View generated quote documents',
+          enabled: isEnabled,
+          onSelected: (action) => _openQuoteGeneratedDocument(context, repository, action),
+          itemBuilder: (context) => [
+            for (final action in actions)
+              PopupMenuItem<_QuoteDocumentMenuAction>(
+                value: action,
+                child: Row(
+                  children: [
+                    const Icon(Icons.picture_as_pdf_outlined, size: 18),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        action.label,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+          child: IgnorePointer(
+            child: OutlinedButton.icon(
+              onPressed: isEnabled ? () {} : null,
+              icon: isLoading
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.picture_as_pdf_outlined, size: 18),
+              label: const Text('View documents'),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+_QuoteDocumentMenuAction? _quoteDocumentMenuAction(Map<String, dynamic> row) {
+  final fileId = _firstText(row['file_id'], row['asset_file_id']);
+  if (fileId == null) return null;
+
+  final filename = _firstText(row['output_filename'], row['original_filename']) ?? 'document.pdf';
+  final typeLabel = _generatedDocumentTypeLabel(row);
+  final createdAt = _firstText(row['created_at']);
+  final shortDate = createdAt == null || createdAt.length < 10 ? null : createdAt.substring(0, 10);
+
+  return _QuoteDocumentMenuAction(
+    fileId: fileId,
+    label: [
+      typeLabel,
+      if (shortDate != null) shortDate,
+      filename,
+    ].join(' · '),
+  );
+}
+
+String _generatedDocumentTypeLabel(Map<String, dynamic> row) {
+  final metadata = _mapValue(row['metadata_json']);
+  final label = _firstText(
+    row['document_type_label'],
+    metadata['documentTypeLabel'],
+    metadata['document_type_label'],
+  );
+  if (label != null) return label;
+
+  final code = _firstText(row['document_type_code'], metadata['document_type_code']) ?? 'Document';
+  return _humanizeFileFieldKey(code);
+}
+
+Future<void> _openQuoteGeneratedDocument(
+  BuildContext context,
+  AdminResourceRepository repository,
+  _QuoteDocumentMenuAction action,
+) async {
+  try {
+    final data = await repository.fetchMediaFileUrl(action.fileId);
+    final file = Map<String, dynamic>.from((data['file'] as Map?) ?? const <String, dynamic>{});
+    final url = data['url']?.toString() ?? file['public_url']?.toString() ?? '';
+    if (url.isEmpty) {
+      throw StateError('Generated document URL is empty');
+    }
+    openMediaUrl(url);
+  } catch (error) {
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Open document failed: $error')),
+    );
+  }
+}
+
+Map<String, dynamic> _mapValue(Object? value) {
+  if (value is Map) return Map<String, dynamic>.from(value);
+  return const {};
+}
+
+String? _firstText(Object? first, [Object? second, Object? third, Object? fourth]) {
+  for (final value in [first, second, third, fourth]) {
+    final text = value?.toString().trim() ?? '';
+    if (text.isNotEmpty) return text;
+  }
+  return null;
 }
 
 Future<void> loadQuoteToWorkspace(

@@ -48,6 +48,12 @@ void openAdminResourceInNewTab(
   web.window.open(adminResourceUrl(key, filters: filters), '_blank');
 }
 
+void openExternalUrlInNewTab(String url) {
+  final target = url.trim();
+  if (target.isEmpty) return;
+  web.window.open(target, '_blank');
+}
+
 void setAdminRouteListener(void Function()? listener) {
   if (_hashChangeListener != null) {
     web.window.removeEventListener('hashchange', _hashChangeListener);

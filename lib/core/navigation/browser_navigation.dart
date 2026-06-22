@@ -31,6 +31,10 @@ void openAdminResourceInNewTab(
     impl.openAdminResourceInNewTab(key, filters: filters);
 }
 
+void openExternalUrlInNewTab(String url) {
+    impl.openExternalUrlInNewTab(url);
+}
+
 void setAdminRouteListener(void Function()? listener) {
     impl.setAdminRouteListener(listener);
 }
