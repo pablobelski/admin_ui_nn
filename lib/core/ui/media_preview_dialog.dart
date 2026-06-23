@@ -161,14 +161,18 @@ class _MediaPreviewCard extends StatelessWidget {
                     child: InteractiveViewer(
                       minScale: 0.5,
                       maxScale: 4,
-                      child: Image.network(
-                        url,
-                        fit: BoxFit.contain,
-                        errorBuilder: (context, error, stackTrace) => Padding(
-                          padding: const EdgeInsets.all(24),
-                          child: Text(
-                            'Image preview failed. Open or download the file instead.\n$error',
-                            textAlign: TextAlign.center,
+                      child: Center(
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Image.network(
+                            url,
+                            errorBuilder: (context, error, stackTrace) => Padding(
+                              padding: const EdgeInsets.all(24),
+                              child: Text(
+                                'Image preview failed. Open or download the file instead.\n$error',
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
                           ),
                         ),
                       ),

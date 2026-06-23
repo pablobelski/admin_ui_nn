@@ -4,8 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import '../../../core/http/admin_resource_repository.dart';
+import '../../../core/navigation/admin_providers.dart';
 import '../../../core/navigation/browser_navigation.dart';
 import '../../../core/ui/json_view_card.dart';
+import '../../../core/ui/media_preview_dialog.dart';
 import '../data/calculator_models.dart';
 import '../data/calculator_repository.dart';
 import 'calculator_providers.dart';
@@ -686,6 +689,7 @@ class _StepCard extends ConsumerWidget {
           draft: draft,
           notifier: notifier,
           optionDiagnostics: result?.optionDiagnostics ?? const [],
+          mediaRepository: ref.read(resourceRepositoryProvider),
         );
       case 'delivery':
         return _SelectStep(
@@ -2984,12 +2988,14 @@ class _OptionsStep extends StatefulWidget {
     required this.draft,
     required this.notifier,
     required this.optionDiagnostics,
+    required this.mediaRepository,
   });
 
   final CalculatorContext contextData;
   final CalculatorDraft draft;
   final CalculatorDraftNotifier notifier;
   final List<Map<String, dynamic>> optionDiagnostics;
+  final AdminResourceRepository mediaRepository;
 
   @override
   State<_OptionsStep> createState() => _OptionsStepState();
@@ -3114,7 +3120,11 @@ class _OptionsStepState extends State<_OptionsStep> {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const _SectionPreviewPlaceholder(),
+              _CatalogOptionMediaPreview(
+                item: selectedItem,
+                variant: selectedVariant,
+                repository: widget.mediaRepository,
+              ),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -3808,9 +3818,164 @@ class _SectionPreviewPlaceholder extends StatelessWidget {
       child: const Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.view_in_ar_outlined),
+          Icon(Icons.image_not_supported_outlined),
           SizedBox(height: 6),
-          Text('section\npreview', textAlign: TextAlign.center),
+          Text('no media\npreview', textAlign: TextAlign.center),
+        ],
+      ),
+    );
+  }
+}
+
+class _CatalogOptionMediaPreview extends StatelessWidget {
+  const _CatalogOptionMediaPreview({
+    required this.item,
+    required this.variant,
+    required this.repository,
+  });
+
+  final CalculatorCatalogItemOption item;
+  final CalculatorCatalogVariantOption? variant;
+  final AdminResourceRepository repository;
+
+  @override
+  Widget build(BuildContext context) {
+    final mediaRef = _mediaFileRef;
+    if (mediaRef == null) {
+      return const _SectionPreviewPlaceholder();
+    }
+
+    return _CatalogOptionMediaFrame(
+      mediaRef: mediaRef,
+      repository: repository,
+    );
+  }
+
+  MediaFileRef? get _mediaFileRef {
+    final variantFileId = variant?.imageFileId?.trim();
+    final itemFileId = item.mediaFileId?.trim();
+    final fileId = variantFileId != null && variantFileId.isNotEmpty
+        ? variantFileId
+        : itemFileId != null && itemFileId.isNotEmpty
+            ? itemFileId
+            : null;
+    if (fileId == null) return null;
+
+    final variantDisplayName = variant?.displayName;
+    final variantName = variantDisplayName?.trim();
+    final itemName = item.displayName.trim();
+    final label = variantName != null && variantName.isNotEmpty
+        ? variantName
+        : itemName.isNotEmpty
+            ? itemName
+            : 'Catalog item media';
+
+    return MediaFileRef(
+      fileId: fileId,
+      fieldKey: variantFileId == fileId ? 'variant.image_file_id' : 'catalog_media.file_id',
+      label: label,
+    );
+  }
+}
+
+class _CatalogOptionMediaFrame extends StatefulWidget {
+  const _CatalogOptionMediaFrame({
+    required this.mediaRef,
+    required this.repository,
+  });
+
+  final MediaFileRef mediaRef;
+  final AdminResourceRepository repository;
+
+  @override
+  State<_CatalogOptionMediaFrame> createState() => _CatalogOptionMediaFrameState();
+}
+
+class _CatalogOptionMediaFrameState extends State<_CatalogOptionMediaFrame> {
+  late Future<Map<String, dynamic>> _urlFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _urlFuture = widget.repository.fetchMediaFileUrl(widget.mediaRef.fileId);
+  }
+
+  @override
+  void didUpdateWidget(covariant _CatalogOptionMediaFrame oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.mediaRef.fileId != widget.mediaRef.fileId) {
+      _urlFuture = widget.repository.fetchMediaFileUrl(widget.mediaRef.fileId);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Container(
+      width: 104,
+      height: 104,
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Theme.of(context).dividerColor),
+      ),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          FutureBuilder<Map<String, dynamic>>(
+            future: _urlFuture,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState != ConnectionState.done) {
+                return const Center(
+                  child: SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                );
+              }
+
+              final data = snapshot.data ?? const <String, dynamic>{};
+              final file = Map<String, dynamic>.from((data['file'] as Map?) ?? const <String, dynamic>{});
+              final url = data['url']?.toString() ?? file['public_url']?.toString() ?? '';
+              if (snapshot.hasError || url.isEmpty) {
+                return const Center(child: Icon(Icons.broken_image_outlined));
+              }
+
+              return Padding(
+                padding: const EdgeInsets.all(6),
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Image.network(
+                    url,
+                    errorBuilder: (_, __, ___) => const Center(child: Icon(Icons.broken_image_outlined)),
+                  ),
+                ),
+              );
+            },
+          ),
+          Positioned(
+            top: 4,
+            right: 4,
+            child: Material(
+              color: colorScheme.surface.withValues(alpha: 0.84),
+              borderRadius: BorderRadius.circular(18),
+              child: IconButton(
+                visualDensity: VisualDensity.compact,
+                iconSize: 18,
+                tooltip: 'Preview media',
+                onPressed: () => showDialog<void>(
+                  context: context,
+                  builder: (_) => MediaPreviewDialog(
+                    repository: widget.repository,
+                    files: [widget.mediaRef],
+                  ),
+                ),
+                icon: const Icon(Icons.open_in_full_rounded),
+              ),
+            ),
+          ),
         ],
       ),
     );

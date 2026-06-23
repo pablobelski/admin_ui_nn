@@ -310,6 +310,9 @@ class _ListCard extends ConsumerWidget {
     required this.listAsync,
   });
 
+  static const double _previewColumnWidth = 64;
+  static const double _rowHorizontalPadding = 12;
+
   final AdminResourceDefinition resource;
   final AsyncValue<ResourceListResponse> listAsync;
 
@@ -317,8 +320,14 @@ class _ListCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final browserState = ref.watch(resourceBrowserProvider(resource.key));
     final browser = ref.read(resourceBrowserProvider(resource.key).notifier);
+    final repository = ref.read(resourceRepositoryProvider);
+    final useCompactLayout = _usesCompactListLayout(resource);
+    final hasLeadingPreview = _hasLeadingPreviewColumn(resource);
+    final visibleColumns = resource.columns
+        .where((column) => !_hideListColumn(resource, column))
+        .toList(growable: false);
     final lookupLabelsByColumn = <String, Map<String, String>>{
-      for (final column in resource.columns)
+      for (final column in visibleColumns)
         if (column.lookup != null)
           column.key: ref.watch(adminLookupProvider(column.lookup!)).maybeWhen(
             data: (rows) => _lookupLabelMap(column.lookup!, rows),
@@ -338,12 +347,23 @@ class _ListCard extends ConsumerWidget {
               return const Center(child: Text('No rows found'));
             }
 
+            final tableContentWidth = useCompactLayout
+                ? adminRowNumberColumnWidth
+                    + (hasLeadingPreview ? _previewColumnWidth : 0)
+                    + visibleColumns.fold<double>(
+                        0,
+                        (sum, column) => sum + _compactColumnWidth(resource.key, column),
+                      )
+                : adminRowNumberColumnWidth
+                    + visibleColumns.fold<double>(0, (sum, col) => sum + (col.flex * 180.0));
+            final tableWidth = tableContentWidth + (_rowHorizontalPadding * 2);
+
             return Column(
               children: [
                 Expanded(
                   child: HorizontalScrollArea(
                     child: SizedBox(
-                      width: adminRowNumberColumnWidth + resource.columns.fold<double>(0, (sum, col) => sum + (col.flex * 180.0)),
+                      width: tableWidth,
                       child: ListView.separated(
                         key: PageStorageKey<String>(
                           'resource-list-${resource.key}-${browserState.query}-$filtersKey-${browserState.offset}-${browserState.limit}',
@@ -359,10 +379,20 @@ class _ListCard extends ConsumerWidget {
                               child: Row(
                                 children: [
                                   const AdminRowNumberHeader(),
-                                  for (final column in resource.columns)
+                                  if (hasLeadingPreview)
+                                    const AdminTableHeaderCell(
+                                      label: 'Media',
+                                      width: _previewColumnWidth,
+                                      align: TextAlign.left,
+                                    ),
+                                  for (final column in visibleColumns)
                                     AdminTableHeaderCell(
                                       label: column.label,
-                                      flex: column.flex,
+                                      width: useCompactLayout
+                                          ? _compactColumnWidth(resource.key, column)
+                                          : null,
+                                      flex: useCompactLayout ? null : column.flex,
+                                      align: TextAlign.left,
                                     ),
                                 ],
                               ),
@@ -377,18 +407,24 @@ class _ListCard extends ConsumerWidget {
                             onTap: () => browser.select(rowId),
                             child: Container(
                               color: isSelected ? Theme.of(context).colorScheme.primaryContainer : null,
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                               child: Row(
                                 children: [
                                   AdminRowNumberCell(index: rowIndex, offset: browserState.offset),
-                                  for (final column in resource.columns)
-                                    AdminTableValueCell(
-                                      value: _displayValue(
-                                        row[column.key],
-                                        lookupLabels: lookupLabelsByColumn[column.key],
-                                      ),
-                                      flex: column.flex,
-                                      strong: column.isPrimary,
+                                  if (hasLeadingPreview)
+                                    _MediaPreviewListCell(
+                                      repository: repository,
+                                      mediaRef: _leadingListMediaRef(resource, row),
+                                      width: _previewColumnWidth,
+                                    ),
+                                  for (final column in visibleColumns)
+                                    _buildListValueCell(
+                                      resource: resource,
+                                      repository: repository,
+                                      row: row,
+                                      column: column,
+                                      lookupLabels: lookupLabelsByColumn[column.key],
+                                      useCompactLayout: useCompactLayout,
                                     ),
                                 ],
                               ),
@@ -418,6 +454,294 @@ class _ListCard extends ConsumerWidget {
               ],
             );
           },
+        ),
+      ),
+    );
+  }
+}
+
+Widget _buildListValueCell({
+  required AdminResourceDefinition resource,
+  required AdminResourceRepository repository,
+  required Map<String, dynamic> row,
+  required AdminColumn column,
+  required Map<String, String>? lookupLabels,
+  required bool useCompactLayout,
+}) {
+  final width = useCompactLayout ? _compactColumnWidth(resource.key, column) : null;
+
+  if (_isInlinePreviewColumn(resource, column)) {
+    return _MediaPreviewListCell(
+      repository: repository,
+      mediaRef: _inlineListMediaRef(resource, row, column),
+      width: width ?? _ListCard._previewColumnWidth,
+    );
+  }
+
+  return AdminTableValueCell(
+    value: _displayListValue(
+      resource: resource,
+      row: row,
+      column: column,
+      lookupLabels: lookupLabels,
+    ),
+    width: width,
+    flex: useCompactLayout ? null : column.flex,
+    strong: column.isPrimary,
+  );
+}
+
+bool _usesCompactListLayout(AdminResourceDefinition resource) {
+  return resource.key == 'catalog_media'
+      || resource.key == 'catalog_items'
+      || resource.key == 'catalog_variants'
+      || resource.key == 'asset_files';
+}
+
+bool _hasLeadingPreviewColumn(AdminResourceDefinition resource) {
+  return resource.key == 'catalog_items'
+      || resource.key == 'catalog_variants'
+      || resource.key == 'asset_files';
+}
+
+bool _hideListColumn(AdminResourceDefinition resource, AdminColumn column) {
+  return resource.key == 'catalog_variants' && column.key == 'image_file_id';
+}
+
+bool _isInlinePreviewColumn(AdminResourceDefinition resource, AdminColumn column) {
+  return resource.key == 'catalog_media' && column.key == 'kind';
+}
+
+double _compactColumnWidth(String resourceKey, AdminColumn column) {
+  final key = column.key;
+
+  if (resourceKey == 'asset_files') {
+    return switch (key) {
+      'original_filename' => 260,
+      'mime_type' => 110,
+      'size_bytes' => 80,
+      'bucket_name' => 170,
+      'storage_key' => 360,
+      _ => 140,
+    };
+  }
+
+  if (resourceKey == 'catalog_media') {
+    return switch (key) {
+      'kind' => 64,
+      'catalog_item_id' => 260,
+      'catalog_variant_id' => 260,
+      'file_id' => 260,
+      'is_primary' => 80,
+      _ => 140,
+    };
+  }
+
+  if (resourceKey == 'catalog_items') {
+    return switch (key) {
+      'base_code' => 140,
+      'name' => 300,
+      'product_family_id' => 180,
+      'item_type_id' => 190,
+      'category_code' => 120,
+      'system_code' => 120,
+      'measure_type_code' => 90,
+      'default_sales_unit_code' => 110,
+      'purchase_price_fixed' => 120,
+      'is_active' => 80,
+      _ => 130,
+    };
+  }
+
+  if (resourceKey == 'catalog_variants') {
+    return switch (key) {
+      'variant_sku' => 240,
+      'catalog_item_id' => 260,
+      'article_no' => 120,
+      'color_name' => 130,
+      'length_mm' => 90,
+      'glass_type_code' => 100,
+      'coating_price_per_meter' => 120,
+      'purchase_price_fixed' => 120,
+      'is_active' => 80,
+      _ => 130,
+    };
+  }
+
+  return column.flex * 180.0;
+}
+
+String _displayListValue({
+  required AdminResourceDefinition resource,
+  required Map<String, dynamic> row,
+  required AdminColumn column,
+  required Map<String, String>? lookupLabels,
+}) {
+  if (resource.key == 'catalog_media' && column.key == 'file_id') {
+    final filename = row['file_original_filename']?.toString().trim();
+    if (filename != null && filename.isNotEmpty) return filename;
+  }
+
+  return _displayValue(
+    row[column.key],
+    lookupLabels: lookupLabels,
+  );
+}
+
+MediaFileRef? _leadingListMediaRef(
+  AdminResourceDefinition resource,
+  Map<String, dynamic> row,
+) {
+  if (resource.key == 'catalog_items') {
+    return _mediaRefFromRow(
+      row: row,
+      fileIdKey: 'primary_media_file_id',
+      filenameKey: 'primary_media_filename',
+      fallbackLabel: 'Catalog item media',
+    );
+  }
+
+  if (resource.key == 'catalog_variants') {
+    return _mediaRefFromRow(
+          row: row,
+          fileIdKey: 'image_file_id',
+          filenameKey: 'image_original_filename',
+          fallbackLabel: 'Catalog variant image',
+        ) ??
+        _mediaRefFromRow(
+          row: row,
+          fileIdKey: 'primary_media_file_id',
+          filenameKey: 'primary_media_filename',
+          fallbackLabel: 'Catalog variant media',
+        );
+  }
+
+  if (resource.key == 'asset_files') {
+    final mimeType = row['mime_type']?.toString().trim() ?? '';
+    if (!mimeType.toLowerCase().startsWith('image/')) return null;
+    return _mediaRefFromRow(
+      row: row,
+      fileIdKey: 'id',
+      filenameKey: 'original_filename',
+      fallbackLabel: 'Media file',
+    );
+  }
+
+  return null;
+}
+
+MediaFileRef? _inlineListMediaRef(
+  AdminResourceDefinition resource,
+  Map<String, dynamic> row,
+  AdminColumn column,
+) {
+  if (resource.key == 'catalog_media' && column.key == 'kind') {
+    final kind = row['kind']?.toString().trim().toLowerCase() ?? '';
+    final mimeType = row['file_mime_type']?.toString().trim().toLowerCase() ?? '';
+    if (kind != 'image' && !mimeType.startsWith('image/')) return null;
+    return _mediaRefFromRow(
+      row: row,
+      fileIdKey: 'file_id',
+      filenameKey: 'file_original_filename',
+      fallbackLabel: 'Catalog media',
+    );
+  }
+  return null;
+}
+
+MediaFileRef? _mediaRefFromRow({
+  required Map<String, dynamic> row,
+  required String fileIdKey,
+  required String filenameKey,
+  required String fallbackLabel,
+}) {
+  final fileId = row[fileIdKey]?.toString().trim() ?? '';
+  if (fileId.isEmpty || !_looksLikeUuid(fileId)) return null;
+
+  final filename = row[filenameKey]?.toString().trim();
+  return MediaFileRef(
+    fileId: fileId,
+    fieldKey: fileIdKey,
+    label: filename == null || filename.isEmpty ? fallbackLabel : filename,
+  );
+}
+
+class _MediaPreviewListCell extends StatelessWidget {
+  const _MediaPreviewListCell({
+    required this.repository,
+    required this.mediaRef,
+    required this.width,
+  });
+
+  final AdminResourceRepository repository;
+  final MediaFileRef? mediaRef;
+  final double width;
+
+  @override
+  Widget build(BuildContext context) {
+    final fileRef = mediaRef;
+    if (fileRef == null) {
+      return SizedBox(
+        width: width,
+        child: const Align(
+          alignment: Alignment.centerLeft,
+          child: Text('—'),
+        ),
+      );
+    }
+
+    return SizedBox(
+      width: width,
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: Tooltip(
+          message: fileRef.label,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(8),
+            onTap: () => _showMediaPreview(context, repository, [fileRef]),
+            child: Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Theme.of(context).dividerColor),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: FutureBuilder<Map<String, dynamic>>(
+                future: repository.fetchMediaFileUrl(fileRef.fileId),
+                builder: (context, snapshot) {
+                  final data = snapshot.data;
+                  final file = Map<String, dynamic>.from((data?['file'] as Map?) ?? const <String, dynamic>{});
+                  final url = data?['url']?.toString() ?? file['public_url']?.toString() ?? '';
+
+                  if (snapshot.connectionState == ConnectionState.waiting && url.isEmpty) {
+                    return const Center(
+                      child: SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    );
+                  }
+
+                  if (url.isEmpty) {
+                    return const Icon(Icons.image_not_supported_outlined, size: 20);
+                  }
+
+                  return Padding(
+                    padding: const EdgeInsets.all(3),
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Image.network(
+                        url,
+                        errorBuilder: (_, __, ___) => const Icon(Icons.broken_image_outlined, size: 20),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
         ),
       ),
     );
@@ -501,6 +825,17 @@ class _DetailsCardState extends ConsumerState<_DetailsCard> {
                           onSelected: (action) => _openDetailAction(ref, action, data),
                         ),
                       ),
+                    if (_hasDetailImageButton(resource))
+                      Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: OutlinedButton.icon(
+                          onPressed: mediaFiles.isEmpty
+                              ? null
+                              : () => _showMediaPreview(context, repository, mediaFiles),
+                          icon: const Icon(Icons.image_outlined, size: 18),
+                          label: const Text('View image'),
+                        ),
+                      ),
                     if (resource.key == 'quotes')
                       Padding(
                         padding: const EdgeInsets.only(right: 8),
@@ -562,7 +897,7 @@ class _DetailsCardState extends ConsumerState<_DetailsCard> {
                               : Icons.account_tree_outlined,
                         ),
                       ),
-                    if (mediaFiles.isNotEmpty)
+                    if (!_hasDetailImageButton(resource) && mediaFiles.isNotEmpty)
                       IconButton(
                         tooltip: 'Preview media',
                         onPressed: () => _showMediaPreview(context, repository, mediaFiles),
@@ -701,6 +1036,11 @@ class _DetailsCardState extends ConsumerState<_DetailsCard> {
       },
     );
   }
+}
+
+
+bool _hasDetailImageButton(AdminResourceDefinition resource) {
+  return resource.key == 'catalog_items' || resource.key == 'catalog_variants';
 }
 
 

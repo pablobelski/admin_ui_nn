@@ -133,6 +133,8 @@ class CalculatorCatalogItemOption {
     this.priceBasisUnitCode,
     this.defaultLengthMm,
     this.defaultColorCode,
+    this.mediaFileId,
+    this.mediaKind,
     this.raw = const {},
   });
 
@@ -154,6 +156,8 @@ class CalculatorCatalogItemOption {
       priceBasisUnitCode: _nullableString(json['price_basis_unit_code']),
       defaultLengthMm: _lengthOrNull(json['default_length_mm']),
       defaultColorCode: _nullableString(json['default_color_code']),
+      mediaFileId: _nullableString(json['media_file_id'] ?? json['primary_media_file_id'] ?? json['catalog_media_file_id']),
+      mediaKind: _nullableString(json['media_kind']),
       raw: json,
     );
   }
@@ -174,6 +178,8 @@ class CalculatorCatalogItemOption {
   final String? priceBasisUnitCode;
   final int? defaultLengthMm;
   final String? defaultColorCode;
+  final String? mediaFileId;
+  final String? mediaKind;
   final Map<String, dynamic> raw;
 
   String get displayName {
