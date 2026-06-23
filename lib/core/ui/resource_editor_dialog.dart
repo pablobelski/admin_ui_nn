@@ -39,7 +39,7 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
       for (final field in widget.resource.formFields)
         if (field.type != AdminFieldType.boolType)
           field.key: TextEditingController(
-            text: _initialText(field.key),
+            text: _initialText(field),
           ),
     };
     _boolValues = {
@@ -102,9 +102,9 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
     cursor[parts.last] = value;
   }
 
-  String _initialText(String key) {
-    final value = _valueAtPath(widget.initialData, key);
-    if (value == null) return '';
+  String _initialText(AdminField field) {
+    final value = _valueAtPath(widget.initialData, field.key);
+    if (value == null) return widget.initialData == null ? field.defaultValue ?? '' : '';
     if (value is Map || value is List) {
       return const JsonEncoder.withIndent('  ').convert(value);
     }
@@ -252,6 +252,11 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
       validator: (value) {
         if (!field.readOnly && (value == null || value.trim().isEmpty) && field.key != 'id') {
           return null;
+        }
+        if (field.type == AdminFieldType.number && value != null && value.trim().isNotEmpty) {
+          if (num.tryParse(value.trim().replaceAll(',', '.')) == null) {
+            return 'Invalid number';
+          }
         }
         if (field.type == AdminFieldType.json && value != null && value.trim().isNotEmpty) {
           try {
@@ -493,7 +498,7 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
 
       switch (field.type) {
         case AdminFieldType.number:
-          _setPayloadValue(payload, field.key, num.tryParse(rawValue) ?? rawValue);
+          _setPayloadValue(payload, field.key, num.parse(rawValue.replaceAll(',', '.')));
           break;
         case AdminFieldType.json:
           _setPayloadValue(payload, field.key, jsonDecode(rawValue));

@@ -37,6 +37,7 @@ class AdminField {
     this.lookup,
     this.options = const [],
     this.helperText,
+    this.defaultValue,
     this.includeInPayload = true,
     this.filePurpose,
     this.accept,
@@ -49,6 +50,7 @@ class AdminField {
   final AdminLookup? lookup;
   final List<AdminSelectOption> options;
   final String? helperText;
+  final String? defaultValue;
   final bool includeInPayload;
   final String? filePurpose;
   final String? accept;
