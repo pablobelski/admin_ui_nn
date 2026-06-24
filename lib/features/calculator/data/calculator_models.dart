@@ -134,6 +134,7 @@ class CalculatorCatalogItemOption {
     this.defaultLengthMm,
     this.defaultColorCode,
     this.mediaFileId,
+    this.mediaLargeFileId,
     this.mediaKind,
     this.raw = const {},
   });
@@ -157,6 +158,7 @@ class CalculatorCatalogItemOption {
       defaultLengthMm: _lengthOrNull(json['default_length_mm']),
       defaultColorCode: _nullableString(json['default_color_code']),
       mediaFileId: _nullableString(json['media_file_id'] ?? json['primary_media_file_id'] ?? json['catalog_media_file_id']),
+      mediaLargeFileId: _nullableString(json['media_large_file_id'] ?? json['large_media_file_id']),
       mediaKind: _nullableString(json['media_kind']),
       raw: json,
     );
@@ -179,6 +181,7 @@ class CalculatorCatalogItemOption {
   final int? defaultLengthMm;
   final String? defaultColorCode;
   final String? mediaFileId;
+  final String? mediaLargeFileId;
   final String? mediaKind;
   final Map<String, dynamic> raw;
 
@@ -210,6 +213,7 @@ class CalculatorCatalogVariantOption {
     this.saleRoundingCode,
     this.priceBasisUnitCode,
     this.imageFileId,
+    this.imageLargeFileId,
     this.raw = const {},
   });
 
@@ -235,6 +239,7 @@ class CalculatorCatalogVariantOption {
       saleRoundingCode: _nullableString(json['sale_rounding_code']),
       priceBasisUnitCode: _nullableString(json['price_basis_unit_code']),
       imageFileId: _nullableString(json['image_file_id']),
+      imageLargeFileId: _nullableString(json['image_large_file_id'] ?? json['large_image_file_id']),
       raw: json,
     );
   }
@@ -259,6 +264,7 @@ class CalculatorCatalogVariantOption {
   final String? saleRoundingCode;
   final String? priceBasisUnitCode;
   final String? imageFileId;
+  final String? imageLargeFileId;
   final Map<String, dynamic> raw;
 
   String get displayName {

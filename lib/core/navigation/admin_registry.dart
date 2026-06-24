@@ -195,6 +195,8 @@ const mediaKindOptions = <AdminSelectOption>[
   AdminSelectOption(value: 'other', label: 'Other'),
 ];
 
+const catalogMediaUseTypeDomain = 'catalog_media_use_types';
+
 const unitOptions = <AdminSelectOption>[
   AdminSelectOption(value: 'piece', label: 'Piece'),
   AdminSelectOption(value: 'meter', label: 'Meter'),
@@ -996,6 +998,7 @@ const adminNavGroups = <AdminNavGroup>[
         icon: Icons.perm_media_outlined,
         columns: [
           AdminColumn(key: 'kind', label: 'Kind', isPrimary: true),
+          AdminColumn(key: 'use_type', label: 'Use type'),
           AdminColumn(key: 'catalog_item_id', label: 'Item', lookup: catalogItemLookup),
           AdminColumn(key: 'catalog_variant_id', label: 'Variant', lookup: catalogVariantLookup),
           AdminColumn(key: 'file_id', label: 'File'),
@@ -1005,6 +1008,12 @@ const adminNavGroups = <AdminNavGroup>[
           AdminField(key: 'catalog_item_id', label: 'Catalog item', lookup: catalogItemLookup),
           AdminField(key: 'catalog_variant_id', label: 'Catalog variant', lookup: catalogVariantLookup),
           AdminField(key: 'kind', label: 'Kind', options: mediaKindOptions),
+          AdminField(
+            key: 'use_type',
+            label: 'Use type',
+            referenceDomain: catalogMediaUseTypeDomain,
+            defaultValue: 'standard',
+          ),
           AdminField(
             key: 'file_id',
             label: 'Media file',

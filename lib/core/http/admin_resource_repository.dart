@@ -62,6 +62,19 @@ class AdminResourceRepository {
         .toList();
   }
 
+
+  Future<List<AdminSelectOption>> fetchReferenceOptions(String domainCode) async {
+    final response = await _client.getJson('/api/admin/reference-options/$domainCode');
+    final items = response['items'] as List? ?? const [];
+
+    return items.cast<Map>().map((entry) {
+      final row = Map<String, dynamic>.from(entry);
+      final code = row['code']?.toString() ?? '';
+      final label = row['label']?.toString() ?? code;
+      return AdminSelectOption(value: code, label: label.isEmpty ? code : label);
+    }).where((option) => option.value.isNotEmpty).toList();
+  }
+
   Future<Map<String, dynamic>> create(
     AdminResourceDefinition resource,
     Map<String, dynamic> body,

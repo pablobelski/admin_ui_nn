@@ -30,6 +30,7 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
   late final Map<String, TextEditingController> _controllers;
   late final Map<String, bool> _boolValues;
   late final Map<String, Future<List<Map<String, dynamic>>>> _lookupFutures;
+  late final Map<String, Future<List<AdminSelectOption>>> _referenceOptionFutures;
   final Set<String> _uploadingFields = <String>{};
 
   @override
@@ -53,6 +54,12 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
         if (field.lookup != null)
           field.key: widget.repository?.fetchLookup(field.lookup!, limit: field.lookup!.limit) ??
               Future<List<Map<String, dynamic>>>.value(const <Map<String, dynamic>>[]),
+    };
+    _referenceOptionFutures = {
+      for (final field in widget.resource.formFields)
+        if (field.referenceDomain != null && field.referenceDomain!.trim().isNotEmpty)
+          field.key: widget.repository?.fetchReferenceOptions(field.referenceDomain!.trim()) ??
+              Future<List<AdminSelectOption>>.value(const <AdminSelectOption>[]),
     };
   }
 
@@ -198,6 +205,43 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
         helperText: field.helperText,
         onChanged: (value) {
           controller.text = value ?? '';
+        },
+      );
+    }
+
+    if (field.referenceDomain != null && field.referenceDomain!.trim().isNotEmpty) {
+      return FutureBuilder<List<AdminSelectOption>>(
+        future: _referenceOptionFutures[field.key],
+        builder: (context, snapshot) {
+          final controller = _controllers[field.key]!;
+          final currentValue = controller.text.trim();
+          final loadedOptions = snapshot.data ?? const <AdminSelectOption>[];
+          final options = <SearchableSelectOption>[];
+          var hasCurrentValue = currentValue.isEmpty;
+
+          for (final option in loadedOptions) {
+            hasCurrentValue = hasCurrentValue || option.value == currentValue;
+            options.add(SearchableSelectOption(value: option.value, label: option.label));
+          }
+
+          if (!hasCurrentValue) {
+            options.add(SearchableSelectOption(value: currentValue, label: currentValue));
+          }
+
+          return SearchableSelectFormField(
+            value: currentValue,
+            options: options,
+            enabled: !field.readOnly && snapshot.connectionState != ConnectionState.waiting,
+            labelText: field.label,
+            helperText: snapshot.connectionState == ConnectionState.waiting
+                ? 'Loading options...'
+                : snapshot.hasError
+                ? 'Failed to load; keep existing value or leave empty'
+                : field.helperText,
+            onChanged: (value) {
+              controller.text = value ?? '';
+            },
+          );
         },
       );
     }

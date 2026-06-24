@@ -3847,6 +3847,7 @@ class _CatalogOptionMediaPreview extends StatelessWidget {
 
     return _CatalogOptionMediaFrame(
       mediaRef: mediaRef,
+      detailMediaRef: _detailMediaFileRef ?? mediaRef,
       repository: repository,
     );
   }
@@ -3876,15 +3877,43 @@ class _CatalogOptionMediaPreview extends StatelessWidget {
       label: label,
     );
   }
+
+  MediaFileRef? get _detailMediaFileRef {
+    final variantLargeFileId = variant?.imageLargeFileId?.trim();
+    final itemLargeFileId = item.mediaLargeFileId?.trim();
+    final fileId = variantLargeFileId != null && variantLargeFileId.isNotEmpty
+        ? variantLargeFileId
+        : itemLargeFileId != null && itemLargeFileId.isNotEmpty
+            ? itemLargeFileId
+            : null;
+    if (fileId == null) return null;
+
+    final variantDisplayName = variant?.displayName;
+    final variantName = variantDisplayName?.trim();
+    final itemName = item.displayName.trim();
+    final label = variantName != null && variantName.isNotEmpty
+        ? variantName
+        : itemName.isNotEmpty
+            ? itemName
+            : 'Catalog item media';
+
+    return MediaFileRef(
+      fileId: fileId,
+      fieldKey: variantLargeFileId == fileId ? 'variant.image_large_file_id' : 'catalog_media.media_large_file_id',
+      label: label,
+    );
+  }
 }
 
 class _CatalogOptionMediaFrame extends StatefulWidget {
   const _CatalogOptionMediaFrame({
     required this.mediaRef,
+    required this.detailMediaRef,
     required this.repository,
   });
 
   final MediaFileRef mediaRef;
+  final MediaFileRef detailMediaRef;
   final AdminResourceRepository repository;
 
   @override
@@ -3969,7 +3998,7 @@ class _CatalogOptionMediaFrameState extends State<_CatalogOptionMediaFrame> {
                   context: context,
                   builder: (_) => MediaPreviewDialog(
                     repository: widget.repository,
-                    files: [widget.mediaRef],
+                    files: [widget.detailMediaRef],
                   ),
                 ),
                 icon: const Icon(Icons.open_in_full_rounded),

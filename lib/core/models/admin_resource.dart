@@ -38,6 +38,7 @@ class AdminField {
     this.options = const [],
     this.helperText,
     this.defaultValue,
+    this.referenceDomain,
     this.includeInPayload = true,
     this.filePurpose,
     this.accept,
@@ -51,6 +52,7 @@ class AdminField {
   final List<AdminSelectOption> options;
   final String? helperText;
   final String? defaultValue;
+  final String? referenceDomain;
   final bool includeInPayload;
   final String? filePurpose;
   final String? accept;

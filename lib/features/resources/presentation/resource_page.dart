@@ -529,6 +529,7 @@ double _compactColumnWidth(String resourceKey, AdminColumn column) {
   if (resourceKey == 'catalog_media') {
     return switch (key) {
       'kind' => 64,
+      'use_type' => 96,
       'catalog_item_id' => 260,
       'catalog_variant_id' => 260,
       'file_id' => 260,
@@ -595,24 +596,24 @@ MediaFileRef? _leadingListMediaRef(
   if (resource.key == 'catalog_items') {
     return _mediaRefFromRow(
       row: row,
-      fileIdKey: 'primary_media_file_id',
-      filenameKey: 'primary_media_filename',
-      fallbackLabel: 'Catalog item media',
+      fileIdKey: 'icon_media_file_id',
+      filenameKey: 'icon_media_filename',
+      fallbackLabel: 'Catalog item icon',
     );
   }
 
   if (resource.key == 'catalog_variants') {
     return _mediaRefFromRow(
           row: row,
-          fileIdKey: 'image_file_id',
-          filenameKey: 'image_original_filename',
-          fallbackLabel: 'Catalog variant image',
+          fileIdKey: 'icon_media_file_id',
+          filenameKey: 'icon_media_filename',
+          fallbackLabel: 'Catalog variant icon',
         ) ??
         _mediaRefFromRow(
           row: row,
-          fileIdKey: 'primary_media_file_id',
-          filenameKey: 'primary_media_filename',
-          fallbackLabel: 'Catalog variant media',
+          fileIdKey: 'image_file_id',
+          filenameKey: 'image_original_filename',
+          fallbackLabel: 'Catalog variant image',
         );
   }
 
@@ -1066,6 +1067,32 @@ List<MediaFileRef> _mediaFileRefsFor(
   if (resource.key == 'asset_files') {
     final label = data['original_filename']?.toString().trim();
     addRef('id', label == null || label.isEmpty ? 'Media file' : label, data['id']);
+  }
+
+  if (resource.key == 'catalog_items' || resource.key == 'catalog_variants') {
+    final detailLabel = data['detail_media_filename']?.toString().trim();
+    final iconLabel = data['icon_media_filename']?.toString().trim();
+    addRef(
+      'detail_media_file_id',
+      detailLabel == null || detailLabel.isEmpty ? 'Large media' : detailLabel,
+      data['detail_media_file_id'],
+    );
+    if (refs.isEmpty) {
+      addRef(
+        'icon_media_file_id',
+        iconLabel == null || iconLabel.isEmpty ? 'Icon media' : iconLabel,
+        data['icon_media_file_id'],
+      );
+    }
+    if (refs.isEmpty && resource.key == 'catalog_variants') {
+      final imageLabel = data['image_original_filename']?.toString().trim();
+      addRef(
+        'image_file_id',
+        imageLabel == null || imageLabel.isEmpty ? 'Catalog variant image' : imageLabel,
+        data['image_file_id'],
+      );
+    }
+    return refs;
   }
 
   for (final field in resource.formFields) {
