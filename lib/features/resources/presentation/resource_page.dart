@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../../../core/http/admin_resource_repository.dart';
+import '../../../core/http/api_client.dart';
 import '../../../core/models/admin_resource.dart';
 import '../../../core/models/admin_state.dart';
 import '../../../core/navigation/admin_providers.dart';
@@ -708,14 +709,10 @@ class _MediaPreviewListCell extends StatelessWidget {
                 border: Border.all(color: Theme.of(context).dividerColor),
               ),
               clipBehavior: Clip.antiAlias,
-              child: FutureBuilder<Map<String, dynamic>>(
-                future: repository.fetchMediaFileUrl(fileRef.fileId),
+              child: FutureBuilder<ApiBinaryResponse>(
+                future: repository.viewMediaFile(fileRef.fileId),
                 builder: (context, snapshot) {
-                  final data = snapshot.data;
-                  final file = Map<String, dynamic>.from((data?['file'] as Map?) ?? const <String, dynamic>{});
-                  final url = data?['url']?.toString() ?? file['public_url']?.toString() ?? '';
-
-                  if (snapshot.connectionState == ConnectionState.waiting && url.isEmpty) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
                     return const Center(
                       child: SizedBox(
                         width: 16,
@@ -725,7 +722,8 @@ class _MediaPreviewListCell extends StatelessWidget {
                     );
                   }
 
-                  if (url.isEmpty) {
+                  final response = snapshot.data;
+                  if (snapshot.hasError || response == null || response.bytes.isEmpty) {
                     return const Icon(Icons.image_not_supported_outlined, size: 20);
                   }
 
@@ -733,8 +731,8 @@ class _MediaPreviewListCell extends StatelessWidget {
                     padding: const EdgeInsets.all(3),
                     child: FittedBox(
                       fit: BoxFit.scaleDown,
-                      child: Image.network(
-                        url,
+                      child: Image.memory(
+                        response.bytes,
                         errorBuilder: (_, __, ___) => const Icon(Icons.broken_image_outlined, size: 20),
                       ),
                     ),
@@ -1164,13 +1162,11 @@ Future<void> _downloadMediaFiles(
 ) async {
   try {
     for (final fileRef in files) {
-      final data = await repository.fetchMediaFileUrl(fileRef.fileId);
-      final file = Map<String, dynamic>.from((data['file'] as Map?) ?? const <String, dynamic>{});
-      final download = await repository.downloadMediaFile(fileRef.fileId);
+      final response = await repository.downloadMediaFile(fileRef.fileId);
       downloadMediaBytes(
-        download.bytes,
-        filename: file['original_filename']?.toString(),
-        contentType: file['mime_type']?.toString() ?? download.contentType,
+        response.bytes,
+        filename: response.filename ?? fileRef.label,
+        contentType: response.contentType,
       );
     }
 
@@ -1371,13 +1367,12 @@ Future<void> _openQuoteGeneratedDocument(
   _QuoteDocumentMenuAction action,
 ) async {
   try {
-    final data = await repository.fetchMediaFileUrl(action.fileId);
-    final file = Map<String, dynamic>.from((data['file'] as Map?) ?? const <String, dynamic>{});
-    final url = data['url']?.toString() ?? file['public_url']?.toString() ?? '';
-    if (url.isEmpty) {
-      throw StateError('Generated document URL is empty');
-    }
-    openMediaUrl(url);
+    final response = await repository.viewMediaFile(action.fileId);
+    openMediaBytes(
+      response.bytes,
+      filename: response.filename ?? action.label,
+      contentType: response.contentType,
+    );
   } catch (error) {
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(

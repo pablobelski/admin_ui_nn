@@ -1,5 +1,3 @@
-import 'dart:typed_data';
-
 import '../models/admin_resource.dart';
 import 'api_client.dart';
 
@@ -113,16 +111,31 @@ class AdminResourceRepository {
   }
 
 
-  Future<Map<String, dynamic>> fetchMediaFileUrl(String fileId) {
-    return _client.getJson('/api/admin/media-files/$fileId/url');
+  Future<Map<String, dynamic>> fetchMediaFileUrl(String fileId) async {
+    final data = await _client.getJson('/api/admin/media-files/$fileId/url');
+    for (final key in ['url', 'download_url']) {
+      final value = data[key]?.toString() ?? '';
+      if (value.startsWith('/')) {
+        data[key] = _client.url(value);
+      }
+    }
+    return data;
   }
 
-  Future<MediaFileDownload> downloadMediaFile(String fileId) async {
-    final response = await _client.getBytes('/api/admin/media-files/$fileId/download');
-    return MediaFileDownload(
-      bytes: response.bytes,
-      contentType: response.headers['content-type'],
-    );
+  String mediaFileViewUrl(String fileId) {
+    return _client.url('/api/admin/media-files/$fileId/view');
+  }
+
+  Map<String, String> mediaFileHeaders() {
+    return _client.authHeaders();
+  }
+
+  Future<ApiBinaryResponse> viewMediaFile(String fileId) {
+    return _client.getBytes('/api/admin/media-files/$fileId/view');
+  }
+
+  Future<ApiBinaryResponse> downloadMediaFile(String fileId) {
+    return _client.getBytes('/api/admin/media-files/$fileId/download');
   }
 
   Future<void> delete(AdminResourceDefinition resource, String id) {
@@ -138,14 +151,4 @@ class ResourceListResponse {
 
   final List<Map<String, dynamic>> items;
   final int total;
-}
-
-class MediaFileDownload {
-  const MediaFileDownload({
-    required this.bytes,
-    this.contentType,
-  });
-
-  final Uint8List bytes;
-  final String? contentType;
 }

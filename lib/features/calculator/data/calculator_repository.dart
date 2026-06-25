@@ -80,6 +80,10 @@ class CalculatorRepository {
     );
     return GeneratedDocument.fromJson(response);
   }
+
+  Future<ApiBinaryResponse> viewMediaFile(String fileId) {
+    return _client.getBytes('/api/admin/media-files/$fileId/view');
+  }
 }
 
 class PrintDialogData {

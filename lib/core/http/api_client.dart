@@ -29,6 +29,30 @@ class ApiClient {
     return headers;
   }
 
+  String url(String path, [Map<String, String>? query]) {
+    return _uri(path, query).toString();
+  }
+
+  Map<String, String> authHeaders({Map<String, String>? extra}) {
+    return _headers(extra: extra);
+  }
+
+  Future<ApiBinaryResponse> getBytes(
+    String path, {
+    Map<String, String>? query,
+  }) async {
+    final response = await _httpClient.get(
+      _uri(path, query),
+      headers: _headers(),
+    );
+    _ensureSuccess(response);
+    return ApiBinaryResponse(
+      bytes: response.bodyBytes,
+      headers: response.headers,
+      statusCode: response.statusCode,
+    );
+  }
+
   Future<Map<String, dynamic>> getJson(
     String path, {
     Map<String, String>? query,
@@ -74,19 +98,6 @@ class ApiClient {
     return jsonDecode(response.body) as Map<String, dynamic>;
   }
 
-
-  Future<ApiBinaryResponse> getBytes(String path) async {
-    final response = await _httpClient.get(
-      _uri(path),
-      headers: _headers(),
-    );
-    _ensureSuccess(response);
-    return ApiBinaryResponse(
-      bytes: response.bodyBytes,
-      headers: response.headers,
-    );
-  }
-
   Future<void> delete(String path) async {
     final response = await _httpClient.delete(
       _uri(path),
@@ -106,14 +117,29 @@ class ApiClient {
   }
 }
 
+
 class ApiBinaryResponse {
   const ApiBinaryResponse({
     required this.bytes,
     required this.headers,
+    required this.statusCode,
   });
 
   final Uint8List bytes;
   final Map<String, String> headers;
+  final int statusCode;
+
+  String get contentType => headers['content-type'] ?? 'application/octet-stream';
+
+  String? get filename {
+    final disposition = headers['content-disposition'] ?? '';
+    final encodedMatch = RegExp(r"filename\*=UTF-8''([^;]+)").firstMatch(disposition);
+    if (encodedMatch != null) {
+      return Uri.decodeComponent(encodedMatch.group(1)!);
+    }
+    final plainMatch = RegExp(r'filename="?([^";]+)"?').firstMatch(disposition);
+    return plainMatch?.group(1);
+  }
 }
 
 class ApiException implements Exception {

@@ -5,9 +5,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../../../core/http/admin_resource_repository.dart';
+import '../../../core/http/api_client.dart';
 import '../../../core/navigation/admin_providers.dart';
 import '../../../core/navigation/browser_navigation.dart';
 import '../../../core/ui/json_view_card.dart';
+import '../../../core/ui/media_file_actions.dart';
 import '../../../core/ui/media_preview_dialog.dart';
 import '../data/calculator_models.dart';
 import '../data/calculator_repository.dart';
@@ -3921,19 +3923,19 @@ class _CatalogOptionMediaFrame extends StatefulWidget {
 }
 
 class _CatalogOptionMediaFrameState extends State<_CatalogOptionMediaFrame> {
-  late Future<Map<String, dynamic>> _urlFuture;
+  late Future<ApiBinaryResponse> _imageFuture;
 
   @override
   void initState() {
     super.initState();
-    _urlFuture = widget.repository.fetchMediaFileUrl(widget.mediaRef.fileId);
+    _imageFuture = widget.repository.viewMediaFile(widget.mediaRef.fileId);
   }
 
   @override
   void didUpdateWidget(covariant _CatalogOptionMediaFrame oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.mediaRef.fileId != widget.mediaRef.fileId) {
-      _urlFuture = widget.repository.fetchMediaFileUrl(widget.mediaRef.fileId);
+      _imageFuture = widget.repository.viewMediaFile(widget.mediaRef.fileId);
     }
   }
 
@@ -3952,8 +3954,8 @@ class _CatalogOptionMediaFrameState extends State<_CatalogOptionMediaFrame> {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          FutureBuilder<Map<String, dynamic>>(
-            future: _urlFuture,
+          FutureBuilder<ApiBinaryResponse>(
+            future: _imageFuture,
             builder: (context, snapshot) {
               if (snapshot.connectionState != ConnectionState.done) {
                 return const Center(
@@ -3965,10 +3967,8 @@ class _CatalogOptionMediaFrameState extends State<_CatalogOptionMediaFrame> {
                 );
               }
 
-              final data = snapshot.data ?? const <String, dynamic>{};
-              final file = Map<String, dynamic>.from((data['file'] as Map?) ?? const <String, dynamic>{});
-              final url = data['url']?.toString() ?? file['public_url']?.toString() ?? '';
-              if (snapshot.hasError || url.isEmpty) {
+              final response = snapshot.data;
+              if (snapshot.hasError || response == null || response.bytes.isEmpty) {
                 return const Center(child: Icon(Icons.broken_image_outlined));
               }
 
@@ -3976,8 +3976,8 @@ class _CatalogOptionMediaFrameState extends State<_CatalogOptionMediaFrame> {
                 padding: const EdgeInsets.all(6),
                 child: FittedBox(
                   fit: BoxFit.scaleDown,
-                  child: Image.network(
-                    url,
+                  child: Image.memory(
+                    response.bytes,
                     errorBuilder: (_, __, ___) => const Center(child: Icon(Icons.broken_image_outlined)),
                   ),
                 ),
@@ -4736,7 +4736,10 @@ class _PrintDialogState extends State<_PrintDialog> {
                 if (_documents.isEmpty)
                   const Text('No generated PDF yet.')
                 else
-                  ..._documents.map((document) => _GeneratedDocumentTile(document: document)),
+                  ..._documents.map((document) => _GeneratedDocumentTile(
+                        document: document,
+                        repository: widget.repository,
+                      )),
               ],
             );
           },
@@ -4764,9 +4767,38 @@ class _PrintDialogState extends State<_PrintDialog> {
 }
 
 class _GeneratedDocumentTile extends StatelessWidget {
-  const _GeneratedDocumentTile({required this.document});
+  const _GeneratedDocumentTile({
+    required this.document,
+    required this.repository,
+  });
 
   final GeneratedDocument document;
+  final CalculatorRepository repository;
+
+  Future<void> _openPdf(BuildContext context) async {
+    final fileId = document.fileId.trim();
+    if (fileId.isEmpty) {
+      final url = document.url;
+      if (url != null && url.isNotEmpty) {
+        openExternalUrlInNewTab(url);
+      }
+      return;
+    }
+
+    try {
+      final response = await repository.viewMediaFile(fileId);
+      openMediaBytes(
+        response.bytes,
+        filename: response.filename ?? document.filename,
+        contentType: response.contentType,
+      );
+    } catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Open PDF failed: $error')),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -4774,7 +4806,7 @@ class _GeneratedDocumentTile extends StatelessWidget {
       if ((document.documentTypeCode ?? '').isNotEmpty) document.documentTypeCode,
       if ((document.createdAt ?? '').isNotEmpty) document.createdAt,
     ].whereType<String>().join(' · ');
-    final url = document.url;
+    final canOpen = document.fileId.trim().isNotEmpty || (document.url ?? '').isNotEmpty;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
@@ -4784,7 +4816,7 @@ class _GeneratedDocumentTile extends StatelessWidget {
         title: Text(document.filename, overflow: TextOverflow.ellipsis),
         subtitle: subtitle.isEmpty ? null : Text(subtitle, overflow: TextOverflow.ellipsis),
         trailing: TextButton.icon(
-          onPressed: url == null || url.isEmpty ? null : () => openExternalUrlInNewTab(url),
+          onPressed: canOpen ? () => _openPdf(context) : null,
           icon: const Icon(Icons.open_in_new, size: 16),
           label: const Text('View / Download PDF'),
         ),

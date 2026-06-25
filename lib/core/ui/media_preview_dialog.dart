@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../http/admin_resource_repository.dart';
+import '../http/api_client.dart';
 import 'media_file_actions.dart';
 
 class MediaFileRef {
@@ -99,7 +100,7 @@ class _MediaPreviewCard extends StatelessWidget {
 
         final data = snapshot.data ?? const <String, dynamic>{};
         final file = Map<String, dynamic>.from((data['file'] as Map?) ?? const <String, dynamic>{});
-        final url = data['url']?.toString() ?? file['public_url']?.toString() ?? '';
+        final url = repository.mediaFileViewUrl(ref.fileId);
         final filename = file['original_filename']?.toString() ?? ref.fileId;
         final mimeType = file['mime_type']?.toString() ?? '';
         final sizeText = _sizeText(file['size_bytes']);
@@ -127,18 +128,12 @@ class _MediaPreviewCard extends StatelessWidget {
                     ),
                     IconButton(
                       tooltip: 'Open',
-                      onPressed: url.isEmpty ? null : () => openMediaUrl(url),
+                      onPressed: () => _openMediaFile(context, repository, ref.fileId, filename),
                       icon: const Icon(Icons.open_in_new_rounded),
                     ),
                     IconButton(
                       tooltip: 'Download',
-                      onPressed: () => _downloadMediaFile(
-                        context,
-                        repository,
-                        ref.fileId,
-                        filename: filename,
-                        contentType: mimeType,
-                      ),
+                      onPressed: () => _downloadMediaFile(context, repository, ref.fileId, filename),
                       icon: const Icon(Icons.download_outlined),
                     ),
                   ],
@@ -164,24 +159,44 @@ class _MediaPreviewCard extends StatelessWidget {
                       border: Border.all(color: Theme.of(context).dividerColor),
                     ),
                     clipBehavior: Clip.antiAlias,
-                    child: InteractiveViewer(
-                      minScale: 0.5,
-                      maxScale: 4,
-                      child: Center(
-                        child: FittedBox(
-                          fit: BoxFit.scaleDown,
-                          child: Image.network(
-                            url,
-                            errorBuilder: (context, error, stackTrace) => Padding(
-                              padding: const EdgeInsets.all(24),
-                              child: Text(
-                                'Image preview failed. Open or download the file instead.\n$error',
-                                textAlign: TextAlign.center,
+                    child: FutureBuilder<ApiBinaryResponse>(
+                      future: repository.viewMediaFile(ref.fileId),
+                      builder: (context, imageSnapshot) {
+                        if (imageSnapshot.connectionState != ConnectionState.done) {
+                          return const Center(child: CircularProgressIndicator());
+                        }
+
+                        final response = imageSnapshot.data;
+                        if (imageSnapshot.hasError || response == null || response.bytes.isEmpty) {
+                          return Padding(
+                            padding: const EdgeInsets.all(24),
+                            child: Text(
+                              'Image preview failed. Open or download the file instead.\n${imageSnapshot.error ?? ''}',
+                              textAlign: TextAlign.center,
+                            ),
+                          );
+                        }
+
+                        return InteractiveViewer(
+                          minScale: 0.5,
+                          maxScale: 4,
+                          child: Center(
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Image.memory(
+                                response.bytes,
+                                errorBuilder: (context, error, stackTrace) => Padding(
+                                  padding: const EdgeInsets.all(24),
+                                  child: Text(
+                                    'Image preview failed. Open or download the file instead.\n$error',
+                                    textAlign: TextAlign.center,
+                                  ),
+                                ),
                               ),
                             ),
                           ),
-                        ),
-                      ),
+                        );
+                      },
                     ),
                   ),
                 ],
@@ -195,19 +210,39 @@ class _MediaPreviewCard extends StatelessWidget {
 }
 
 
+Future<void> _openMediaFile(
+  BuildContext context,
+  AdminResourceRepository repository,
+  String fileId,
+  String fallbackFilename,
+) async {
+  try {
+    final response = await repository.viewMediaFile(fileId);
+    openMediaBytes(
+      response.bytes,
+      filename: response.filename ?? fallbackFilename,
+      contentType: response.contentType,
+    );
+  } catch (error) {
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Open file failed: $error')),
+    );
+  }
+}
+
 Future<void> _downloadMediaFile(
   BuildContext context,
   AdminResourceRepository repository,
-  String fileId, {
-  String? filename,
-  String? contentType,
-}) async {
+  String fileId,
+  String fallbackFilename,
+) async {
   try {
-    final download = await repository.downloadMediaFile(fileId);
+    final response = await repository.downloadMediaFile(fileId);
     downloadMediaBytes(
-      download.bytes,
-      filename: filename,
-      contentType: contentType?.trim().isNotEmpty == true ? contentType : download.contentType,
+      response.bytes,
+      filename: response.filename ?? fallbackFilename,
+      contentType: response.contentType,
     );
   } catch (error) {
     if (!context.mounted) return;

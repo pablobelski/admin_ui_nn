@@ -26,6 +26,18 @@ void downloadMediaUrl(String url, {String? filename}) {
   anchor.remove();
 }
 
+void openMediaBytes(
+  Uint8List bytes, {
+  String? filename,
+  String? contentType,
+}) {
+  if (bytes.isEmpty) return;
+  final url = _objectUrl(bytes, contentType);
+  web.window.open(url, '_blank');
+  Future<void>.delayed(const Duration(seconds: 30), () {
+    web.URL.revokeObjectURL(url);
+  });
+}
 
 void downloadMediaBytes(
   Uint8List bytes, {
@@ -33,13 +45,7 @@ void downloadMediaBytes(
   String? contentType,
 }) {
   if (bytes.isEmpty) return;
-
-  final blob = web.Blob(
-    <JSAny>[bytes.toJS].toJS,
-    web.BlobPropertyBag(type: contentType ?? 'application/octet-stream'),
-  );
-  final url = web.URL.createObjectURL(blob);
-
+  final url = _objectUrl(bytes, contentType);
   final anchor = web.document.createElement('a') as web.HTMLAnchorElement
     ..href = url
     ..style.display = 'none';
@@ -55,4 +61,17 @@ void downloadMediaBytes(
   Future<void>.delayed(const Duration(seconds: 1), () {
     web.URL.revokeObjectURL(url);
   });
+}
+
+String _objectUrl(Uint8List bytes, String? contentType) {
+  final normalizedContentType = contentType?.trim();
+  final blob = web.Blob(
+    <JSAny>[bytes.toJS].toJS,
+    web.BlobPropertyBag(
+      type: normalizedContentType == null || normalizedContentType.isEmpty
+          ? 'application/octet-stream'
+          : normalizedContentType,
+    ),
+  );
+  return web.URL.createObjectURL(blob);
 }
