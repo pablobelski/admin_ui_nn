@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import '../models/admin_resource.dart';
 import 'api_client.dart';
 
@@ -115,6 +117,14 @@ class AdminResourceRepository {
     return _client.getJson('/api/admin/media-files/$fileId/url');
   }
 
+  Future<MediaFileDownload> downloadMediaFile(String fileId) async {
+    final response = await _client.getBytes('/api/admin/media-files/$fileId/download');
+    return MediaFileDownload(
+      bytes: response.bytes,
+      contentType: response.headers['content-type'],
+    );
+  }
+
   Future<void> delete(AdminResourceDefinition resource, String id) {
     return _client.delete('${resource.endpoint}/$id');
   }
@@ -128,4 +138,14 @@ class ResourceListResponse {
 
   final List<Map<String, dynamic>> items;
   final int total;
+}
+
+class MediaFileDownload {
+  const MediaFileDownload({
+    required this.bytes,
+    this.contentType,
+  });
+
+  final Uint8List bytes;
+  final String? contentType;
 }

@@ -132,7 +132,13 @@ class _MediaPreviewCard extends StatelessWidget {
                     ),
                     IconButton(
                       tooltip: 'Download',
-                      onPressed: url.isEmpty ? null : () => downloadMediaUrl(url, filename: filename),
+                      onPressed: () => _downloadMediaFile(
+                        context,
+                        repository,
+                        ref.fileId,
+                        filename: filename,
+                        contentType: mimeType,
+                      ),
                       icon: const Icon(Icons.download_outlined),
                     ),
                   ],
@@ -184,6 +190,29 @@ class _MediaPreviewCard extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+
+Future<void> _downloadMediaFile(
+  BuildContext context,
+  AdminResourceRepository repository,
+  String fileId, {
+  String? filename,
+  String? contentType,
+}) async {
+  try {
+    final download = await repository.downloadMediaFile(fileId);
+    downloadMediaBytes(
+      download.bytes,
+      filename: filename,
+      contentType: contentType?.trim().isNotEmpty == true ? contentType : download.contentType,
+    );
+  } catch (error) {
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('File download failed: $error')),
     );
   }
 }

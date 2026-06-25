@@ -1166,13 +1166,11 @@ Future<void> _downloadMediaFiles(
     for (final fileRef in files) {
       final data = await repository.fetchMediaFileUrl(fileRef.fileId);
       final file = Map<String, dynamic>.from((data['file'] as Map?) ?? const <String, dynamic>{});
-      final url = data['url']?.toString() ?? file['public_url']?.toString() ?? '';
-      if (url.isEmpty) {
-        throw StateError('Media URL is empty for ${fileRef.label}');
-      }
-      downloadMediaUrl(
-        url,
+      final download = await repository.downloadMediaFile(fileRef.fileId);
+      downloadMediaBytes(
+        download.bytes,
         filename: file['original_filename']?.toString(),
+        contentType: file['mime_type']?.toString() ?? download.contentType,
       );
     }
 

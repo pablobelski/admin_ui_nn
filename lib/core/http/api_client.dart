@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
@@ -73,6 +74,19 @@ class ApiClient {
     return jsonDecode(response.body) as Map<String, dynamic>;
   }
 
+
+  Future<ApiBinaryResponse> getBytes(String path) async {
+    final response = await _httpClient.get(
+      _uri(path),
+      headers: _headers(),
+    );
+    _ensureSuccess(response);
+    return ApiBinaryResponse(
+      bytes: response.bodyBytes,
+      headers: response.headers,
+    );
+  }
+
   Future<void> delete(String path) async {
     final response = await _httpClient.delete(
       _uri(path),
@@ -90,6 +104,16 @@ class ApiClient {
       body: response.body,
     );
   }
+}
+
+class ApiBinaryResponse {
+  const ApiBinaryResponse({
+    required this.bytes,
+    required this.headers,
+  });
+
+  final Uint8List bytes;
+  final Map<String, String> headers;
 }
 
 class ApiException implements Exception {

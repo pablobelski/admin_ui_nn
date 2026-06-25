@@ -397,13 +397,11 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
     try {
       final data = await widget.repository!.fetchMediaFileUrl(ref.fileId);
       final file = Map<String, dynamic>.from((data['file'] as Map?) ?? const <String, dynamic>{});
-      final url = data['url']?.toString() ?? file['public_url']?.toString() ?? '';
-      if (url.isEmpty) {
-        throw StateError('Media URL is empty');
-      }
-      downloadMediaUrl(
-        url,
+      final download = await widget.repository!.downloadMediaFile(ref.fileId);
+      downloadMediaBytes(
+        download.bytes,
         filename: file['original_filename']?.toString(),
+        contentType: file['mime_type']?.toString() ?? download.contentType,
       );
     } catch (error) {
       if (!mounted) return;
