@@ -90,6 +90,7 @@ class PrintDialogData {
   const PrintDialogData({
     required this.templates,
     required this.recentDocuments,
+    required this.payloadPreview,
   });
 
   factory PrintDialogData.fromJson(Map<String, dynamic> json) {
@@ -103,11 +104,13 @@ class PrintDialogData {
           .where((entry) => entry.fileId.isNotEmpty || (entry.url ?? '').isNotEmpty)
           .take(3)
           .toList(growable: false),
+      payloadPreview: _repoMap(json['payload_preview'] ?? json['payloadPreview']),
     );
   }
 
   final List<PrintTemplateOption> templates;
   final List<GeneratedDocument> recentDocuments;
+  final Map<String, dynamic> payloadPreview;
 }
 
 class PrintTemplateOption {

@@ -1,4 +1,5 @@
 import 'dart:ui' as ui;
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -4608,6 +4609,7 @@ class _PrintDialogState extends State<_PrintDialog> {
   PrintTemplateOption? _selectedTemplate;
   List<GeneratedDocument> _documents = const [];
   bool _isPrinting = false;
+  bool _showPayloadPreview = false;
   String? _statusText;
   String? _errorText;
 
@@ -4622,6 +4624,11 @@ class _PrintDialogState extends State<_PrintDialog> {
     _selectedTemplate = data.templates.isNotEmpty ? data.templates.first : null;
     _documents = data.recentDocuments.take(3).toList(growable: false);
     return data;
+  }
+
+  String _prettyPayloadJson(PrintDialogData data) {
+    final payload = data.payloadPreview.isEmpty ? <String, dynamic>{} : data.payloadPreview;
+    return const JsonEncoder.withIndent('  ').convert(payload);
   }
 
   Future<void> _print() async {
@@ -4693,6 +4700,7 @@ class _PrintDialogState extends State<_PrintDialog> {
                 ? _selectedTemplate!.id
                 : templates.first.id;
             _selectedTemplate = templates.firstWhere((entry) => entry.id == selectedId);
+            final payloadJsonText = _prettyPayloadJson(data);
 
             return Column(
               mainAxisSize: MainAxisSize.min,
@@ -4717,11 +4725,35 @@ class _PrintDialogState extends State<_PrintDialog> {
                   onChanged: _isPrinting
                       ? null
                       : (value) {
-                          final next = templates.where((entry) => entry.id == value).firstOrNull;
-                          if (next == null) return;
-                          setState(() => _selectedTemplate = next);
-                        },
+                    final next = templates.where((entry) => entry.id == value).firstOrNull;
+                    if (next == null) return;
+                    setState(() => _selectedTemplate = next);
+                  },
                 ),
+                const SizedBox(height: 8),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(
+                    onPressed: () => setState(() => _showPayloadPreview = !_showPayloadPreview),
+                    icon: Icon(_showPayloadPreview ? Icons.visibility_off_outlined : Icons.data_object_outlined),
+                    label: Text(_showPayloadPreview ? 'Hide render JSON' : 'Show render JSON'),
+                  ),
+                ),
+                if (_showPayloadPreview) ...[
+                  const SizedBox(height: 6),
+                  TextFormField(
+                    initialValue: payloadJsonText,
+                    readOnly: true,
+                    minLines: 5,
+                    maxLines: 10,
+                    decoration: const InputDecoration(
+                      labelText: 'Renderer payloadJson',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                    style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+                  ),
+                ],
                 if (_statusText != null) ...[
                   const SizedBox(height: 12),
                   Text(_statusText!, style: TextStyle(color: Theme.of(context).colorScheme.primary)),
@@ -4737,9 +4769,9 @@ class _PrintDialogState extends State<_PrintDialog> {
                   const Text('No generated PDF yet.')
                 else
                   ..._documents.map((document) => _GeneratedDocumentTile(
-                        document: document,
-                        repository: widget.repository,
-                      )),
+                    document: document,
+                    repository: widget.repository,
+                  )),
               ],
             );
           },
@@ -4754,10 +4786,10 @@ class _PrintDialogState extends State<_PrintDialog> {
           onPressed: _selectedTemplate == null || _isPrinting ? null : _print,
           icon: _isPrinting
               ? const SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
+            width: 16,
+            height: 16,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          )
               : const Icon(Icons.print_outlined),
           label: const Text('Print'),
         ),
