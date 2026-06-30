@@ -20,7 +20,7 @@ class _ModelGeometryPreview extends StatelessWidget {
 
     return Card(
       margin: EdgeInsets.zero,
-      color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.45),
+      color: colorScheme.surface,
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(

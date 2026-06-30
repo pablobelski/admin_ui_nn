@@ -532,9 +532,12 @@ class _StepCard extends ConsumerWidget {
           ),
           const Divider(height: 1),
           Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(20),
-              child: _buildStep(context, ref, step.key),
+            child: ColoredBox(
+              color: Theme.of(context).colorScheme.surface,
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(20),
+                child: _buildStep(context, ref, step.key),
+              ),
             ),
           ),
           const Divider(height: 1),
@@ -3981,14 +3984,17 @@ class _ResultPanel extends StatelessWidget {
                         ],
                       ),
                       Expanded(
-                        child: TabBarView(
-                          children: [
-                            _LinesTab(result: result),
-                            _BomTab(result: result),
-                            _ScrollableResultCard(child: JsonViewCard(title: 'Price sources', data: result.sources)),
-                            _SimpleRowsTab(rows: result.trace, empty: 'No trace.'),
-                            _ScrollableResultCard(child: JsonViewCard(title: 'Raw calculation result', data: result.raw)),
-                          ],
+                        child: ColoredBox(
+                          color: Theme.of(context).colorScheme.surface,
+                          child: TabBarView(
+                            children: [
+                              _LinesTab(result: result),
+                              _BomTab(result: result),
+                              _ScrollableResultCard(child: JsonViewCard(title: 'Price sources', data: result.sources)),
+                              _SimpleRowsTab(rows: result.trace, empty: 'No trace.'),
+                              _ScrollableResultCard(child: JsonViewCard(title: 'Raw calculation result', data: result.raw)),
+                            ],
+                          ),
                         ),
                       ),
                     ],
