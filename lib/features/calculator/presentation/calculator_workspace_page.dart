@@ -1191,6 +1191,9 @@ class _ModelStep extends StatelessWidget {
         _ModelGeometryPreview(
           modelCode: draft.modelCode,
           modelLabel: selectedModel?.label,
+          widthMm: draft.widthMm,
+          depthMm: draft.depthMm,
+          heightMm: draft.heightMm,
         ),
       ],
     );
