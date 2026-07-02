@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui' as ui;
 import 'dart:convert';
 
@@ -638,6 +639,7 @@ class _StepCard extends ConsumerWidget {
         return _ModelStep(
           roofModelState: roofModelState,
           draft: draft,
+          mediaRepository: ref.read(resourceRepositoryProvider),
           onChanged: notifier.setModel,
         );
       case 'dimensions':
@@ -1143,11 +1145,13 @@ class _ModelStep extends StatelessWidget {
   const _ModelStep({
     required this.roofModelState,
     required this.draft,
+    required this.mediaRepository,
     required this.onChanged,
   });
 
   final _RoofModelStepState roofModelState;
   final CalculatorDraft draft;
+  final AdminResourceRepository mediaRepository;
   final ValueChanged<String?> onChanged;
 
   @override
@@ -1191,9 +1195,11 @@ class _ModelStep extends StatelessWidget {
         _ModelGeometryPreview(
           modelCode: draft.modelCode,
           modelLabel: selectedModel?.label,
+          mediaRepository: mediaRepository,
           widthMm: draft.widthMm,
           depthMm: draft.depthMm,
           heightMm: draft.heightMm,
+          geometryParams: _geometryPreviewParamsFromDraft(draft),
         ),
       ],
     );

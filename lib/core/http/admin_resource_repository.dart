@@ -110,6 +110,37 @@ class AdminResourceRepository {
     );
   }
 
+  Future<Map<String, dynamic>?> findMediaFileByOriginalFilename(String filename) async {
+    final target = filename.trim().toLowerCase();
+    if (target.isEmpty) return null;
+
+    final response = await _client.getJson(
+      '/api/admin/media-files',
+      query: {
+        'q': filename.trim(),
+        'limit': '20',
+        'offset': '0',
+      },
+    );
+    final items = (response['items'] as List? ?? const [])
+        .cast<Map>()
+        .map((entry) => Map<String, dynamic>.from(entry))
+        .toList();
+
+    for (final item in items) {
+      final original =
+          item['original_filename']?.toString().trim().toLowerCase() ?? '';
+      if (original == target) return item;
+    }
+    for (final item in items) {
+      final original =
+          item['original_filename']?.toString().trim().toLowerCase() ?? '';
+      if (original.endsWith('/$target') || original.endsWith('\\$target')) {
+        return item;
+      }
+    }
+    return items.isEmpty ? null : items.first;
+  }
 
   Future<Map<String, dynamic>> fetchMediaFileUrl(String fileId) async {
     final data = await _client.getJson('/api/admin/media-files/$fileId/url');
