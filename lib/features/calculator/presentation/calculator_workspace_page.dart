@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
@@ -130,6 +131,10 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
                           child: _ResultPanel(
                             resultAsync: resultAsync,
                             draft: draft,
+                            calculatorContext: calculatorContext,
+                            roofModelState: roofModelState,
+                            selectedStep: _selectedStep,
+                            mediaRepository: ref.read(resourceRepositoryProvider),
                             loadedQuote: loadedQuote,
                             savedQuote: _savedQuote,
                             isSavingQuote: _isSavingQuote,
@@ -169,6 +174,10 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
                           child: _ResultPanel(
                             resultAsync: resultAsync,
                             draft: draft,
+                            calculatorContext: calculatorContext,
+                            roofModelState: roofModelState,
+                            selectedStep: _selectedStep,
+                            mediaRepository: ref.read(resourceRepositoryProvider),
                             loadedQuote: loadedQuote,
                             savedQuote: _savedQuote,
                             isSavingQuote: _isSavingQuote,
@@ -266,11 +275,12 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
   }
 
   Future<void> _showSaveQuoteDialog(BuildContext context) async {
-    final result = ref.read(calculatorResultProvider).maybeWhen(
-      data: (value) => value,
-      orElse: () => null,
+    final canSaveCalculation = ref.read(calculatorResultProvider).maybeWhen(
+      data: (value) => value != null,
+      error: (_, __) => true,
+      orElse: () => false,
     );
-    if (result == null) {
+    if (!canSaveCalculation) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Run calculation before saving quote.')),
       );
@@ -535,10 +545,7 @@ class _StepCard extends ConsumerWidget {
           Expanded(
             child: ColoredBox(
               color: Theme.of(context).colorScheme.surface,
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(20),
-                child: _buildStep(context, ref, step.key),
-              ),
+              child: _buildStepFrame(context, ref, step.key),
             ),
           ),
           const Divider(height: 1),
@@ -617,6 +624,20 @@ class _StepCard extends ConsumerWidget {
     }
   }
 
+  Widget _buildStepFrame(BuildContext context, WidgetRef ref, String key) {
+    if (key == 'set_contents') {
+      return Padding(
+        padding: const EdgeInsets.all(20),
+        child: _buildStep(context, ref, key),
+      );
+    }
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(20),
+      child: _buildStep(context, ref, key),
+    );
+  }
+
   Widget _buildStep(BuildContext context, WidgetRef ref, String key) {
     final notifier = ref.read(calculatorDraftProvider.notifier);
     switch (key) {
@@ -639,7 +660,6 @@ class _StepCard extends ConsumerWidget {
         return _ModelStep(
           roofModelState: roofModelState,
           draft: draft,
-          mediaRepository: ref.read(resourceRepositoryProvider),
           onChanged: notifier.setModel,
         );
       case 'dimensions':
@@ -1145,13 +1165,11 @@ class _ModelStep extends StatelessWidget {
   const _ModelStep({
     required this.roofModelState,
     required this.draft,
-    required this.mediaRepository,
     required this.onChanged,
   });
 
   final _RoofModelStepState roofModelState;
   final CalculatorDraft draft;
-  final AdminResourceRepository mediaRepository;
   final ValueChanged<String?> onChanged;
 
   @override
@@ -1171,11 +1189,6 @@ class _ModelStep extends StatelessWidget {
       );
     }
 
-    final selectedModel = roofModelState.options
-        .where((option) => option.code == draft.modelCode)
-        .cast<CalculatorOption?>()
-        .firstOrNull;
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1190,16 +1203,6 @@ class _ModelStep extends StatelessWidget {
           idSelector: (option) => option.code,
           onChanged: onChanged,
           emptyLabel: '— Model not selected —',
-        ),
-        const SizedBox(height: 16),
-        _ModelGeometryPreview(
-          modelCode: draft.modelCode,
-          modelLabel: selectedModel?.label,
-          mediaRepository: mediaRepository,
-          widthMm: draft.widthMm,
-          depthMm: draft.depthMm,
-          heightMm: draft.heightMm,
-          geometryParams: _geometryPreviewParamsFromDraft(draft),
         ),
       ],
     );
@@ -1631,8 +1634,8 @@ class _SetContentsStepState extends State<_SetContentsStep> {
             title: 'No set contents found',
             text: 'No linked published rule set row with result_json.components was found for this template/dimensions. Apply the SQL link script below and re-open this step.',
           )
-        else
-          _setContentTabs(context, tabs, preview?.tabs ?? const []),
+        else if (tabs.isNotEmpty)
+          Expanded(child: _setContentTabs(context, tabs, preview?.tabs ?? const [])),
       ],
     );
   }
@@ -1665,8 +1668,7 @@ class _SetContentsStepState extends State<_SetContentsStep> {
             ],
           ),
           const SizedBox(height: 12),
-          SizedBox(
-            height: 440,
+          Expanded(
             child: TabBarView(
               children: [
                 for (var tabIndex = 0; tabIndex < tabs.length; tabIndex++)
@@ -1771,12 +1773,10 @@ class _SetContentTabTableState extends State<_SetContentTabTable> {
   static const _rowExtent = 60.0;
   static const _titleHeight = 48.0;
   static const _headerHeight = 32.0;
-  static const _footerHeight = 34.0;
   static const _verticalPadding = 12.0;
   static const _dividerHeight = 1.0;
 
   final _scrollController = ScrollController();
-  var _isAtListEnd = false;
 
   CalculatorContext get contextData => widget.contextData;
   CalculatorSetContentTab get tab => widget.tab;
@@ -1788,31 +1788,9 @@ class _SetContentTabTableState extends State<_SetContentTabTable> {
   VoidCallback? get onRemoveTab => widget.onRemoveTab;
 
   @override
-  void initState() {
-    super.initState();
-    _scrollController.addListener(_syncScrollHint);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _syncScrollHint());
-  }
-
-  @override
-  void didUpdateWidget(covariant _SetContentTabTable oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _syncScrollHint());
-  }
-
-  @override
   void dispose() {
-    _scrollController.removeListener(_syncScrollHint);
     _scrollController.dispose();
     super.dispose();
-  }
-
-  void _syncScrollHint() {
-    if (!mounted || !_scrollController.hasClients) return;
-    final position = _scrollController.position;
-    final atEnd = position.maxScrollExtent <= 0 || position.pixels >= position.maxScrollExtent - 2;
-    if (atEnd == _isAtListEnd) return;
-    setState(() => _isAtListEnd = atEnd);
   }
 
   @override
@@ -1824,118 +1802,84 @@ class _SetContentTabTableState extends State<_SetContentTabTable> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final maxHeight = constraints.maxHeight.isFinite ? constraints.maxHeight : 440.0;
-        const fixedHeightWithoutFooter = _verticalPadding +
+        const fixedHeight = _verticalPadding +
             _titleHeight +
             _headerHeight +
             _dividerHeight +
             _dividerHeight;
-        final slotsWithoutFooter = visibleRows.isEmpty
-            ? 0
-            : ((maxHeight - fixedHeightWithoutFooter) / _rowExtent).floor().clamp(1, visibleRows.length).toInt();
-        final hasHiddenRows = visibleRows.length > slotsWithoutFooter;
-        final showScrollHint = hasHiddenRows && !_isAtListEnd;
-        final fixedHeight = fixedHeightWithoutFooter + (showScrollHint ? _dividerHeight + _footerHeight : 0);
-        final visibleSlots = visibleRows.isEmpty
-            ? 0
-            : ((maxHeight - fixedHeight) / _rowExtent).floor().clamp(1, visibleRows.length).toInt();
-        final listHeight = visibleRows.isEmpty ? null : visibleSlots * _rowExtent;
+        final listViewportHeight = maxHeight - fixedHeight;
+        final hasHiddenRows = visibleRows.isNotEmpty &&
+            visibleRows.length * _rowExtent > listViewportHeight + 0.5;
 
-        return Card(
-          margin: EdgeInsets.zero,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 6),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                SizedBox(
-                  height: _titleHeight,
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 0),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            '${tab.label} · $activeCount/${visibleRows.length} active set items${hiddenAccessoryCount > 0 ? ' · $hiddenAccessoryCount accessory moved' : ''}',
-                            style: Theme.of(context).textTheme.titleSmall,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        IconButton(
-                          tooltip: 'Remove block',
-                          onPressed: onRemoveTab,
-                          icon: const Icon(Icons.delete_outline),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const Divider(height: 1),
-                SizedBox(height: _headerHeight, child: _header(context)),
-                const Divider(height: 1),
-                if (visibleRows.isEmpty)
-                  const Expanded(
-                    child: Center(
-                      child: Padding(
-                        padding: EdgeInsets.all(16),
-                        child: Text('Only accessory components were found in this block. They are shown in the Accessory step.'),
-                      ),
-                    ),
-                  )
-                else
+        return SizedBox(
+          height: maxHeight,
+          child: Card(
+            margin: EdgeInsets.zero,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
                   SizedBox(
-                    height: listHeight,
-                    child: Scrollbar(
-                      controller: _scrollController,
-                      child: ListView.builder(
-                        controller: _scrollController,
-                        padding: EdgeInsets.zero,
-                        itemExtent: _rowExtent,
-                        itemCount: visibleRows.length,
-                        itemBuilder: (context, index) => DecoratedBox(
-                          decoration: BoxDecoration(
-                            border: index == visibleRows.length - 1
-                                ? null
-                                : Border(
-                                    bottom: BorderSide(color: Theme.of(context).dividerColor, width: 1),
-                                  ),
-                          ),
-                          child: _row(context, visibleRows[index]),
-                        ),
-                      ),
-                    ),
-                  ),
-                if (showScrollHint) ...[
-                  const Divider(height: 1),
-                  SizedBox(
-                    height: _footerHeight,
+                    height: _titleHeight,
                     child: Padding(
-                      padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
-                      child: Align(
-                        alignment: Alignment.centerRight,
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                            borderRadius: BorderRadius.circular(999),
-                            border: Border.all(color: Theme.of(context).dividerColor),
-                          ),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.keyboard_arrow_down, size: 16, color: Theme.of(context).colorScheme.primary),
-                                const SizedBox(width: 4),
-                                Text('more', style: Theme.of(context).textTheme.labelSmall),
-                              ],
+                      padding: const EdgeInsets.fromLTRB(12, 0, 12, 0),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              '${tab.label} · $activeCount/${visibleRows.length} active set items${hiddenAccessoryCount > 0 ? ' · $hiddenAccessoryCount accessory moved' : ''}',
+                              style: Theme.of(context).textTheme.titleSmall,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
-                        ),
+                          IconButton(
+                            tooltip: 'Remove block',
+                            onPressed: onRemoveTab,
+                            icon: const Icon(Icons.delete_outline),
+                          ),
+                        ],
                       ),
                     ),
                   ),
+                  const Divider(height: 1),
+                  SizedBox(height: _headerHeight, child: _header(context)),
+                  const Divider(height: 1),
+                  if (visibleRows.isEmpty)
+                    const Expanded(
+                      child: Center(
+                        child: Padding(
+                          padding: EdgeInsets.all(16),
+                          child: Text('Only accessory components were found in this block. They are shown in the Accessory step.'),
+                        ),
+                      ),
+                    )
+                  else
+                    Expanded(
+                      child: Scrollbar(
+                        controller: _scrollController,
+                        thumbVisibility: hasHiddenRows,
+                        child: ListView.builder(
+                          controller: _scrollController,
+                          padding: EdgeInsets.zero,
+                          itemExtent: _rowExtent,
+                          itemCount: visibleRows.length,
+                          itemBuilder: (context, index) => DecoratedBox(
+                            decoration: BoxDecoration(
+                              border: index == visibleRows.length - 1
+                                  ? null
+                                  : Border(
+                                      bottom: BorderSide(color: Theme.of(context).dividerColor, width: 1),
+                                    ),
+                            ),
+                            child: _row(context, visibleRows[index]),
+                          ),
+                        ),
+                      ),
+                    ),
                 ],
-              ],
+              ),
             ),
           ),
         );
@@ -3915,6 +3859,10 @@ class _ResultPanel extends StatelessWidget {
   const _ResultPanel({
     required this.resultAsync,
     required this.draft,
+    required this.calculatorContext,
+    required this.roofModelState,
+    required this.selectedStep,
+    required this.mediaRepository,
     required this.onSaveQuote,
     required this.onPrint,
     required this.isSavingQuote,
@@ -3924,34 +3872,84 @@ class _ResultPanel extends StatelessWidget {
 
   final AsyncValue<CalculatorResult?> resultAsync;
   final CalculatorDraft draft;
+  final CalculatorContext calculatorContext;
+  final _RoofModelStepState roofModelState;
+  final int selectedStep;
+  final AdminResourceRepository mediaRepository;
   final LoadedQuote? loadedQuote;
   final VoidCallback onSaveQuote;
   final VoidCallback onPrint;
   final bool isSavingQuote;
   final SavedQuote? savedQuote;
 
+  bool get _showPreviewTab {
+    final modelIndex = _steps.indexWhere((step) => step.key == 'model');
+    return roofModelState.required && modelIndex >= 0 && selectedStep >= modelIndex;
+  }
+
   @override
   Widget build(BuildContext context) {
+    final showPreviewTab = _showPreviewTab;
+
     return Card(
       clipBehavior: Clip.antiAlias,
       child: resultAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, _) => _ErrorCard(
-          title: 'Calculation failed',
-          message: '$error',
-        ),
+        error: (error, _) => _failedCalculationPanel(context, error, showPreviewTab),
         data: (result) {
+          if (result == null && !showPreviewTab) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(child: _noCalculationTab()),
+                const Divider(height: 1),
+                _ResultActions(
+                  canSaveQuote: false,
+                  canSaveAsOption: false,
+                  isSavingQuote: isSavingQuote,
+                  savedQuote: savedQuote,
+                  canPrint: loadedQuote != null || savedQuote != null,
+                  onSaveQuote: onSaveQuote,
+                  onPrint: onPrint,
+                ),
+              ],
+            );
+          }
+
           if (result == null) {
             return Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Expanded(
-                  child: Padding(
-                    padding: EdgeInsets.all(20),
-                    child: _HintCard(
-                      icon: Icons.calculate_outlined,
-                      title: 'No calculation yet',
-                      text: 'Fill the steps and run Calculate. Internal result will include sources, options diagnostics, BOM and trace.',
+                Expanded(
+                  child: DefaultTabController(
+                    length: 2,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        const TabBar(
+                          isScrollable: true,
+                          tabs: [
+                            Tab(text: 'Preview'),
+                            Tab(text: 'Result'),
+                          ],
+                        ),
+                        Expanded(
+                          child: ColoredBox(
+                            color: Theme.of(context).colorScheme.surface,
+                            child: TabBarView(
+                              children: [
+                                _GeometryPreviewTab(
+                                  draft: draft,
+                                  calculatorContext: calculatorContext,
+                                  roofModelState: roofModelState,
+                                  mediaRepository: mediaRepository,
+                                ),
+                                _noCalculationTab(),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
@@ -3974,7 +3972,7 @@ class _ResultPanel extends StatelessWidget {
             children: [
               Expanded(
                 child: DefaultTabController(
-                  length: 5,
+                  length: showPreviewTab ? 6 : 5,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
@@ -3982,14 +3980,15 @@ class _ResultPanel extends StatelessWidget {
                         padding: const EdgeInsets.fromLTRB(18, 16, 18, 8),
                         child: _PriceHeader(result: result, loadedQuote: loadedQuote),
                       ),
-                      const TabBar(
+                      TabBar(
                         isScrollable: true,
                         tabs: [
-                          Tab(text: 'Lines'),
-                          Tab(text: 'BOM'),
-                          Tab(text: 'Sources'),
-                          Tab(text: 'Trace'),
-                          Tab(text: 'JSON'),
+                          if (showPreviewTab) const Tab(text: 'Preview'),
+                          const Tab(text: 'Lines'),
+                          const Tab(text: 'BOM'),
+                          const Tab(text: 'Sources'),
+                          const Tab(text: 'Trace'),
+                          const Tab(text: 'JSON'),
                         ],
                       ),
                       Expanded(
@@ -3997,6 +3996,13 @@ class _ResultPanel extends StatelessWidget {
                           color: Theme.of(context).colorScheme.surface,
                           child: TabBarView(
                             children: [
+                              if (showPreviewTab)
+                                _GeometryPreviewTab(
+                                  draft: draft,
+                                  calculatorContext: calculatorContext,
+                                  roofModelState: roofModelState,
+                                  mediaRepository: mediaRepository,
+                                ),
                               _LinesTab(result: result),
                               _BomTab(result: result),
                               _ScrollableResultCard(child: JsonViewCard(title: 'Price sources', data: result.sources)),
@@ -4026,6 +4032,258 @@ class _ResultPanel extends StatelessWidget {
       ),
     );
   }
+
+  Widget _failedCalculationPanel(BuildContext context, Object error, bool showPreviewTab) {
+    final message = error is ApiException ? error.displayMessage : '$error';
+    final errorJson = <String, dynamic>{
+      'status': 'failed',
+      'message': message,
+    };
+    final traceRows = <Map<String, dynamic>>[
+      {
+        'step': 'calculation_failed',
+        'message': message,
+      },
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _CalculationErrorBanner(message: message),
+        Expanded(
+          child: DefaultTabController(
+            length: showPreviewTab ? 6 : 5,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                TabBar(
+                  isScrollable: true,
+                  tabs: [
+                    if (showPreviewTab) const Tab(text: 'Preview'),
+                    const Tab(text: 'Lines'),
+                    const Tab(text: 'BOM'),
+                    const Tab(text: 'Sources'),
+                    const Tab(text: 'Trace'),
+                    const Tab(text: 'JSON'),
+                  ],
+                ),
+                Expanded(
+                  child: ColoredBox(
+                    color: Theme.of(context).colorScheme.surface,
+                    child: TabBarView(
+                      children: [
+                        if (showPreviewTab)
+                          _GeometryPreviewTab(
+                            draft: draft,
+                            calculatorContext: calculatorContext,
+                            roofModelState: roofModelState,
+                            mediaRepository: mediaRepository,
+                          ),
+                        const Center(child: Text('No price lines were generated because calculation failed.')),
+                        const Center(child: Text('No BOM lines were generated because calculation failed.')),
+                        _ScrollableResultCard(child: JsonViewCard(title: 'Price sources', data: errorJson)),
+                        _SimpleRowsTab(rows: traceRows, empty: 'No trace.'),
+                        _ScrollableResultCard(child: JsonViewCard(title: 'Raw calculation error', data: errorJson)),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const Divider(height: 1),
+        _ResultActions(
+          canSaveQuote: true,
+          canSaveAsOption: draft.canSaveAsOptionFor(loadedQuote),
+          isSavingQuote: isSavingQuote,
+          savedQuote: savedQuote,
+          canPrint: loadedQuote != null || savedQuote != null,
+          onSaveQuote: onSaveQuote,
+          onPrint: onPrint,
+        ),
+      ],
+    );
+  }
+
+  Widget _noCalculationTab() {
+    return const Padding(
+      padding: EdgeInsets.all(20),
+      child: _HintCard(
+        icon: Icons.calculate_outlined,
+        title: 'No calculation yet',
+        text: 'Fill the steps and run Calculate. Internal result will include sources, options diagnostics, BOM and trace.',
+      ),
+    );
+  }
+}
+
+class _CalculationErrorBanner extends StatelessWidget {
+  const _CalculationErrorBanner({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return ColoredBox(
+      color: colorScheme.errorContainer,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.error_outline, color: colorScheme.onErrorContainer),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Calculation failed',
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          color: colorScheme.onErrorContainer,
+                        ),
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: () {
+                    Clipboard.setData(ClipboardData(text: message));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Calculation error copied.')),
+                    );
+                  },
+                  icon: const Icon(Icons.copy, size: 16),
+                  label: const Text('Copy'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 116),
+              child: SingleChildScrollView(
+                child: SelectableText(
+                  message,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onErrorContainer,
+                      ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _GeometryPreviewTab extends StatelessWidget {
+  const _GeometryPreviewTab({
+    required this.draft,
+    required this.calculatorContext,
+    required this.roofModelState,
+    required this.mediaRepository,
+  });
+
+  final CalculatorDraft draft;
+  final CalculatorContext calculatorContext;
+  final _RoofModelStepState roofModelState;
+  final AdminResourceRepository mediaRepository;
+
+  @override
+  Widget build(BuildContext context) {
+    final selectedModel = roofModelState.options
+        .where((option) => option.code == draft.modelCode)
+        .cast<CalculatorOption?>()
+        .firstOrNull;
+    final colorPreview = _colorPreviewDataFor(calculatorContext, draft.colorCode);
+    final modelCode = draft.modelCode?.trim();
+    final modelLabel = selectedModel?.label.trim();
+    final hasModel = modelCode != null && modelCode.isNotEmpty;
+
+    return _ScrollableResultCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Roof type', style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(height: 8),
+          if (hasModel)
+            _PreviewInfoCard(
+              rows: [
+                _PreviewInfoRow('Model', modelLabel?.isNotEmpty == true ? modelLabel! : modelCode),
+                _PreviewInfoRow('Code', modelCode),
+              ],
+            )
+          else
+            const _HintCard(
+              icon: Icons.view_in_ar_outlined,
+              title: 'No roof type selected',
+              text: 'Select a model to show the geometry preview.',
+            ),
+          if (hasModel) ...[
+            const SizedBox(height: 12),
+            _ModelGeometryPreview(
+              modelCode: draft.modelCode,
+              modelLabel: selectedModel?.label,
+              mediaRepository: mediaRepository,
+              widthMm: draft.widthMm,
+              depthMm: draft.depthMm,
+              heightMm: draft.heightMm,
+              geometryParams: _geometryPreviewParamsFromDraft(draft),
+              colorCode: colorPreview?.displayCode,
+              colorSwatchColor: colorPreview?.color,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _PreviewInfoCard extends StatelessWidget {
+  const _PreviewInfoCard({required this.rows});
+
+  final List<_PreviewInfoRow> rows;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.45),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: colorScheme.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (final row in rows)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SizedBox(
+                    width: 56,
+                    child: Text(row.label, style: Theme.of(context).textTheme.labelMedium),
+                  ),
+                  Expanded(child: Text(row.value.isEmpty ? '—' : row.value)),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PreviewInfoRow {
+  const _PreviewInfoRow(this.label, this.value);
+
+  final String label;
+  final String value;
 }
 
 class _ResultActions extends StatelessWidget {
@@ -5156,6 +5414,41 @@ class _MetricChip extends StatelessWidget {
   Widget build(BuildContext context) {
     return Chip(label: Text('$label: $value'));
   }
+}
+
+class _ColorPreviewData {
+  const _ColorPreviewData({
+    required this.displayCode,
+    required this.color,
+  });
+
+  final String displayCode;
+  final Color? color;
+}
+
+_ColorPreviewData? _colorPreviewDataFor(CalculatorContext contextData, String? rawCode) {
+  final code = _normalizeRalCode(rawCode);
+  if (code == null) return null;
+
+  final colorOptions = contextData.references['colors'] ?? const <CalculatorOption>[];
+  final ralColorOptions = contextData.references['ral_colors'] ?? const <CalculatorOption>[];
+
+  CalculatorOption? match;
+  for (final option in [...colorOptions, ...ralColorOptions]) {
+    if (_normalizeRalCode(option.code) == code) {
+      match = option;
+      break;
+    }
+  }
+
+  final color = _colorFromHex(
+    _stringFromRaw(match?.raw['color_hex'] ?? match?.raw['colorHex'] ?? match?.raw['metadata_json']?['color_hex']),
+  );
+
+  return _ColorPreviewData(
+    displayCode: RegExp(r'^\d{4}$').hasMatch(code) ? 'RAL $code' : code,
+    color: color,
+  );
 }
 
 class _StepDefinition {

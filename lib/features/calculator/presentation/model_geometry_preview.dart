@@ -9,6 +9,8 @@ class _ModelGeometryPreview extends StatefulWidget {
     this.depthMm,
     this.heightMm,
     this.geometryParams = const [],
+    this.colorCode,
+    this.colorSwatchColor,
   });
 
   final String? modelCode;
@@ -18,6 +20,8 @@ class _ModelGeometryPreview extends StatefulWidget {
   final int? depthMm;
   final int? heightMm;
   final List<_RoofGeometryParam> geometryParams;
+  final String? colorCode;
+  final Color? colorSwatchColor;
 
   @override
   State<_ModelGeometryPreview> createState() => _ModelGeometryPreviewState();
@@ -92,6 +96,8 @@ class _ModelGeometryPreviewState extends State<_ModelGeometryPreview> {
                       depthMm: widget.depthMm,
                       heightMm: widget.heightMm,
                       geometryParams: widget.geometryParams,
+                      colorCode: widget.colorCode,
+                      colorSwatchColor: widget.colorSwatchColor,
                       humanImage: snapshot.data,
                       lineColor: colorScheme.onSurface,
                       mutedLineColor: colorScheme.onSurfaceVariant,
@@ -233,6 +239,8 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     required this.depthMm,
     required this.heightMm,
     required this.geometryParams,
+    required this.colorCode,
+    required this.colorSwatchColor,
     required this.humanImage,
     required this.lineColor,
     required this.mutedLineColor,
@@ -246,6 +254,8 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
   final int? depthMm;
   final int? heightMm;
   final List<_RoofGeometryParam> geometryParams;
+  final String? colorCode;
+  final Color? colorSwatchColor;
   final ui.Image? humanImage;
   final Color lineColor;
   final Color mutedLineColor;
@@ -866,15 +876,50 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
       final b = p(Offset(x, _yAt(layout.back, x)));
       canvas.drawLine(a, b, beamPaint);
     }
+    const insetTextGap = 14.0;
+    final hCenter = Offset(rect.center.dx, rect.bottom + insetTextGap);
     _drawText(
       canvas,
       _paramEqualsText(params, 'H', heightMm),
-      Offset(rect.center.dx, rect.bottom + 14),
+      hCenter,
       lineColor,
       10.5,
       isBold: true,
       hAlign: 0.5,
     );
+    _drawColorInset(canvas, rect, hCenter.dy + insetTextGap);
+  }
+
+  void _drawColorInset(Canvas canvas, Rect planRect, double top) {
+    final code = colorCode?.trim();
+    if (code == null || code.isEmpty) return;
+
+    const tileHeight = 24.0;
+    final tileRect = Rect.fromLTWH(
+      planRect.left,
+      top,
+      planRect.width,
+      tileHeight,
+    );
+    final background = colorSwatchColor ?? const Color(0xFFE1E3E4);
+    final foreground = background.computeLuminance() > 0.45 ? Colors.black87 : Colors.white;
+    final rrect = RRect.fromRectAndRadius(tileRect, const Radius.circular(7));
+
+    canvas.drawRRect(
+      rrect,
+      Paint()
+        ..color = background
+        ..style = PaintingStyle.fill,
+    );
+    canvas.drawRRect(
+      rrect,
+      Paint()
+        ..color = lineColor.withValues(alpha: 0.20)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 0.8,
+    );
+
+    _drawText(canvas, code, tileRect.center, foreground, 9.0, isBold: true, hAlign: 0.5);
   }
 
   String _paramText(_GeometryParamBag params, String code, int? fallback) {
@@ -1042,6 +1087,8 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
         oldDelegate.depthMm != depthMm ||
         oldDelegate.heightMm != heightMm ||
         !_sameGeometryParams(oldDelegate.geometryParams, geometryParams) ||
+        oldDelegate.colorCode != colorCode ||
+        oldDelegate.colorSwatchColor != colorSwatchColor ||
         oldDelegate.humanImage != humanImage ||
         oldDelegate.lineColor != lineColor ||
         oldDelegate.mutedLineColor != mutedLineColor ||
