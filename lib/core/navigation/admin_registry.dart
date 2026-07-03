@@ -95,6 +95,13 @@ const roofModelLookup = AdminLookup(
   showIdInDropdown: false,
 );
 
+const assetFileLookup = AdminLookup(
+  endpoint: '/api/admin/media-files',
+  labelKeys: ['original_filename', 'mime_type'],
+  limit: 1000,
+  showIdInDropdown: false,
+);
+
 const materialPriceDimensionLookup = AdminLookup(
   endpoint: '/api/admin/material-price-dimensions',
   labelKeys: ['code', 'name', 'unit_code'],
@@ -239,6 +246,7 @@ const systemOptionPriceListPurposeOptions = <AdminSelectOption>[
 const mediaPurposeOptions = <AdminSelectOption>[
   AdminSelectOption(value: 'generated-documents/quotes', label: 'Generated quote documents'),
   AdminSelectOption(value: 'catalog_media', label: 'Catalog media'),
+  AdminSelectOption(value: 'roof_model_media', label: 'Roof model media'),
   AdminSelectOption(value: 'document_template', label: 'Document templates'),
   AdminSelectOption(value: 'email_template', label: 'Email templates'),
   AdminSelectOption(value: 'media', label: 'General media'),
@@ -400,7 +408,7 @@ const adminNavGroups = <AdminNavGroup>[
         endpoint: '/api/admin/media-files',
         icon: Icons.perm_media_outlined,
         requiresSysadmin: true,
-        supportsCreate: false,
+        supportsCreate: true,
         supportsDelete: true,
         columns: [
           AdminColumn(key: 'original_filename', label: 'File', isPrimary: true, flex: 2),
@@ -628,6 +636,7 @@ const adminNavGroups = <AdminNavGroup>[
         supportsDelete: false,
         columns: [
           AdminColumn(key: 'quote_no', label: 'Quote no', isPrimary: true, flex: 2),
+          AdminColumn(key: 'quote_no_external', label: 'Komission name', flex: 2),
           AdminColumn(key: 'status_code', label: 'Status'),
           AdminColumn(key: 'order_type_code', label: 'Type'),
           AdminColumn(key: 'buyer_organization_id', label: 'Buyer', flex: 2, lookup: organizationLookup),
@@ -645,6 +654,8 @@ const adminNavGroups = <AdminNavGroup>[
         ],
         formFields: [
           AdminField(key: 'quote_no', label: 'Quote no', readOnly: true),
+          AdminField(key: 'quote_no_external', label: 'Komission name', readOnly: true),
+          AdminField(key: 'external_notes', label: 'Quote notes', type: AdminFieldType.longText, readOnly: true),
           AdminField(key: 'seller_organization_id', label: 'Seller', lookup: organizationLookup, readOnly: true),
           AdminField(key: 'buyer_organization_id', label: 'Buyer', lookup: organizationLookup, readOnly: true),
           AdminField(key: 'configurator_template_id', label: 'Template', lookup: configuratorTemplateLookup, readOnly: true),
@@ -1670,6 +1681,66 @@ const adminNavGroups = <AdminNavGroup>[
             sourceValueKey: 'product_family_id',
             selectTargetRow: true,
             icon: Icons.category_outlined,
+          ),
+          AdminDetailAction(
+            label: 'Show roof model media',
+            targetResourceKey: 'roof_model_media',
+            filterKey: 'roof_model_id',
+            sourceValueKey: 'id',
+            icon: Icons.perm_media_outlined,
+          ),
+        ],
+      ),
+      AdminResourceDefinition(
+        key: 'roof_model_media',
+        title: 'Roof Model Media',
+        endpoint: '/api/admin/roof-model-media',
+        icon: Icons.perm_media_outlined,
+        columns: [
+          AdminColumn(key: 'roof_model_id', label: 'Roof model', flex: 2, lookup: roofModelLookup),
+          AdminColumn(key: 'file_id', label: 'Media file', flex: 2, lookup: assetFileLookup),
+          AdminColumn(key: 'use_type', label: 'Use type'),
+          AdminColumn(key: 'is_default', label: 'Default'),
+          AdminColumn(key: 'sort_order', label: 'Sort'),
+          AdminColumn(key: 'is_active', label: 'Active'),
+        ],
+        listFilters: [
+          AdminResourceFilter(key: 'roof_model_id', label: 'Roof model', lookup: roofModelLookup),
+          AdminResourceFilter(key: 'is_default', label: 'Default', options: activeFilterOptions),
+          AdminResourceFilter(key: 'is_active', label: 'Active', options: activeFilterOptions),
+        ],
+        formFields: [
+          AdminField(key: 'roof_model_id', label: 'Roof model', lookup: roofModelLookup),
+          AdminField(
+            key: 'file_id',
+            label: 'Media file',
+            type: AdminFieldType.file,
+            filePurpose: 'roof_model_media',
+            accept: 'image/*,.pdf,.dwg,.dxf',
+          ),
+          AdminField(key: 'use_type', label: 'Use type', defaultValue: 'preview'),
+          AdminField(key: 'label', label: 'Label'),
+          AdminField(key: 'sort_order', label: 'Sort order', type: AdminFieldType.number),
+          AdminField(key: 'is_default', label: 'Default image', type: AdminFieldType.boolType),
+          AdminField(key: 'metadata_json', label: 'Metadata JSON', type: AdminFieldType.json),
+          AdminField(key: 'is_active', label: 'Active', type: AdminFieldType.boolType),
+        ],
+        detailActions: [
+          AdminDetailAction(
+            label: 'Show roof model',
+            targetResourceKey: 'roof_models',
+            filterKey: 'id',
+            sourceValueKey: 'roof_model_id',
+            selectTargetRow: true,
+            icon: Icons.roofing_outlined,
+          ),
+          AdminDetailAction(
+            label: 'Show file in Media Library',
+            targetResourceKey: 'asset_files',
+            filterKey: 'id',
+            sourceValueKey: 'file_id',
+            selectTargetRow: true,
+            icon: Icons.perm_media_outlined,
           ),
         ],
       ),

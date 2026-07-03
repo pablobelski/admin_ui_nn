@@ -46,6 +46,7 @@ class CalculatorRepository {
       '/api/internal/calculator/save-quote',
       body: {
         'input': draft.toCalculationJson(),
+        'workspace_input': draft.toWorkspaceJson(),
         'mode': mode.apiValue,
         if (baseQuoteId != null && baseQuoteId.isNotEmpty) 'base_quote_id': baseQuoteId,
       },

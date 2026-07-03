@@ -619,6 +619,8 @@ class CalculatorDraft {
     this.coveringCode,
     this.colorCode,
     this.handoverTypeCode,
+    this.quoteNoExternal,
+    this.externalNotes,
     this.options = const [],
     this.setContents = const [],
   });
@@ -635,7 +637,6 @@ class CalculatorDraft {
         ? (json['set_contents'] as List)
             .whereType<Map>()
             .map((entry) => CalculatorSetContentTab.fromJson(Map<String, dynamic>.from(entry)))
-            .where((tab) => tab.items.isNotEmpty)
             .toList()
         : <CalculatorSetContentTab>[];
 
@@ -651,6 +652,8 @@ class CalculatorDraft {
       coveringCode: _nullableString(json['covering_code']),
       colorCode: _nullableString(json['color_code']),
       handoverTypeCode: _nullableString(json['handover_type_code']),
+      quoteNoExternal: _nullableString(json['quote_no_external'] ?? json['quoteNoExternal']),
+      externalNotes: _nullableString(json['external_notes'] ?? json['externalNotes']),
       options: options,
       setContents: setContents,
     );
@@ -667,6 +670,8 @@ class CalculatorDraft {
   final String? coveringCode;
   final String? colorCode;
   final String? handoverTypeCode;
+  final String? quoteNoExternal;
+  final String? externalNotes;
   final List<CalculatorSelectedOption> options;
   final List<CalculatorSetContentTab> setContents;
 
@@ -692,6 +697,10 @@ class CalculatorDraft {
     bool clearColor = false,
     String? handoverTypeCode,
     bool clearHandover = false,
+    String? quoteNoExternal,
+    bool clearQuoteNoExternal = false,
+    String? externalNotes,
+    bool clearExternalNotes = false,
     List<CalculatorSelectedOption>? options,
     List<CalculatorSetContentTab>? setContents,
   }) {
@@ -707,17 +716,14 @@ class CalculatorDraft {
       coveringCode: clearCovering ? null : coveringCode ?? this.coveringCode,
       colorCode: clearColor ? null : colorCode ?? this.colorCode,
       handoverTypeCode: clearHandover ? null : handoverTypeCode ?? this.handoverTypeCode,
+      quoteNoExternal: clearQuoteNoExternal ? null : quoteNoExternal ?? this.quoteNoExternal,
+      externalNotes: clearExternalNotes ? null : externalNotes ?? this.externalNotes,
       options: options ?? this.options,
       setContents: setContents ?? this.setContents,
     );
   }
 
-  Map<String, dynamic> toCalculationJson() {
-    final activeSetContents = setContents
-        .map((entry) => entry.toCalculationJson())
-        .where((entry) => (entry['items'] as List).isNotEmpty)
-        .toList();
-
+  Map<String, dynamic> _baseJson({required List<Map<String, dynamic>> setContentsJson}) {
     return {
       if (organizationId != null && organizationId!.isNotEmpty) 'organization_id': organizationId,
       if (templateId != null && templateId!.isNotEmpty) 'template_id': templateId,
@@ -731,14 +737,31 @@ class CalculatorDraft {
       if (coveringCode != null && coveringCode!.isNotEmpty) 'covering_code': coveringCode,
       if (colorCode != null && colorCode!.isNotEmpty) 'color_code': colorCode,
       if (handoverTypeCode != null && handoverTypeCode!.isNotEmpty) 'handover_type_code': handoverTypeCode,
+      if (quoteNoExternal != null && quoteNoExternal!.isNotEmpty) 'quote_no_external': quoteNoExternal,
+      if (externalNotes != null && externalNotes!.isNotEmpty) 'external_notes': externalNotes,
       'options': options.map((entry) => entry.toJson()).toList(),
-      'set_contents': activeSetContents,
+      'set_contents': setContentsJson,
       'language_code': 'de',
     };
   }
 
+  Map<String, dynamic> toCalculationJson() {
+    final activeSetContents = setContents
+        .map((entry) => entry.toCalculationJson())
+        .where((entry) => (entry['items'] as List).isNotEmpty)
+        .toList();
+
+    return _baseJson(setContentsJson: activeSetContents);
+  }
+
+  Map<String, dynamic> toWorkspaceJson() {
+    return _baseJson(
+      setContentsJson: setContents.map((entry) => entry.toJson()).toList(),
+    );
+  }
+
   bool differsFromLoadedQuote(LoadedQuote quote) {
-    return _stableJson(toCalculationJson()) != _stableJson(quote.normalizedInput);
+    return _stableJson(toWorkspaceJson()) != _stableJson(quote.normalizedInput);
   }
 
   bool hasSameBuyerAndShipToAs(LoadedQuote quote) {
@@ -927,15 +950,22 @@ class LoadedQuote {
     this.sellerOrganizationId,
     this.buyerOrganizationId,
     this.shipToOrganizationId,
+    this.quoteNoExternal,
+    this.externalNotes,
   });
 
   factory LoadedQuote.fromJson(Map<String, dynamic> json) {
     final quote = _map(json['quote']);
+    final quoteNoExternal = _nullableString(quote['quote_no_external'] ?? json['quote_no_external']);
+    final externalNotes = _nullableString(quote['external_notes'] ?? json['external_notes']);
+    final input = Map<String, dynamic>.from(_map(json['input'] ?? quote['input_json']));
+    if (quoteNoExternal != null && quoteNoExternal.isNotEmpty) input['quote_no_external'] = quoteNoExternal;
+    if (externalNotes != null && externalNotes.isNotEmpty) input['external_notes'] = externalNotes;
     return LoadedQuote(
       id: _string(quote['id'] ?? json['id']),
       quoteNo: _string(quote['quote_no'] ?? quote['quoteNo'] ?? json['quote_no'] ?? json['quoteNo']),
       statusCode: _string(quote['status_code'] ?? quote['statusCode'] ?? json['status_code'] ?? json['statusCode']),
-      input: _map(json['input'] ?? quote['input_json']),
+      input: input,
       productFamilyId: _nullableString(quote['product_family_id'] ?? json['product_family_id']),
       resultJson: (json['result'] ?? quote['result_json']) is Map
           ? Map<String, dynamic>.from(json['result'] ?? quote['result_json'])
@@ -943,6 +973,8 @@ class LoadedQuote {
       sellerOrganizationId: _nullableString(quote['seller_organization_id'] ?? json['seller_organization_id']),
       buyerOrganizationId: _nullableString(quote['buyer_organization_id'] ?? json['buyer_organization_id']),
       shipToOrganizationId: _nullableString(quote['ship_to_organization_id'] ?? json['ship_to_organization_id']),
+      quoteNoExternal: quoteNoExternal,
+      externalNotes: externalNotes,
     );
   }
 
@@ -955,11 +987,13 @@ class LoadedQuote {
   final String? sellerOrganizationId;
   final String? buyerOrganizationId;
   final String? shipToOrganizationId;
+  final String? quoteNoExternal;
+  final String? externalNotes;
 
   Map<String, dynamic> get normalizedInput => CalculatorDraft.fromCalculationJson(
         input,
         productFamilyId: productFamilyId,
-      ).toCalculationJson();
+      ).toWorkspaceJson();
 }
 
 enum SaveQuoteMode {

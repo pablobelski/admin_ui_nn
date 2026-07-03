@@ -1,5 +1,3 @@
-import 'dart:async';
-import 'dart:ui' as ui;
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -17,8 +15,7 @@ import '../../../core/ui/media_preview_dialog.dart';
 import '../data/calculator_models.dart';
 import '../data/calculator_repository.dart';
 import 'calculator_providers.dart';
-
-part 'model_geometry_preview.dart';
+import 'model_geometry_preview.dart';
 
 const _steps = <_StepDefinition>[
   _StepDefinition('product', 'Product', Icons.inventory_2_outlined),
@@ -88,6 +85,10 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
           children: [
             _Header(
               loadedQuote: loadedQuote,
+              selectedIndex: _selectedStep,
+              disabledStepKeys: disabledStepKeys,
+              draft: draft,
+              onStepSelected: (index) => setState(() => _selectedStep = index),
               onNewCalculation: () => _confirmNewCalculation(context),
               onRefresh: () {
                 ref.invalidate(calculatorContextProvider);
@@ -101,16 +102,6 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
                   ? Row(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        SizedBox(
-                          width: 245,
-                          child: _StepRail(
-                            selectedIndex: _selectedStep,
-                            disabledStepKeys: disabledStepKeys,
-                            draft: draft,
-                            onSelect: (index) => setState(() => _selectedStep = index),
-                          ),
-                        ),
-                        const SizedBox(width: 16),
                         Expanded(
                           flex: 3,
                           child: _StepCard(
@@ -146,15 +137,6 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
                     )
                   : Column(
                       children: [
-                        SizedBox(
-                          height: 88,
-                          child: _StepScroller(
-                            selectedIndex: _selectedStep,
-                            disabledStepKeys: disabledStepKeys,
-                            onSelect: (index) => setState(() => _selectedStep = index),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
                         Expanded(
                           child: _StepCard(
                             selectedStep: _selectedStep,
@@ -372,11 +354,19 @@ class _Header extends StatelessWidget {
     required this.onRefresh,
     required this.onNewCalculation,
     required this.loadedQuote,
+    required this.selectedIndex,
+    required this.disabledStepKeys,
+    required this.draft,
+    required this.onStepSelected,
   });
 
   final VoidCallback onRefresh;
   final VoidCallback onNewCalculation;
   final LoadedQuote? loadedQuote;
+  final int selectedIndex;
+  final Set<String> disabledStepKeys;
+  final CalculatorDraft draft;
+  final ValueChanged<int> onStepSelected;
 
   @override
   Widget build(BuildContext context) {
@@ -385,17 +375,32 @@ class _Header extends StatelessWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        Icon(Icons.calculate_outlined, color: Theme.of(context).colorScheme.primary),
-        const SizedBox(width: 12),
+        SizedBox(
+          width: 60,
+          height: 60,
+          child: Center(
+            child: Icon(
+              Icons.build_circle_outlined,
+              size: 60,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text('Calculator Workspace', style: Theme.of(context).textTheme.headlineSmall),
               const SizedBox(height: 4),
-              Text(
-                'Internal step-by-step configurator: Product → Template → Model → Dimensions → Covering → Color → Set contents → Options → Delivery → Summary.',
-                style: Theme.of(context).textTheme.bodyMedium,
+              SizedBox(
+                height: 40,
+                child: _StepScroller(
+                  selectedIndex: selectedIndex,
+                  disabledStepKeys: disabledStepKeys,
+                  draft: draft,
+                  onSelect: onStepSelected,
+                ),
               ),
             ],
           ),
@@ -425,8 +430,8 @@ class _Header extends StatelessWidget {
   }
 }
 
-class _StepRail extends StatelessWidget {
-  const _StepRail({
+class _StepScroller extends StatelessWidget {
+  const _StepScroller({
     required this.selectedIndex,
     required this.disabledStepKeys,
     required this.draft,
@@ -440,64 +445,176 @@ class _StepRail extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      child: ListView.separated(
-        padding: const EdgeInsets.all(8),
-        itemCount: _steps.length,
-        separatorBuilder: (_, __) => const SizedBox(height: 4),
-        itemBuilder: (context, index) {
-          final step = _steps[index];
-          final selected = index == selectedIndex;
-          final disabled = disabledStepKeys.contains(step.key);
-          final complete = !disabled && _isStepComplete(step.key, draft);
-          return ListTile(
-            enabled: !disabled,
-            dense: true,
-            selected: selected,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            leading: Icon(disabled ? Icons.lock_outline : complete ? Icons.check_circle : step.icon),
-            title: Text(step.title),
-            subtitle: Text(disabled ? 'not configured for selected template' : _stepHint(step.key, draft), maxLines: 1, overflow: TextOverflow.ellipsis),
-            onTap: disabled ? null : () => onSelect(index),
-          );
-        },
-      ),
-    );
-  }
-}
-
-class _StepScroller extends StatelessWidget {
-  const _StepScroller({
-    required this.selectedIndex,
-    required this.disabledStepKeys,
-    required this.onSelect,
-  });
-
-  final int selectedIndex;
-  final Set<String> disabledStepKeys;
-  final ValueChanged<int> onSelect;
-
-  @override
-  Widget build(BuildContext context) {
     return ListView.separated(
       scrollDirection: Axis.horizontal,
       padding: const EdgeInsets.symmetric(horizontal: 4),
       itemBuilder: (context, index) {
         final step = _steps[index];
         final disabled = disabledStepKeys.contains(step.key);
-        return ChoiceChip(
-          selected: index == selectedIndex,
-          avatar: Icon(disabled ? Icons.lock_outline : step.icon, size: 18),
-          label: Text(step.title),
-          onSelected: disabled ? null : (_) => onSelect(index),
+        final complete = !disabled && _isStepComplete(step.key, draft);
+        final selected = index == selectedIndex;
+        return _StepNavTab(
+          step: step,
+          selected: selected,
+          disabled: disabled,
+          complete: complete,
+          onTap: disabled ? null : () => onSelect(index),
         );
       },
-      separatorBuilder: (_, __) => const SizedBox(width: 8),
+      separatorBuilder: (_, __) => const SizedBox(width: 4),
       itemCount: _steps.length,
     );
   }
 }
+
+class _StepNavTab extends StatelessWidget {
+  const _StepNavTab({
+    required this.step,
+    required this.selected,
+    required this.disabled,
+    required this.complete,
+    required this.onTap,
+  });
+
+  final _StepDefinition step;
+  final bool selected;
+  final bool disabled;
+  final bool complete;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final backgroundColor = disabled
+        ? colorScheme.surfaceContainerHighest.withValues(alpha: 0.42)
+        : selected
+            ? colorScheme.primaryContainer.withValues(alpha: 0.72)
+            : colorScheme.surfaceContainerHighest.withValues(alpha: 0.58);
+    final borderColor = selected
+        ? colorScheme.primary.withValues(alpha: 0.68)
+        : colorScheme.outlineVariant.withValues(alpha: disabled ? 0.35 : 0.78);
+    final iconColor = disabled
+        ? colorScheme.onSurfaceVariant.withValues(alpha: 0.45)
+        : selected
+            ? colorScheme.primary
+            : colorScheme.onSurfaceVariant;
+    final tooltip = disabled
+        ? '${step.title}\nNot configured for selected template'
+        : step.title;
+
+    return Tooltip(
+      message: tooltip,
+      waitDuration: const Duration(milliseconds: 350),
+      child: SizedBox(
+        width: complete ? 52 : 42,
+        height: 40,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            ClipPath(
+              clipper: const _StepNavTabClipper(),
+              child: Material(
+                color: backgroundColor,
+                child: InkWell(
+                  onTap: onTap,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            disabled ? Icons.lock_outline : step.icon,
+                            size: 18,
+                            color: iconColor,
+                          ),
+                          if (complete) ...[
+                            const SizedBox(width: 3),
+                            Icon(
+                              Icons.check,
+                              size: 13,
+                              color: disabled
+                                  ? colorScheme.onSurfaceVariant.withValues(alpha: 0.45)
+                                  : colorScheme.primary,
+                            ),
+                          ],
+                        ],
+                      ),
+                      if (selected)
+                        Positioned(
+                          left: 7,
+                          right: 13,
+                          bottom: 4,
+                          child: Container(
+                            height: 2,
+                            color: colorScheme.primary,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            IgnorePointer(
+              child: CustomPaint(
+                painter: _StepNavTabBorderPainter(
+                  color: borderColor,
+                  selected: selected,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _StepNavTabBorderPainter extends CustomPainter {
+  const _StepNavTabBorderPainter({
+    required this.color,
+    required this.selected,
+  });
+
+  final Color color;
+  final bool selected;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final path = const _StepNavTabClipper().getClip(size);
+    final borderPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = selected ? 1.2 : 0.8
+      ..color = color;
+    canvas.drawPath(path, borderPaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _StepNavTabBorderPainter oldDelegate) {
+    return oldDelegate.color != color || oldDelegate.selected != selected;
+  }
+}
+
+class _StepNavTabClipper extends CustomClipper<Path> {
+  const _StepNavTabClipper();
+
+  @override
+  Path getClip(Size size) {
+    final nose = (size.height * 0.28).clamp(8.0, 12.0).toDouble();
+    return Path()
+      ..moveTo(0, 0)
+      ..lineTo(size.width - nose, 0)
+      ..lineTo(size.width, size.height / 2)
+      ..lineTo(size.width - nose, size.height)
+      ..lineTo(0, size.height)
+      ..close();
+  }
+
+  @override
+  bool shouldReclip(covariant _StepNavTabClipper oldClipper) => false;
+}
+
 
 class _StepCard extends ConsumerWidget {
   const _StepCard({
@@ -648,6 +765,8 @@ class _StepCard extends ConsumerWidget {
           onOrganizationChanged: notifier.setOrganization,
           onProductFamilyChanged: notifier.setProductFamily,
           onPriceModeChanged: notifier.setPriceMode,
+          onQuoteNoExternalChanged: notifier.setQuoteNoExternal,
+          onExternalNotesChanged: notifier.setExternalNotes,
         );
       case 'template':
         return _TemplateStep(
@@ -660,6 +779,7 @@ class _StepCard extends ConsumerWidget {
         return _ModelStep(
           roofModelState: roofModelState,
           draft: draft,
+          mediaRepository: ref.read(resourceRepositoryProvider),
           onChanged: notifier.setModel,
         );
       case 'dimensions':
@@ -737,13 +857,15 @@ class _StepCard extends ConsumerWidget {
   }
 }
 
-class _ProductStep extends StatelessWidget {
+class _ProductStep extends StatefulWidget {
   const _ProductStep({
     required this.contextData,
     required this.draft,
     required this.onOrganizationChanged,
     required this.onProductFamilyChanged,
     required this.onPriceModeChanged,
+    required this.onQuoteNoExternalChanged,
+    required this.onExternalNotesChanged,
   });
 
   final CalculatorContext contextData;
@@ -751,6 +873,42 @@ class _ProductStep extends StatelessWidget {
   final ValueChanged<String?> onOrganizationChanged;
   final ValueChanged<String?> onProductFamilyChanged;
   final ValueChanged<String?> onPriceModeChanged;
+  final ValueChanged<String> onQuoteNoExternalChanged;
+  final ValueChanged<String> onExternalNotesChanged;
+
+  @override
+  State<_ProductStep> createState() => _ProductStepState();
+}
+
+class _ProductStepState extends State<_ProductStep> {
+  late final TextEditingController _quoteNoExternal;
+  late final TextEditingController _externalNotes;
+
+  @override
+  void initState() {
+    super.initState();
+    _quoteNoExternal = TextEditingController(text: widget.draft.quoteNoExternal ?? '');
+    _externalNotes = TextEditingController(text: widget.draft.externalNotes ?? '');
+  }
+
+  @override
+  void didUpdateWidget(covariant _ProductStep oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _sync(_quoteNoExternal, widget.draft.quoteNoExternal);
+    _sync(_externalNotes, widget.draft.externalNotes);
+  }
+
+  void _sync(TextEditingController controller, String? value) {
+    final text = value ?? '';
+    if (controller.text != text) controller.text = text;
+  }
+
+  @override
+  void dispose() {
+    _quoteNoExternal.dispose();
+    _externalNotes.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -766,29 +924,55 @@ class _ProductStep extends StatelessWidget {
         const SizedBox(height: 20),
         _DropdownField(
           label: 'Organization',
-          value: draft.organizationId,
-          options: contextData.organizations,
+          value: widget.draft.organizationId,
+          options: widget.contextData.organizations,
           idSelector: (option) => option.id,
-          onChanged: onOrganizationChanged,
+          onChanged: widget.onOrganizationChanged,
           emptyLabel: '— No organization terms —',
         ),
         const SizedBox(height: 16),
         _DropdownField(
           label: 'Product family',
-          value: draft.productFamilyId,
-          options: contextData.productFamilies,
+          value: widget.draft.productFamilyId,
+          options: widget.contextData.productFamilies,
           idSelector: (option) => option.id,
-          onChanged: onProductFamilyChanged,
+          onChanged: widget.onProductFamilyChanged,
           emptyLabel: '— All templates —',
         ),
         const SizedBox(height: 16),
         _DropdownField(
           label: 'Price mode',
-          value: draft.priceMode,
-          options: contextData.priceModes,
+          value: widget.draft.priceMode,
+          options: widget.contextData.priceModes,
           idSelector: (option) => option.code,
-          onChanged: onPriceModeChanged,
+          onChanged: widget.onPriceModeChanged,
           emptyLabel: null,
+        ),
+        const SizedBox(height: 24),
+        Text('Customer fields', style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _quoteNoExternal,
+          decoration: const InputDecoration(
+            labelText: 'Komission name',
+            helperText: 'Customer-side calculation name / external quote number.',
+            border: OutlineInputBorder(),
+            isDense: true,
+          ),
+          onChanged: widget.onQuoteNoExternalChanged,
+        ),
+        const SizedBox(height: 16),
+        TextField(
+          controller: _externalNotes,
+          minLines: 3,
+          maxLines: 5,
+          decoration: const InputDecoration(
+            labelText: 'Quote notes',
+            helperText: 'Customer-side notes for this quote.',
+            border: OutlineInputBorder(),
+            alignLabelWithHint: true,
+          ),
+          onChanged: widget.onExternalNotesChanged,
         ),
       ],
     );
@@ -1165,11 +1349,13 @@ class _ModelStep extends StatelessWidget {
   const _ModelStep({
     required this.roofModelState,
     required this.draft,
+    required this.mediaRepository,
     required this.onChanged,
   });
 
   final _RoofModelStepState roofModelState;
   final CalculatorDraft draft;
+  final AdminResourceRepository mediaRepository;
   final ValueChanged<String?> onChanged;
 
   @override
@@ -1204,9 +1390,179 @@ class _ModelStep extends StatelessWidget {
           onChanged: onChanged,
           emptyLabel: '— Model not selected —',
         ),
+        const SizedBox(height: 20),
+        _RoofModelMediaPreview(
+          model: roofModelState.selectedForCode(draft.modelCode),
+          repository: mediaRepository,
+        ),
       ],
     );
   }
+}
+
+
+class _RoofModelMediaPreview extends StatelessWidget {
+  const _RoofModelMediaPreview({
+    required this.model,
+    required this.repository,
+  });
+
+  final CalculatorOption? model;
+  final AdminResourceRepository repository;
+
+  @override
+  Widget build(BuildContext context) {
+    final mediaRef = _mediaRef;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    return Container(
+      width: double.infinity,
+      constraints: const BoxConstraints(minHeight: 180),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.54),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: colorScheme.outlineVariant),
+      ),
+      child: mediaRef == null
+          ? Row(
+              children: [
+                Icon(Icons.image_not_supported_outlined, color: colorScheme.onSurfaceVariant),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    model == null
+                        ? 'Select a roof model to show its default reference image.'
+                        : 'No default image is linked to this roof model yet.',
+                    style: theme.textTheme.bodyMedium?.copyWith(color: colorScheme.onSurfaceVariant),
+                  ),
+                ),
+              ],
+            )
+          : _RoofModelMediaFrame(
+              mediaRef: mediaRef,
+              repository: repository,
+            ),
+    );
+  }
+
+  MediaFileRef? get _mediaRef {
+    final currentModel = model;
+    if (currentModel == null) return null;
+    final fileId = _firstString(
+      currentModel.raw['media_file_id'],
+      currentModel.raw['default_media_file_id'],
+      currentModel.raw['image_file_id'],
+    );
+    if (fileId == null || fileId.isEmpty) return null;
+
+    return MediaFileRef(
+      fileId: fileId,
+      fieldKey: 'roof_model_media.file_id',
+      label: currentModel.label.isNotEmpty ? currentModel.label : 'Roof model image',
+    );
+  }
+}
+
+class _RoofModelMediaFrame extends StatefulWidget {
+  const _RoofModelMediaFrame({
+    required this.mediaRef,
+    required this.repository,
+  });
+
+  final MediaFileRef mediaRef;
+  final AdminResourceRepository repository;
+
+  @override
+  State<_RoofModelMediaFrame> createState() => _RoofModelMediaFrameState();
+}
+
+class _RoofModelMediaFrameState extends State<_RoofModelMediaFrame> {
+  late Future<ApiBinaryResponse> _imageFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _imageFuture = widget.repository.viewMediaFile(widget.mediaRef.fileId);
+  }
+
+  @override
+  void didUpdateWidget(covariant _RoofModelMediaFrame oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.mediaRef.fileId != widget.mediaRef.fileId) {
+      _imageFuture = widget.repository.viewMediaFile(widget.mediaRef.fileId);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return SizedBox(
+      height: 220,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          FutureBuilder<ApiBinaryResponse>(
+            future: _imageFuture,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState != ConnectionState.done) {
+                return const Center(
+                  child: SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                );
+              }
+
+              final response = snapshot.data;
+              if (snapshot.hasError || response == null || response.bytes.isEmpty) {
+                return const Center(child: Icon(Icons.broken_image_outlined));
+              }
+
+              return Padding(
+                padding: const EdgeInsets.all(8),
+                child: Image.memory(
+                  response.bytes,
+                  fit: BoxFit.contain,
+                  errorBuilder: (_, __, ___) => const Center(child: Icon(Icons.broken_image_outlined)),
+                ),
+              );
+            },
+          ),
+          Positioned(
+            top: 4,
+            right: 4,
+            child: Material(
+              color: colorScheme.surface.withValues(alpha: 0.86),
+              borderRadius: BorderRadius.circular(18),
+              child: IconButton(
+                visualDensity: VisualDensity.compact,
+                iconSize: 18,
+                tooltip: 'Preview media',
+                onPressed: () => showDialog<void>(
+                  context: context,
+                  builder: (_) => MediaPreviewDialog(
+                    repository: widget.repository,
+                    files: [widget.mediaRef],
+                  ),
+                ),
+                icon: const Icon(Icons.open_in_full_rounded),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+String? _firstString(Object? first, [Object? second, Object? third]) {
+  for (final value in [first, second, third]) {
+    if (value is String && value.trim().isNotEmpty) return value.trim();
+  }
+  return null;
 }
 
 class _SelectStep extends StatelessWidget {
@@ -4222,14 +4578,14 @@ class _GeometryPreviewTab extends StatelessWidget {
             ),
           if (hasModel) ...[
             const SizedBox(height: 12),
-            _ModelGeometryPreview(
+            ModelGeometryPreview(
               modelCode: draft.modelCode,
               modelLabel: selectedModel?.label,
               mediaRepository: mediaRepository,
               widthMm: draft.widthMm,
               depthMm: draft.depthMm,
               heightMm: draft.heightMm,
-              geometryParams: _geometryPreviewParamsFromDraft(draft),
+              geometryParams: geometryPreviewParamsFromDraft(draft),
               colorCode: colorPreview?.displayCode,
               colorSwatchColor: colorPreview?.color,
             ),
@@ -5470,10 +5826,17 @@ class _RoofModelStepState {
   final List<CalculatorOption> options;
   final int familyModelsCount;
 
+  CalculatorOption? selectedForCode(String? modelCode) {
+    if (modelCode == null || modelCode.trim().isEmpty) return null;
+    for (final option in options) {
+      if (option.code == modelCode) return option;
+    }
+    return null;
+  }
+
   bool isSelected(String? modelCode) {
     if (!required) return true;
-    if (modelCode == null || modelCode.isEmpty) return false;
-    return options.any((option) => option.code == modelCode);
+    return selectedForCode(modelCode) != null;
   }
 }
 
@@ -5563,7 +5926,7 @@ bool _isStepComplete(String key, CalculatorDraft draft) {
   }
 }
 
-
+/*
 int _accessorySourceItemCountFromDraft(CalculatorDraft draft) {
   var count = 0;
   for (final tab in draft.setContents) {
@@ -5577,7 +5940,9 @@ int _accessorySourceItemCountFromDraft(CalculatorDraft draft) {
   }
   return count;
 }
+*/
 
+/*
 String _stepHint(String key, CalculatorDraft draft) {
   switch (key) {
     case 'product':
@@ -5611,6 +5976,8 @@ String _stepHint(String key, CalculatorDraft draft) {
       return '';
   }
 }
+
+ */
 
 String _joinDistinctTextParts(Iterable<String?> values) {
   final result = <String>[];

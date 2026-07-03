@@ -152,6 +152,16 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
         clearHandover: value == null || value.isEmpty,
       );
 
+  void setQuoteNoExternal(String value) => state = state.copyWith(
+        quoteNoExternal: value.trim(),
+        clearQuoteNoExternal: value.trim().isEmpty,
+      );
+
+  void setExternalNotes(String value) => state = state.copyWith(
+        externalNotes: value,
+        clearExternalNotes: value.trim().isEmpty,
+      );
+
   void addOptionCode(String optionCode) {
     final trimmed = optionCode.trim();
     if (trimmed.isEmpty) return;

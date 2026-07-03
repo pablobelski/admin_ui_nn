@@ -13,6 +13,7 @@ import '../../../core/navigation/admin_registry.dart';
 import '../../../core/ui/admin_list_table.dart';
 import '../../../core/ui/json_view_card.dart';
 import '../../../core/ui/media_file_actions.dart';
+import '../../../core/ui/media_file_picker.dart';
 import '../../../core/ui/media_preview_dialog.dart';
 import '../../../core/ui/resizable_split_pane.dart';
 import '../../../core/ui/scrollable_areas.dart';
@@ -20,6 +21,7 @@ import '../../../core/ui/resource_editor_dialog.dart';
 import '../../../core/ui/searchable_select_form_field.dart';
 import '../../calculator/data/calculator_models.dart';
 import '../../calculator/presentation/calculator_providers.dart';
+import '../../calculator/presentation/model_geometry_preview.dart';
 import 'catalog_item_dependency_tree.dart';
 
 class ResourcePage extends ConsumerWidget {
@@ -161,26 +163,8 @@ class _ToolbarState extends ConsumerState<_Toolbar> {
             const Spacer(),
             if (widget.resource.supportsCreate)
               FilledButton.icon(
-                onPressed: () async {
-                  final payload = await showDialog<Map<String, dynamic>>(
-                    context: context,
-                    builder: (_) => ResourceEditorDialog(
-                      resource: widget.resource,
-                      repository: repository,
-                    ),
-                  );
-                  if (payload == null) return;
-                  try {
-                    await repository.create(widget.resource, payload);
-                    ref.invalidate(resourceListProvider(widget.resource));
-                  } catch (error) {
-                    if (!context.mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Create failed: $error')),
-                    );
-                  }
-                },
-                icon: const Icon(Icons.add),
+                onPressed: () => _createResource(context, repository),
+                icon: Icon(widget.resource.key == 'asset_files' ? Icons.upload_file_outlined : Icons.add),
                 label: const Text('Create'),
               ),
           ],
@@ -212,6 +196,64 @@ class _ToolbarState extends ConsumerState<_Toolbar> {
         ],
       ],
     );
+  }
+
+  Future<void> _createResource(
+    BuildContext context,
+    AdminResourceRepository repository,
+  ) async {
+    if (widget.resource.key == 'asset_files') {
+      final picked = await pickMediaFile();
+      if (picked == null) return;
+
+      try {
+        final uploaded = await repository.uploadMediaFile(
+          filename: picked.filename,
+          contentType: picked.mimeType,
+          dataBase64: picked.base64Data,
+          purpose: 'media_library',
+          metadata: {
+            'resource_key': widget.resource.key,
+            'field_key': 'media_library_create',
+            'file_size_bytes': picked.sizeBytes,
+          },
+        );
+        final uploadedId = uploaded['id']?.toString().trim() ?? '';
+        if (uploadedId.isNotEmpty) {
+          ref.read(resourceBrowserProvider(widget.resource.key).notifier).select(uploadedId);
+        }
+        ref.invalidate(resourceListProvider(widget.resource));
+        ref.invalidate(resourceDetailsProvider(widget.resource));
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Uploaded media file: ${picked.filename}')),
+        );
+      } catch (error) {
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Create failed: $error')),
+        );
+      }
+      return;
+    }
+
+    final payload = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (_) => ResourceEditorDialog(
+        resource: widget.resource,
+        repository: repository,
+      ),
+    );
+    if (payload == null) return;
+    try {
+      await repository.create(widget.resource, payload);
+      ref.invalidate(resourceListProvider(widget.resource));
+    } catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Create failed: $error')),
+      );
+    }
   }
 }
 
@@ -801,6 +843,15 @@ class _DetailsCardState extends ConsumerState<_DetailsCard> {
             resource.key == 'catalog_item_relations' || resource.key == 'catalog_items';
         final rootCatalogItemId = _catalogItemTreeRootId(resource.key, data, browserState.selectedId);
         final mediaFiles = _mediaFileRefsFor(resource, data);
+        final detailLookupLabelsByKey = _detailLookupLabelsByKey(ref, resource);
+        final enrichedData = _withReadableRelationFields(resource, data, detailLookupLabelsByKey);
+        final quotePreviewContext = resource.key == 'quotes' ? ref.watch(calculatorContextProvider) : null;
+        final roofModelLabelsByCode = resource.key == 'quotes'
+            ? ref.watch(adminLookupProvider(roofModelLookup)).maybeWhen(
+                  data: _roofModelLabelsByCode,
+                  orElse: () => const <String, String>{},
+                )
+            : const <String, String>{};
 
         return Card(
           child: Padding(
@@ -989,43 +1040,14 @@ class _DetailsCardState extends ConsumerState<_DetailsCard> {
                           rootItemId: rootCatalogItemId,
                           onOpenCatalogItem: (catalogItemId) => _openCatalogItem(ref, catalogItemId),
                         )
-                      : ListView(
-                          children: [
-                            Card(
-                              color: Colors.white,
-                              child: Padding(
-                                padding: const EdgeInsets.all(16),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text('Main fields', style: Theme.of(context).textTheme.titleMedium),
-                                    const SizedBox(height: 12),
-                                    for (final entry in data.entries.take(12))
-                                      Padding(
-                                        padding: const EdgeInsets.symmetric(vertical: 4),
-                                        child: Row(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            SizedBox(
-                                              width: 180,
-                                              child: Text(
-                                                entry.key,
-                                                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                                  fontWeight: FontWeight.w600,
-                                                ),
-                                              ),
-                                            ),
-                                            Expanded(child: Text(_displayValue(entry.value))),
-                                          ],
-                                        ),
-                                      ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 16),
-                            JsonViewCard(title: 'Raw JSON', data: data),
-                          ],
+                      : _ResourceDetailsContent(
+                          resource: resource,
+                          data: data,
+                          enrichedData: enrichedData,
+                          lookupLabelsByKey: detailLookupLabelsByKey,
+                          repository: repository,
+                          quotePreviewContext: quotePreviewContext,
+                          roofModelLabelsByCode: roofModelLabelsByCode,
                         ),
                 ),
               ],
@@ -1036,6 +1058,360 @@ class _DetailsCardState extends ConsumerState<_DetailsCard> {
     );
   }
 }
+
+
+class _ResourceDetailsContent extends StatelessWidget {
+  const _ResourceDetailsContent({
+    required this.resource,
+    required this.data,
+    required this.enrichedData,
+    required this.lookupLabelsByKey,
+    required this.repository,
+    required this.quotePreviewContext,
+    required this.roofModelLabelsByCode,
+  });
+
+  final AdminResourceDefinition resource;
+  final Map<String, dynamic> data;
+  final Map<String, dynamic> enrichedData;
+  final Map<String, Map<String, String>> lookupLabelsByKey;
+  final AdminResourceRepository repository;
+  final AsyncValue<CalculatorContext>? quotePreviewContext;
+  final Map<String, String> roofModelLabelsByCode;
+
+  @override
+  Widget build(BuildContext context) {
+    if (resource.key == 'quotes') {
+      return DefaultTabController(
+        length: 3,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const TabBar(
+              isScrollable: true,
+              tabs: [
+                Tab(text: 'Preview'),
+                Tab(text: 'Details'),
+                Tab(text: 'Raw JSON'),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Expanded(
+              child: TabBarView(
+                children: [
+                  _SavedQuoteGeometryPreviewTab(
+                    data: data,
+                    repository: repository,
+                    calculatorContext: quotePreviewContext,
+                    roofModelLabelsByCode: roofModelLabelsByCode,
+                  ),
+                  _detailsListView(context),
+                  ListView(children: [JsonViewCard(title: 'Raw JSON', data: enrichedData)]),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (resource.key == 'quote_lines') {
+      return DefaultTabController(
+        length: 2,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const TabBar(
+              isScrollable: true,
+              tabs: [
+                Tab(text: 'Details'),
+                Tab(text: 'Raw JSON'),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Expanded(
+              child: TabBarView(
+                children: [
+                  _detailsListView(context),
+                  ListView(children: [JsonViewCard(title: 'Raw JSON', data: enrichedData)]),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView(
+      children: [
+        _MainFieldsCard(
+          resource: resource,
+          data: data,
+          lookupLabelsByKey: lookupLabelsByKey,
+        ),
+        const SizedBox(height: 16),
+        JsonViewCard(title: 'Raw JSON', data: data),
+      ],
+    );
+  }
+
+  Widget _detailsListView(BuildContext context) {
+    return ListView(
+      children: [
+        _MainFieldsCard(
+          resource: resource,
+          data: data,
+          lookupLabelsByKey: lookupLabelsByKey,
+        ),
+      ],
+    );
+  }
+}
+
+class _MainFieldsCard extends StatelessWidget {
+  const _MainFieldsCard({
+    required this.resource,
+    required this.data,
+    required this.lookupLabelsByKey,
+  });
+
+  final AdminResourceDefinition resource;
+  final Map<String, dynamic> data;
+  final Map<String, Map<String, String>> lookupLabelsByKey;
+
+  @override
+  Widget build(BuildContext context) {
+    final rows = _detailRowsFor(resource, data, lookupLabelsByKey);
+    return Card(
+      color: Colors.white,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Main fields', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 12),
+            for (final row in rows)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(
+                      width: 180,
+                      child: Text(
+                        row.label,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              fontWeight: FontWeight.w600,
+                            ),
+                      ),
+                    ),
+                    Expanded(child: SelectableText(_displayValue(row.value))),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DetailRowData {
+  const _DetailRowData(this.label, this.value);
+
+  final String label;
+  final Object? value;
+}
+
+class _SavedQuoteGeometryPreviewTab extends StatelessWidget {
+  const _SavedQuoteGeometryPreviewTab({
+    required this.data,
+    required this.repository,
+    required this.calculatorContext,
+    required this.roofModelLabelsByCode,
+  });
+
+  final Map<String, dynamic> data;
+  final AdminResourceRepository repository;
+  final AsyncValue<CalculatorContext>? calculatorContext;
+  final Map<String, String> roofModelLabelsByCode;
+
+  @override
+  Widget build(BuildContext context) {
+    final draft = _quoteDraftFromDetails(data);
+    final modelCode = draft.modelCode?.trim() ?? '';
+    final hasModel = modelCode.isNotEmpty;
+    final modelLabel = roofModelLabelsByCode[modelCode] ?? modelCode;
+    final colorPreview = calculatorContext?.maybeWhen(
+      data: (contextData) => _quoteColorPreviewDataFor(contextData, draft.colorCode),
+      orElse: () => _fallbackQuoteColorPreviewData(draft.colorCode),
+    ) ?? _fallbackQuoteColorPreviewData(draft.colorCode);
+    final quoteNoExternal = _quoteTextField(data, 'quote_no_external', 'quoteNoExternal');
+    final externalNotes = _quoteTextField(data, 'external_notes', 'externalNotes');
+
+    return ListView(
+      children: [
+        if (quoteNoExternal != null || externalNotes != null) ...[
+          Text('Customer data', style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(height: 8),
+          _QuotePreviewInfoCard(
+            rows: [
+              if (quoteNoExternal != null) _DetailRowData('Komission name', quoteNoExternal),
+              if (externalNotes != null) _DetailRowData('Quote notes', externalNotes),
+            ],
+          ),
+          const SizedBox(height: 12),
+        ],
+        Text('Roof type', style: Theme.of(context).textTheme.titleSmall),
+        const SizedBox(height: 8),
+        if (hasModel)
+          _QuotePreviewInfoCard(
+            rows: [
+              _DetailRowData('Model', modelLabel.isNotEmpty ? modelLabel : modelCode),
+              _DetailRowData('Code', modelCode),
+            ],
+          )
+        else
+          const _DetailsHintCard(
+            icon: Icons.view_in_ar_outlined,
+            title: 'No roof type selected',
+            text: 'The saved calculation does not contain a selected roof model.',
+          ),
+        if (hasModel) ...[
+          const SizedBox(height: 12),
+          ModelGeometryPreview(
+            modelCode: modelCode,
+            modelLabel: modelLabel,
+            mediaRepository: repository,
+            widthMm: draft.widthMm,
+            depthMm: draft.depthMm,
+            heightMm: draft.heightMm,
+            geometryParams: geometryPreviewParamsFromDraft(draft),
+            colorCode: colorPreview?.displayCode,
+            colorSwatchColor: colorPreview?.color,
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+
+String? _quoteTextField(Map<String, dynamic> data, String dbKey, String camelKey) {
+  String? normalized(Object? value) {
+    if (value == null) return null;
+    final text = value.toString().trim();
+    return text.isEmpty ? null : text;
+  }
+
+  final direct = normalized(data[dbKey] ?? data[camelKey]);
+  if (direct != null) return direct;
+
+  final input = _mapFromJsonLike(data['input_json'] ?? data['inputJson']);
+  return normalized(input[dbKey] ?? input[camelKey]);
+}
+
+class _DetailsHintCard extends StatelessWidget {
+  const _DetailsHintCard({
+    required this.icon,
+    required this.title,
+    required this.text,
+  });
+
+  final IconData icon;
+  final String title;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Card(
+      color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, color: colorScheme.primary),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: Theme.of(context).textTheme.titleSmall),
+                  const SizedBox(height: 4),
+                  Text(text, style: Theme.of(context).textTheme.bodySmall),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+
+class _QuotePreviewInfoCard extends StatelessWidget {
+  const _QuotePreviewInfoCard({required this.rows});
+
+  final List<_DetailRowData> rows;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.45),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: colorScheme.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (final row in rows)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 3),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SizedBox(
+                    width: 74,
+                    child: Text(
+                      row.label,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: colorScheme.onSurfaceVariant,
+                          ),
+                    ),
+                  ),
+                  Expanded(
+                    child: SelectableText(
+                      _displayValue(row.value),
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _QuoteColorPreviewData {
+  const _QuoteColorPreviewData({
+    required this.displayCode,
+    required this.color,
+  });
+
+  final String displayCode;
+  final Color? color;
+}
+
 
 
 bool _hasDetailImageButton(AdminResourceDefinition resource) {
@@ -1572,6 +1948,292 @@ class _SetUserPasswordDialogState extends State<_SetUserPasswordDialog> {
     return null;
   }
 }
+
+Map<String, Map<String, String>> _detailLookupLabelsByKey(
+  WidgetRef ref,
+  AdminResourceDefinition resource,
+) {
+  if (!_usesReadableQuoteDetails(resource)) return const <String, Map<String, String>>{};
+  final lookups = _quoteRelationLookupsByKey(resource.key);
+  return {
+    for (final entry in lookups.entries)
+      entry.key: ref.watch(adminLookupProvider(entry.value)).maybeWhen(
+            data: (rows) => _lookupLabelMap(entry.value, rows),
+            orElse: () => const <String, String>{},
+          ),
+  };
+}
+
+bool _usesReadableQuoteDetails(AdminResourceDefinition resource) {
+  return resource.key == 'quotes' || resource.key == 'quote_lines';
+}
+
+Map<String, AdminLookup> _quoteRelationLookupsByKey(String resourceKey) {
+  final base = <String, AdminLookup>{
+    'quote_id': quoteLookup,
+    'base_quote_id': quoteLookup,
+    'parent_quote_id': quoteLookup,
+    'seller_organization_id': organizationLookup,
+    'buyer_organization_id': organizationLookup,
+    'ship_to_organization_id': organizationLookup,
+    'organization_id': organizationLookup,
+    'created_by_user_id': userLookup,
+    'updated_by_user_id': userLookup,
+    'actor_user_id': userLookup,
+    'configurator_template_id': configuratorTemplateLookup,
+    'template_id': configuratorTemplateLookup,
+    'price_list_id': priceListLookup,
+    'sales_price_list_id': salesPriceListLookup,
+    'product_family_id': productFamilyLookup,
+    'catalog_item_id': catalogItemLookup,
+    'catalog_variant_id': catalogVariantLookup,
+    'document_template_id': documentTemplateLookup,
+  };
+
+  if (resourceKey == 'quote_lines') {
+    return {
+      'quote_id': quoteLookup,
+      'catalog_item_id': catalogItemLookup,
+      'catalog_variant_id': catalogVariantLookup,
+      'created_by_user_id': userLookup,
+      'updated_by_user_id': userLookup,
+    };
+  }
+  return base;
+}
+
+List<_DetailRowData> _detailRowsFor(
+  AdminResourceDefinition resource,
+  Map<String, dynamic> data,
+  Map<String, Map<String, String>> lookupLabelsByKey,
+) {
+  if (!_usesReadableQuoteDetails(resource)) {
+    return data.entries
+        .take(12)
+        .map((entry) => _DetailRowData(entry.key, entry.value))
+        .toList(growable: false);
+  }
+
+  final rows = <_DetailRowData>[];
+  final usedKeys = <String>{};
+
+  void addRow(String label, String key, Object? value) {
+    if (value == null) return;
+    final text = value.toString().trim();
+    if (text.isEmpty) return;
+    rows.add(_DetailRowData(label, value));
+    usedKeys.add(key);
+  }
+
+  addRow('ID', 'id', data['id']);
+
+  for (final field in resource.formFields) {
+    if (field.type == AdminFieldType.json) continue;
+    if (field.key == 'id') continue;
+    final value = data[field.key];
+    if (field.lookup != null) {
+      final label = _readableRelationValue(field.key, value, lookupLabelsByKey);
+      addRow(field.label, field.key, label);
+      continue;
+    }
+    if (_isForeignIdKey(field.key)) continue;
+    addRow(field.label, field.key, value);
+  }
+
+  for (final key in ['created_at', 'updated_at', 'created_by_user_id', 'updated_by_user_id']) {
+    if (usedKeys.contains(key) || !data.containsKey(key)) continue;
+    final value = _isForeignIdKey(key)
+        ? _readableRelationValue(key, data[key], lookupLabelsByKey)
+        : data[key];
+    addRow(_humanizeKey(key), key, value);
+  }
+
+  return rows;
+}
+
+Map<String, dynamic> _withReadableRelationFields(
+  AdminResourceDefinition resource,
+  Map<String, dynamic> data,
+  Map<String, Map<String, String>> lookupLabelsByKey,
+) {
+  if (!_usesReadableQuoteDetails(resource)) return data;
+  final allLookups = _quoteRelationLookupsByKey(resource.key);
+  return _enrichReadableRelations(data, allLookups, lookupLabelsByKey) as Map<String, dynamic>;
+}
+
+Object? _enrichReadableRelations(
+  Object? value,
+  Map<String, AdminLookup> lookupsByKey,
+  Map<String, Map<String, String>> lookupLabelsByKey,
+) {
+  if (value is List) {
+    return value
+        .map((entry) => _enrichReadableRelations(entry, lookupsByKey, lookupLabelsByKey))
+        .toList();
+  }
+  if (value is! Map) return value;
+
+  final result = <String, dynamic>{};
+  value.forEach((rawKey, rawValue) {
+    final key = rawKey.toString();
+    result[key] = _enrichReadableRelations(rawValue, lookupsByKey, lookupLabelsByKey);
+
+    final relationKey = _relationLookupKeyFor(key, lookupsByKey);
+    if (relationKey == null) return;
+    final relationLabel = _readableRelationValue(relationKey, rawValue, lookupLabelsByKey);
+    if (relationLabel == null || relationLabel.isEmpty) return;
+
+    final nameKey = _relationNameKey(key);
+    if (!result.containsKey(nameKey)) {
+      result[nameKey] = relationLabel;
+    }
+  });
+  return result;
+}
+
+String? _relationLookupKeyFor(String key, Map<String, AdminLookup> lookupsByKey) {
+  if (lookupsByKey.containsKey(key)) return key;
+  if (key == 'template_id' && lookupsByKey.containsKey('configurator_template_id')) {
+    return 'configurator_template_id';
+  }
+  if (key == 'organization_id' && lookupsByKey.containsKey('organization_id')) {
+    return 'organization_id';
+  }
+  if (key == 'model_id' && lookupsByKey.containsKey('model_id')) {
+    return 'model_id';
+  }
+  return null;
+}
+
+String _relationNameKey(String key) {
+  if (key.endsWith('_id')) return '${key.substring(0, key.length - 3)}_name';
+  return '${key}_name';
+}
+
+String? _readableRelationValue(
+  String key,
+  Object? rawValue,
+  Map<String, Map<String, String>> lookupLabelsByKey,
+) {
+  if (rawValue == null) return null;
+  final relationId = _extractRelationId(rawValue.toString());
+  if (relationId == null || relationId.isEmpty) return null;
+  final label = lookupLabelsByKey[key]?[relationId];
+  if (label != null && label.isNotEmpty) return label;
+  return rawValue.toString();
+}
+
+bool _isForeignIdKey(String key) {
+  return key.endsWith('_id') && key != 'id';
+}
+
+String _humanizeKey(String key) {
+  if (key.isEmpty) return key;
+  final words = key.split('_').where((word) => word.isNotEmpty).toList();
+  if (words.isEmpty) return key;
+  return words
+      .map((word) => word.length <= 1
+          ? word.toUpperCase()
+          : '${word.substring(0, 1).toUpperCase()}${word.substring(1)}')
+      .join(' ');
+}
+
+Map<String, String> _roofModelLabelsByCode(List<Map<String, dynamic>> rows) {
+  return {
+    for (final row in rows)
+      if ((row['code']?.toString().trim() ?? '').isNotEmpty)
+        row['code']!.toString(): _lookupCompactLabel(roofModelLookup, row),
+  };
+}
+
+CalculatorDraft _quoteDraftFromDetails(Map<String, dynamic> data) {
+  final input = _mapFromJsonLike(data['input_json']);
+  final productFamilyId = data['product_family_id']?.toString().trim();
+  return CalculatorDraft.fromCalculationJson(
+    input,
+    productFamilyId: productFamilyId == null || productFamilyId.isEmpty ? null : productFamilyId,
+  );
+}
+
+Map<String, dynamic> _mapFromJsonLike(Object? value) {
+  if (value is Map) return Map<String, dynamic>.from(value);
+  if (value is String && value.trim().isNotEmpty) {
+    try {
+      final decoded = jsonDecode(value);
+      if (decoded is Map) return Map<String, dynamic>.from(decoded);
+    } catch (_) {
+      return const <String, dynamic>{};
+    }
+  }
+  return const <String, dynamic>{};
+}
+
+_QuoteColorPreviewData? _quoteColorPreviewDataFor(
+  CalculatorContext contextData,
+  String? rawCode,
+) {
+  final code = _normalizeQuoteRalCode(rawCode);
+  if (code == null) return null;
+
+  final colorOptions = contextData.references['colors'] ?? const <CalculatorOption>[];
+  final ralColorOptions = contextData.references['ral_colors'] ?? const <CalculatorOption>[];
+
+  CalculatorOption? match;
+  for (final option in [...colorOptions, ...ralColorOptions]) {
+    if (_normalizeQuoteRalCode(option.code) == code) {
+      match = option;
+      break;
+    }
+  }
+
+  final colorHex = _stringFromRaw(
+    match?.raw['color_hex'] ??
+        match?.raw['colorHex'] ??
+        (match?.raw['metadata_json'] is Map ? match?.raw['metadata_json']['color_hex'] : null),
+  );
+
+  return _QuoteColorPreviewData(
+    displayCode: RegExp(r'^\d{4}$').hasMatch(code) ? 'RAL $code' : code,
+    color: _colorFromHex(colorHex),
+  );
+}
+
+_QuoteColorPreviewData? _fallbackQuoteColorPreviewData(String? rawCode) {
+  final code = _normalizeQuoteRalCode(rawCode);
+  if (code == null) return null;
+  return _QuoteColorPreviewData(
+    displayCode: RegExp(r'^\d{4}$').hasMatch(code) ? 'RAL $code' : code,
+    color: null,
+  );
+}
+
+String? _normalizeQuoteRalCode(String? rawCode) {
+  final value = rawCode?.trim();
+  if (value == null || value.isEmpty) return null;
+  final match = RegExp(r'(\d{4})').firstMatch(value);
+  if (match != null) return match.group(1);
+  return value.toUpperCase();
+}
+
+String _stringFromRaw(Object? value) {
+  if (value == null) return '';
+  return value.toString().trim();
+}
+
+Color? _colorFromHex(String rawHex) {
+  var hex = rawHex.trim();
+  if (hex.isEmpty) return null;
+  if (hex.startsWith('#')) hex = hex.substring(1);
+  if (hex.length == 3) {
+    hex = hex.split('').map((char) => '$char$char').join();
+  }
+  if (hex.length == 6) hex = 'FF$hex';
+  if (hex.length != 8) return null;
+  final value = int.tryParse(hex, radix: 16);
+  if (value == null) return null;
+  return Color(value);
+}
+
 
 class _ErrorState extends StatelessWidget {
   const _ErrorState({required this.error});

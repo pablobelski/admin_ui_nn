@@ -1,7 +1,14 @@
-part of 'calculator_workspace_page.dart';
+import 'dart:async';
+import 'dart:ui' as ui;
 
-class _ModelGeometryPreview extends StatefulWidget {
-  const _ModelGeometryPreview({
+import 'package:flutter/material.dart';
+
+import '../../../core/http/admin_resource_repository.dart';
+import '../data/calculator_models.dart';
+
+class ModelGeometryPreview extends StatefulWidget {
+  const ModelGeometryPreview({
+    super.key,
     required this.modelCode,
     required this.modelLabel,
     required this.mediaRepository,
@@ -19,15 +26,15 @@ class _ModelGeometryPreview extends StatefulWidget {
   final int? widthMm;
   final int? depthMm;
   final int? heightMm;
-  final List<_RoofGeometryParam> geometryParams;
+  final List<RoofGeometryParam> geometryParams;
   final String? colorCode;
   final Color? colorSwatchColor;
 
   @override
-  State<_ModelGeometryPreview> createState() => _ModelGeometryPreviewState();
+  State<ModelGeometryPreview> createState() => _ModelGeometryPreviewState();
 }
 
-class _ModelGeometryPreviewState extends State<_ModelGeometryPreview> {
+class _ModelGeometryPreviewState extends State<ModelGeometryPreview> {
   late Future<ui.Image?> _humanImageFuture;
 
   @override
@@ -115,30 +122,30 @@ class _ModelGeometryPreviewState extends State<_ModelGeometryPreview> {
   }
 }
 
-List<_RoofGeometryParam> _geometryPreviewParamsFromDraft(CalculatorDraft draft) {
-  final params = <_RoofGeometryParam>[
-    _RoofGeometryParam('B', draft.widthMm),
-    _RoofGeometryParam('BR', draft.widthMm),
-    _RoofGeometryParam('BW', draft.widthMm),
-    _RoofGeometryParam('TK', draft.depthMm),
-    _RoofGeometryParam('T', draft.depthMm),
-    _RoofGeometryParam('D', draft.depthMm),
-    _RoofGeometryParam('H', draft.heightMm),
+List<RoofGeometryParam> geometryPreviewParamsFromDraft(CalculatorDraft draft) {
+  final params = <RoofGeometryParam>[
+    RoofGeometryParam('B', draft.widthMm),
+    RoofGeometryParam('BR', draft.widthMm),
+    RoofGeometryParam('BW', draft.widthMm),
+    RoofGeometryParam('TK', draft.depthMm),
+    RoofGeometryParam('T', draft.depthMm),
+    RoofGeometryParam('D', draft.depthMm),
+    RoofGeometryParam('H', draft.heightMm),
   ];
 
   for (var i = 0; i < draft.setContents.length; i++) {
     final tab = draft.setContents[i];
     final index = i + 1;
-    params.add(_RoofGeometryParam('BR$index', tab.blockWidthMm));
-    params.add(_RoofGeometryParam('BW$index', tab.blockWidthMm));
-    params.add(_RoofGeometryParam('TK$index', tab.blockDepthMm));
+    params.add(RoofGeometryParam('BR$index', tab.blockWidthMm));
+    params.add(RoofGeometryParam('BW$index', tab.blockWidthMm));
+    params.add(RoofGeometryParam('TK$index', tab.blockDepthMm));
   }
 
   return params;
 }
 
-class _RoofGeometryParam {
-  const _RoofGeometryParam(this.code, this.valueMm);
+class RoofGeometryParam {
+  const RoofGeometryParam(this.code, this.valueMm);
 
   final String code;
   final int? valueMm;
@@ -207,7 +214,7 @@ class _RoofDimensionLine {
 }
 
 class _GeometryParamBag {
-  _GeometryParamBag(List<_RoofGeometryParam> params)
+  _GeometryParamBag(List<RoofGeometryParam> params)
       : _values = {
           for (final param in params)
             if (param.valueMm != null && param.valueMm! > 0) _normalizeCode(param.code): param.valueMm!.toDouble(),
@@ -253,7 +260,7 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
   final int? widthMm;
   final int? depthMm;
   final int? heightMm;
-  final List<_RoofGeometryParam> geometryParams;
+  final List<RoofGeometryParam> geometryParams;
   final String? colorCode;
   final Color? colorSwatchColor;
   final ui.Image? humanImage;
@@ -285,7 +292,11 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
 
     const pad = 12.0;
     const labelBottom = 22.0;
+    const sideGap = 10.0;
     const humanGapMm = 500.0;
+    final sideRect = _previewSideRect(size, pad);
+    _drawPreviewSideBackground(canvas, sideRect);
+
     final leftReserveMm = humanGapMm + _humanMm * 0.55;
     final projDx = profile.shape == _RoofShape.lFront ? (profile.mirrorView ? -0.42 : 0.58) : _ddx;
     final projDy = profile.shape == _RoofShape.lFront ? 0.70 : _ddy;
@@ -296,7 +307,12 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     final top = roofTop < humanTop ? roofTop : humanTop;
     final contentW = leftReserveMm + projectionLeftMm + roofW;
     final contentH = layout.heightMm - top;
-    final availW = size.width - pad * 2;
+    // Keep a real visual guard between the full roof drawing (including
+    // dimension arrows/text and beam strokes) and the separated right inset.
+    // The model bounds are in millimetres, but some labels/offsets are drawn
+    // directly in pixels, so reserve the margin in the available canvas area.
+    const mainRightGuard = 42.0;
+    final availW = _max(40, sideRect.left - pad - sideGap - mainRightGuard);
     final availH = size.height - pad - labelBottom;
     final k = _min(availW / contentW, availH / contentH);
     final ox = pad + (availW - contentW * k) / 2 + leftReserveMm * k + projectionLeftMm * k;
@@ -326,6 +342,9 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
       ..color = Colors.black.withValues(alpha: 0.055)
       ..style = PaintingStyle.fill;
 
+    canvas.save();
+    canvas.clipRect(Rect.fromLTWH(0, 0, sideRect.left - sideGap * 0.5, size.height));
+
     _drawGroundShadow(canvas, s, layout, shadowPaint);
     _drawRoofFill(canvas, s, layout, roofFillPaint);
 
@@ -335,10 +354,12 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     _drawRoofFrame(canvas, s, layout, k);
     _drawPosts(canvas, s, layout, k);
     _drawDimensions(canvas, s, params, layout, profile, dimensionPaint);
-    _drawPlanInset(canvas, size, layout, profile, params);
 
     final humanX = profile.mirrorView ? layout.widthMm : 0.0;
     _drawHuman(canvas, s(humanX, _yAt(layout.front, humanX), 0), _humanMm * k, humanGapMm * k);
+    canvas.restore();
+
+    _drawPlanInset(canvas, sideRect, layout, profile, params);
   }
 
   _RoofProfile _shapeFromText(String value) {
@@ -349,10 +370,10 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
       final shape = v.contains('rinne') ? _RoofShape.angleFront : _RoofShape.angleBack;
       return _RoofProfile(shape: shape, smallPartOnLeft: false, mirrorView: mirrorView);
     }
-    if (v.contains('u geteilt')) {
+    if (v.contains('u geteilt') || v.contains('u wandprofil')) {
       return const _RoofProfile(shape: _RoofShape.uBack, smallPartOnLeft: false);
     }
-    if (v.contains('t geteilt')) {
+    if (v.contains('t geteilt') || v.contains('t wandprofil')) {
       return const _RoofProfile(shape: _RoofShape.tBack, smallPartOnLeft: false);
     }
     if (v.contains('l geteilt')) {
@@ -501,10 +522,12 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     final rightDepthCode = profile.smallPartOnLeft ? 'TK1' : 'TK2';
     final leftY = splitAtFront ? d : leftBackY;
     final rightY = splitAtFront ? d : rightBackY;
-    final leftWidthStart = Offset(0, splitAtFront ? leftFrontY : 0.0);
-    final leftWidthEnd = Offset(splitX, splitAtFront ? leftFrontY : 0.0);
-    final rightWidthStart = Offset(splitX, splitAtFront ? rightFrontY : 0.0);
-    final rightWidthEnd = Offset(width, splitAtFront ? rightFrontY : 0.0);
+    final leftWidthY = splitAtFront ? leftFrontY : leftBackY;
+    final rightWidthY = splitAtFront ? rightFrontY : rightBackY;
+    final leftWidthStart = Offset(0, leftWidthY);
+    final leftWidthEnd = Offset(splitX, leftWidthY);
+    final rightWidthStart = Offset(splitX, rightWidthY);
+    final rightWidthEnd = Offset(width, rightWidthY);
 
     final postPoints = _uniquePoints([front.first, ...front, front.last]);
     final blockedRafterX = [
@@ -613,9 +636,9 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
       rafterX: _rafterPositions(width, [x1, x2]),
       widthDimensionsOnFront: false,
       dimensions: [
-        _RoofDimensionLine(code: 'BW1', start: Offset(0, 0), end: Offset(x1, 0), offset: const Offset(0, 15)),
-        _RoofDimensionLine(code: 'BW3', start: Offset(x1, 0), end: Offset(x2, 0), offset: const Offset(0, 15)),
-        _RoofDimensionLine(code: 'BW2', start: Offset(x2, 0), end: Offset(width, 0), offset: const Offset(0, 15)),
+        _RoofDimensionLine(code: 'BW1', start: Offset(0, leftDepth), end: Offset(x1, leftDepth), offset: const Offset(0, 15)),
+        _RoofDimensionLine(code: 'BW3', start: Offset(x1, centerDepth), end: Offset(x2, centerDepth), offset: const Offset(0, 15)),
+        _RoofDimensionLine(code: 'BW2', start: Offset(x2, rightDepth), end: Offset(width, rightDepth), offset: const Offset(0, 15)),
         _RoofDimensionLine(code: leftDepthCode, start: Offset(0, 0), end: Offset(0, leftDepth), offset: const Offset(-18, 0), hAlign: 1),
         _RoofDimensionLine(code: centerDepthCode, start: Offset((x1 + x2) / 2, 0), end: Offset((x1 + x2) / 2, centerDepth), offset: const Offset(12, 0), hAlign: 0),
         _RoofDimensionLine(code: rightDepthCode, start: Offset(width, 0), end: Offset(width, rightDepth), offset: const Offset(18, 0), hAlign: 0),
@@ -770,6 +793,28 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     canvas.drawLine(top - const Offset(0.4, 0), bottom - const Offset(0.4, 0), light);
   }
 
+  Rect _previewSideRect(Size size, double pad) {
+    final targetWidth = _min(122, _max(104, size.width * 0.27));
+    final left = _max(pad + 80, size.width - pad - targetWidth);
+    return Rect.fromLTWH(left, pad, _max(48, size.width - pad - left), size.height - pad * 2);
+  }
+
+  void _drawPreviewSideBackground(Canvas canvas, Rect rect) {
+    if (rect.width <= 0 || rect.height <= 0) return;
+    final background = Paint()
+      ..color = surfaceColor.withValues(alpha: 0.34)
+      ..style = PaintingStyle.fill;
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(rect, const Radius.circular(9)),
+      background,
+    );
+    final divider = Paint()
+      ..color = lineColor.withValues(alpha: 0.10)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 0.8;
+    canvas.drawLine(Offset(rect.left - 5, rect.top), Offset(rect.left - 5, rect.bottom), divider);
+  }
+
   void _drawDimensions(
     Canvas canvas,
     Offset Function(double, double, double) s,
@@ -793,12 +838,18 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
         } else {
           final isSchraegWidth = normalized == 'B' &&
               (profile.shape == _RoofShape.angleFront || profile.shape == _RoofShape.angleBack);
-          final dimYStart = isSchraegWidth
-              ? (profile.shape == _RoofShape.angleFront ? layout.depthMm : 0.0)
-              : layout.depthMm;
-          final dimYEnd = isSchraegWidth
-              ? (profile.shape == _RoofShape.angleFront ? layout.depthMm : 0.0)
-              : layout.depthMm;
+          final useDimensionY = normalized.startsWith('BW') &&
+              (dim.start.dy.abs() > 1e-6 || dim.end.dy.abs() > 1e-6);
+          final dimYStart = useDimensionY
+              ? dim.start.dy
+              : (isSchraegWidth
+                  ? (profile.shape == _RoofShape.angleFront ? layout.depthMm : 0.0)
+                  : layout.depthMm);
+          final dimYEnd = useDimensionY
+              ? dim.end.dy
+              : (isSchraegWidth
+                  ? (profile.shape == _RoofShape.angleFront ? layout.depthMm : 0.0)
+                  : layout.depthMm);
           final startRaw = s(dim.start.dx, dimYStart, 0);
           final endRaw = s(dim.end.dx, dimYEnd, 0);
           final oppositeMid = isSchraegWidth
@@ -832,10 +883,15 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     }
   }
 
-  void _drawPlanInset(Canvas canvas, Size size, _RoofLayout layout, _RoofProfile profile, _GeometryParamBag params) {
-    final insetWidth = _min(86, _max(48, size.width * 0.16));
-    final insetHeight = _min(68, _max(42, size.height * 0.26));
-    final rect = Rect.fromLTWH(size.width - insetWidth - 14, 12, insetWidth, insetHeight);
+  void _drawPlanInset(Canvas canvas, Rect sideRect, _RoofLayout layout, _RoofProfile profile, _GeometryParamBag params) {
+    final insetWidth = _min(86, _max(48, sideRect.width - 18));
+    final insetHeight = _min(68, _max(42, sideRect.height * 0.26));
+    final rect = Rect.fromLTWH(
+      sideRect.left + (sideRect.width - insetWidth) / 2,
+      sideRect.top,
+      insetWidth,
+      insetHeight,
+    );
     final planPaint = Paint()
       ..color = lineColor.withValues(alpha: 0.20)
       ..style = PaintingStyle.stroke
@@ -1067,7 +1123,7 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     painter.paint(canvas, at - Offset(painter.width * hAlign, painter.height / 2));
   }
 
-  bool _sameGeometryParams(List<_RoofGeometryParam> a, List<_RoofGeometryParam> b) {
+  bool _sameGeometryParams(List<RoofGeometryParam> a, List<RoofGeometryParam> b) {
     if (a.length != b.length) return false;
     for (var i = 0; i < a.length; i++) {
       if (a[i].code != b[i].code || a[i].valueMm != b[i].valueMm) return false;
