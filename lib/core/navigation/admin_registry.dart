@@ -176,6 +176,17 @@ const organizationTypeOptions = <AdminSelectOption>[
   AdminSelectOption(value: 'other', label: 'Other'),
 ];
 
+
+const organizationRelationTypeOptions = <AdminSelectOption>[
+  AdminSelectOption(value: 'dealer', label: 'Dealer'),
+  AdminSelectOption(value: 'b2b_customer', label: 'B2B customer'),
+  AdminSelectOption(value: 'subdealer', label: 'Subdealer'),
+  AdminSelectOption(value: 'supplier', label: 'Supplier'),
+  AdminSelectOption(value: 'brand', label: 'Brand'),
+  AdminSelectOption(value: 'internal', label: 'Internal'),
+  AdminSelectOption(value: 'other', label: 'Other'),
+];
+
 const catalogItemTypeOptions = <AdminSelectOption>[
   AdminSelectOption(value: 'profile', label: 'Profile'),
   AdminSelectOption(value: 'glass', label: 'Glass'),
@@ -1233,6 +1244,7 @@ const adminNavGroups = <AdminNavGroup>[
       ),
       AdminResourceDefinition(
         key: 'price_matrix_cells',
+        showInNavigation: false,
         title: 'Price Matrix Cells',
         endpoint: '/api/admin/price-matrix-cells',
         icon: Icons.apps_rounded,
@@ -1400,6 +1412,7 @@ const adminNavGroups = <AdminNavGroup>[
       ),
       AdminResourceDefinition(
         key: 'template_modules',
+        showInNavigation: false,
         title: 'Template Modules',
         endpoint: '/api/admin/template-modules',
         icon: Icons.widgets_outlined,
@@ -1451,6 +1464,7 @@ const adminNavGroups = <AdminNavGroup>[
       ),
       AdminResourceDefinition(
         key: 'rule_matrices',
+        showInNavigation: false,
         title: 'Rule Matrices',
         endpoint: '/api/admin/rule-matrices',
         icon: Icons.view_module_outlined,
@@ -1477,6 +1491,7 @@ const adminNavGroups = <AdminNavGroup>[
       ),
       AdminResourceDefinition(
         key: 'rule_matrix_rows',
+        showInNavigation: false,
         title: 'Rule Matrix Rows',
         endpoint: '/api/admin/rule-matrix-rows',
         icon: Icons.reorder_rounded,
@@ -1521,6 +1536,7 @@ const adminNavGroups = <AdminNavGroup>[
       ),
       AdminResourceDefinition(
         key: 'reference_values',
+        showInNavigation: false,
         title: 'Reference Values',
         endpoint: '/api/admin/reference-values',
         icon: Icons.data_object_outlined,
@@ -1863,6 +1879,20 @@ const adminNavGroups = <AdminNavGroup>[
             icon: Icons.request_quote_outlined,
           ),
           AdminDetailAction(
+            label: 'Show child relations',
+            targetResourceKey: 'organization_relations',
+            filterKey: 'parent_organization_id',
+            sourceValueKey: 'id',
+            icon: Icons.account_tree_outlined,
+          ),
+          AdminDetailAction(
+            label: 'Show parent relations',
+            targetResourceKey: 'organization_relations',
+            filterKey: 'child_organization_id',
+            sourceValueKey: 'id',
+            icon: Icons.alt_route_outlined,
+          ),
+          AdminDetailAction(
             label: 'Show product access',
             targetResourceKey: 'organization_product_access',
             filterKey: 'organization_id',
@@ -1870,6 +1900,59 @@ const adminNavGroups = <AdminNavGroup>[
             icon: Icons.category_outlined,
           ),
         ],
+      ),
+      AdminResourceDefinition(
+        key: 'organization_relations',
+        title: 'Organization Relations',
+        endpoint: '/api/admin/organization-relations',
+        icon: Icons.account_tree_outlined,
+        columns: [
+          AdminColumn(key: 'parent_organization_id', label: 'Parent organization', isPrimary: true, flex: 3, lookup: organizationLookup),
+          AdminColumn(key: 'child_organization_id', label: 'Child organization', flex: 3, lookup: organizationLookup),
+          AdminColumn(key: 'relation_type', label: 'Relation', flex: 2),
+          AdminColumn(key: 'is_default', label: 'Default'),
+          AdminColumn(key: 'valid_from', label: 'Valid from'),
+          AdminColumn(key: 'valid_to', label: 'Valid to'),
+        ],
+        listFilters: [
+          AdminResourceFilter(key: 'parent_organization_id', label: 'Parent organization', lookup: organizationLookup),
+          AdminResourceFilter(key: 'child_organization_id', label: 'Child organization', lookup: organizationLookup),
+          AdminResourceFilter(key: 'relation_type', label: 'Relation type', options: organizationRelationTypeOptions),
+          AdminResourceFilter(key: 'is_default', label: 'Default', options: activeFilterOptions),
+        ],
+        formFields: [
+          AdminField(key: 'parent_organization_id', label: 'Parent organization', lookup: organizationLookup),
+          AdminField(key: 'child_organization_id', label: 'Child organization', lookup: organizationLookup),
+          AdminField(
+            key: 'relation_type',
+            label: 'Relation type',
+            options: organizationRelationTypeOptions,
+            defaultValue: 'b2b_customer',
+          ),
+          AdminField(key: 'is_default', label: 'Default', type: AdminFieldType.boolType),
+          AdminField(key: 'valid_from', label: 'Valid from', type: AdminFieldType.date),
+          AdminField(key: 'valid_to', label: 'Valid to', type: AdminFieldType.date),
+          AdminField(key: 'settings_json', label: 'Settings JSON', type: AdminFieldType.json, defaultValue: '{}'),
+        ],
+        detailActions: [
+          AdminDetailAction(
+            label: 'Show parent organization',
+            targetResourceKey: 'organizations',
+            filterKey: 'id',
+            sourceValueKey: 'parent_organization_id',
+            selectTargetRow: true,
+            icon: Icons.domain_rounded,
+          ),
+          AdminDetailAction(
+            label: 'Show child organization',
+            targetResourceKey: 'organizations',
+            filterKey: 'id',
+            sourceValueKey: 'child_organization_id',
+            selectTargetRow: true,
+            icon: Icons.apartment_outlined,
+          ),
+        ],
+        description: 'Зависимости между организациями на базе configurator.organization_relations: B2B-клиенты, партнеры, родительские и дочерние связи.',
       ),
       AdminResourceDefinition(
         key: 'organization_product_access',

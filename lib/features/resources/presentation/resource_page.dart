@@ -23,6 +23,7 @@ import '../../calculator/data/calculator_models.dart';
 import '../../calculator/presentation/calculator_providers.dart';
 import '../../calculator/presentation/model_geometry_preview.dart';
 import 'catalog_item_dependency_tree.dart';
+import 'organization_relation_tree.dart';
 
 class ResourcePage extends ConsumerWidget {
   const ResourcePage({
@@ -804,12 +805,14 @@ class _DetailsCard extends ConsumerStatefulWidget {
 
 class _DetailsCardState extends ConsumerState<_DetailsCard> {
   bool _showCatalogItemTree = false;
+  bool _showOrganizationTree = false;
 
   @override
   void didUpdateWidget(covariant _DetailsCard oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.resource.key != widget.resource.key) {
       _showCatalogItemTree = false;
+      _showOrganizationTree = false;
     }
   }
 
@@ -841,7 +844,10 @@ class _DetailsCardState extends ConsumerState<_DetailsCard> {
 
         final canShowCatalogItemTree =
             resource.key == 'catalog_item_relations' || resource.key == 'catalog_items';
+        final canShowOrganizationTree =
+            resource.key == 'organization_relations' || resource.key == 'organizations';
         final rootCatalogItemId = _catalogItemTreeRootId(resource.key, data, browserState.selectedId);
+        final rootOrganizationId = _organizationTreeRootId(resource.key, data, browserState.selectedId);
         final mediaFiles = _mediaFileRefsFor(resource, data);
         final detailLookupLabelsByKey = _detailLookupLabelsByKey(ref, resource);
         final enrichedData = _withReadableRelationFields(resource, data, detailLookupLabelsByKey);
@@ -862,7 +868,11 @@ class _DetailsCardState extends ConsumerState<_DetailsCard> {
                 Row(
                   children: [
                     Text(
-                      _showCatalogItemTree && canShowCatalogItemTree ? 'Dependency tree' : 'Details',
+                      _showCatalogItemTree && canShowCatalogItemTree
+                          ? 'Dependency tree'
+                          : _showOrganizationTree && canShowOrganizationTree
+                              ? 'Organization tree'
+                              : 'Details',
                       style: Theme.of(context).textTheme.titleLarge,
                     ),
                     const Spacer(),
@@ -940,9 +950,27 @@ class _DetailsCardState extends ConsumerState<_DetailsCard> {
                         tooltip: _showCatalogItemTree ? 'Hide dependency tree' : 'Show dependency tree',
                         onPressed: rootCatalogItemId == null
                             ? null
-                            : () => setState(() => _showCatalogItemTree = !_showCatalogItemTree),
+                            : () => setState(() {
+                                  _showCatalogItemTree = !_showCatalogItemTree;
+                                  if (_showCatalogItemTree) _showOrganizationTree = false;
+                                }),
                         icon: Icon(
                           _showCatalogItemTree
+                              ? Icons.account_tree_rounded
+                              : Icons.account_tree_outlined,
+                        ),
+                      ),
+                    if (canShowOrganizationTree)
+                      IconButton(
+                        tooltip: _showOrganizationTree ? 'Hide organization tree' : 'Show organization tree',
+                        onPressed: rootOrganizationId == null
+                            ? null
+                            : () => setState(() {
+                                  _showOrganizationTree = !_showOrganizationTree;
+                                  if (_showOrganizationTree) _showCatalogItemTree = false;
+                                }),
+                        icon: Icon(
+                          _showOrganizationTree
                               ? Icons.account_tree_rounded
                               : Icons.account_tree_outlined,
                         ),
@@ -1040,15 +1068,22 @@ class _DetailsCardState extends ConsumerState<_DetailsCard> {
                           rootItemId: rootCatalogItemId,
                           onOpenCatalogItem: (catalogItemId) => _openCatalogItem(ref, catalogItemId),
                         )
-                      : _ResourceDetailsContent(
-                          resource: resource,
-                          data: data,
-                          enrichedData: enrichedData,
-                          lookupLabelsByKey: detailLookupLabelsByKey,
-                          repository: repository,
-                          quotePreviewContext: quotePreviewContext,
-                          roofModelLabelsByCode: roofModelLabelsByCode,
-                        ),
+                      : _showOrganizationTree && canShowOrganizationTree && rootOrganizationId != null
+                          ? OrganizationRelationTree(
+                              key: ValueKey('organization-tree-$rootOrganizationId'),
+                              repository: repository,
+                              rootOrganizationId: rootOrganizationId,
+                              onOpenOrganization: (organizationId) => _openOrganization(ref, organizationId),
+                            )
+                          : _ResourceDetailsContent(
+                              resource: resource,
+                              data: data,
+                              enrichedData: enrichedData,
+                              lookupLabelsByKey: detailLookupLabelsByKey,
+                              repository: repository,
+                              quotePreviewContext: quotePreviewContext,
+                              roofModelLabelsByCode: roofModelLabelsByCode,
+                            ),
                 ),
               ],
             ),
@@ -1575,6 +1610,20 @@ String? _catalogItemTreeRootId(
   return null;
 }
 
+String? _organizationTreeRootId(
+  String resourceKey,
+  Map<String, dynamic> data,
+  String? selectedId,
+) {
+  if (resourceKey == 'organization_relations') {
+    return _extractRelationId(data['parent_organization_id']?.toString() ?? '');
+  }
+  if (resourceKey == 'organizations') {
+    return _extractRelationId(data['id']?.toString() ?? selectedId ?? '');
+  }
+  return null;
+}
+
 class _DetailActionsMenu extends StatelessWidget {
   const _DetailActionsMenu({
     required this.actions,
@@ -1865,6 +1914,24 @@ void _openCatalogItem(WidgetRef ref, String catalogItemId) {
       .openWithFilters(
         filters,
         selectedId: catalogItemId,
+        updateUrl: false,
+      );
+  ref.invalidate(resourceListProvider(targetResource));
+  ref.invalidate(resourceDetailsProvider(targetResource));
+}
+
+void _openOrganization(WidgetRef ref, String organizationId) {
+  final targetResource = findResourceByKey('organizations');
+  final filters = {'id': organizationId};
+  ref.read(selectedResourceProvider.notifier).select(
+    'organizations',
+    filters: filters,
+  );
+  ref
+      .read(resourceBrowserProvider('organizations').notifier)
+      .openWithFilters(
+        filters,
+        selectedId: organizationId,
         updateUrl: false,
       );
   ref.invalidate(resourceListProvider(targetResource));

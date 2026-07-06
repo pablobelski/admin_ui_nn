@@ -3,6 +3,7 @@ import 'dart:convert';
 class CalculatorContext {
   const CalculatorContext({
     required this.organizations,
+    required this.relatedCustomers,
     required this.productFamilies,
     required this.templates,
     required this.references,
@@ -29,6 +30,7 @@ class CalculatorContext {
 
     return CalculatorContext(
       organizations: _list(json['organizations']).map(CalculatorOption.fromJson).toList(),
+      relatedCustomers: _list(json['relatedCustomers'] ?? json['related_customers']).map(CalculatorOption.fromJson).toList(),
       productFamilies: _list(json['productFamilies']).map(CalculatorOption.fromJson).toList(),
       templates: _list(json['templates']).map(CalculatorTemplateOption.fromJson).toList(),
       references: _references(json['references']),
@@ -45,6 +47,7 @@ class CalculatorContext {
   }
 
   final List<CalculatorOption> organizations;
+  final List<CalculatorOption> relatedCustomers;
   final List<CalculatorOption> productFamilies;
   final List<CalculatorTemplateOption> templates;
   final Map<String, List<CalculatorOption>> references;
@@ -55,6 +58,13 @@ class CalculatorContext {
   final List<CalculatorCatalogVariantOption> optionCatalogVariants;
   final Map<String, List<CalculatorAdditionalHandlingOption>> additionalHandlingByParentItemId;
   final CalculatorCatalogItemOption? customPaintCatalogItem;
+
+  List<CalculatorOption> relatedCustomersFor(String? parentOrganizationId) {
+    if (parentOrganizationId == null || parentOrganizationId.isEmpty) return const [];
+    return relatedCustomers
+        .where((entry) => '${entry.raw['parent_organization_id'] ?? ''}' == parentOrganizationId)
+        .toList(growable: false);
+  }
 }
 
 class CalculatorOption {

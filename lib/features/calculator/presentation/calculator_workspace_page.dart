@@ -232,8 +232,19 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
     );
   }
 
+  bool _validateKommissionName(BuildContext context) {
+    final value = ref.read(calculatorDraftProvider).quoteNoExternal?.trim() ?? '';
+    if (value.isNotEmpty) return true;
+    setState(() => _selectedStep = 0);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Fill Komission name first.')),
+    );
+    return false;
+  }
+
   Future<void> _calculate(BuildContext context) async {
     final draft = ref.read(calculatorDraftProvider);
+    if (!_validateKommissionName(context)) return;
     if (draft.templateId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Select a template first.')),
@@ -257,6 +268,7 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
   }
 
   Future<void> _showSaveQuoteDialog(BuildContext context) async {
+    if (!_validateKommissionName(context)) return;
     final canSaveCalculation = ref.read(calculatorResultProvider).maybeWhen(
       data: (value) => value != null,
       error: (_, __) => true,
@@ -883,6 +895,8 @@ class _ProductStep extends StatefulWidget {
 class _ProductStepState extends State<_ProductStep> {
   late final TextEditingController _quoteNoExternal;
   late final TextEditingController _externalNotes;
+  bool _byRelatedCustomer = false;
+  String? _selectedRelatedCustomerId;
 
   @override
   void initState() {
@@ -896,6 +910,10 @@ class _ProductStepState extends State<_ProductStep> {
     super.didUpdateWidget(oldWidget);
     _sync(_quoteNoExternal, widget.draft.quoteNoExternal);
     _sync(_externalNotes, widget.draft.externalNotes);
+    if (oldWidget.draft.organizationId != widget.draft.organizationId) {
+      _byRelatedCustomer = false;
+      _selectedRelatedCustomerId = null;
+    }
   }
 
   void _sync(TextEditingController controller, String? value) {
@@ -910,8 +928,50 @@ class _ProductStepState extends State<_ProductStep> {
     super.dispose();
   }
 
+  String _relatedCustomerName(CalculatorOption option) {
+    final rawName = option.raw['short_name'] ?? option.raw['display_name'] ?? option.raw['legal_name'];
+    final value = rawName == null ? '' : '$rawName'.trim();
+    return value.isNotEmpty ? value : option.label;
+  }
+
+  CalculatorOption? _selectedRelatedCustomer(List<CalculatorOption> relatedCustomers) {
+    for (final option in relatedCustomers) {
+      if (option.id == _selectedRelatedCustomerId) return option;
+    }
+    final currentName = widget.draft.quoteNoExternal?.trim() ?? '';
+    if (currentName.isNotEmpty) {
+      for (final option in relatedCustomers) {
+        if (_relatedCustomerName(option) == currentName) return option;
+      }
+    }
+    return null;
+  }
+
+  void _setByRelatedCustomer(bool value, List<CalculatorOption> relatedCustomers) {
+    if (!value) {
+      setState(() {
+        _byRelatedCustomer = false;
+        _selectedRelatedCustomerId = null;
+      });
+      return;
+    }
+
+    if (relatedCustomers.isEmpty) return;
+    final selected = _selectedRelatedCustomer(relatedCustomers) ?? relatedCustomers.first;
+    setState(() {
+      _byRelatedCustomer = true;
+      _selectedRelatedCustomerId = selected.id;
+    });
+    widget.onQuoteNoExternalChanged(_relatedCustomerName(selected));
+  }
+
   @override
   Widget build(BuildContext context) {
+    final relatedCustomers = widget.contextData.relatedCustomersFor(widget.draft.organizationId);
+    final canUseRelatedCustomer = relatedCustomers.isNotEmpty;
+    final selectedRelatedCustomer = _selectedRelatedCustomer(relatedCustomers);
+    final selectedRelatedCustomerId = selectedRelatedCustomer?.id;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -949,18 +1009,53 @@ class _ProductStepState extends State<_ProductStep> {
           emptyLabel: null,
         ),
         const SizedBox(height: 24),
-        Text('Customer fields', style: Theme.of(context).textTheme.titleMedium),
-        const SizedBox(height: 12),
-        TextField(
-          controller: _quoteNoExternal,
-          decoration: const InputDecoration(
-            labelText: 'Komission name',
-            helperText: 'Customer-side calculation name / external quote number.',
-            border: OutlineInputBorder(),
-            isDense: true,
-          ),
-          onChanged: widget.onQuoteNoExternalChanged,
+        Row(
+          children: [
+            Text('Customer fields', style: Theme.of(context).textTheme.titleMedium),
+            const Spacer(),
+            Text('By Related Customer', style: Theme.of(context).textTheme.bodyMedium),
+            Switch(
+              value: _byRelatedCustomer && canUseRelatedCustomer,
+              onChanged: canUseRelatedCustomer ? (value) => _setByRelatedCustomer(value, relatedCustomers) : null,
+            ),
+          ],
         ),
+        const SizedBox(height: 12),
+        if (_byRelatedCustomer && canUseRelatedCustomer)
+          DropdownButtonFormField<String>(
+            initialValue: selectedRelatedCustomerId,
+            isExpanded: true,
+            decoration: const InputDecoration(
+              labelText: 'Komission name *',
+              helperText: 'Uses the selected related customer short name.',
+              border: OutlineInputBorder(),
+              isDense: true,
+            ),
+            items: [
+              for (final option in relatedCustomers)
+                DropdownMenuItem(
+                  value: option.id,
+                  child: Text(_relatedCustomerName(option), overflow: TextOverflow.ellipsis),
+                ),
+            ],
+            onChanged: (value) {
+              final selected = relatedCustomers.where((option) => option.id == value).firstOrNull;
+              if (selected == null) return;
+              setState(() => _selectedRelatedCustomerId = selected.id);
+              widget.onQuoteNoExternalChanged(_relatedCustomerName(selected));
+            },
+          )
+        else
+          TextField(
+            controller: _quoteNoExternal,
+            decoration: const InputDecoration(
+              labelText: 'Komission name *',
+              helperText: 'Customer-side calculation name / external quote number. Required.',
+              border: OutlineInputBorder(),
+              isDense: true,
+            ),
+            onChanged: widget.onQuoteNoExternalChanged,
+          ),
         const SizedBox(height: 16),
         TextField(
           controller: _externalNotes,

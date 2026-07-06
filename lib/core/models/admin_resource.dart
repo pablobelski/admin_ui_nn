@@ -130,6 +130,7 @@ class AdminResourceDefinition {
     this.listFilters = const [],
     this.detailActions = const [],
     this.requiresSysadmin = false,
+    this.showInNavigation = true,
   });
 
   final String key;
@@ -145,6 +146,7 @@ class AdminResourceDefinition {
   final List<AdminResourceFilter> listFilters;
   final List<AdminDetailAction> detailActions;
   final bool requiresSysadmin;
+  final bool showInNavigation;
 }
 
 class AdminNavGroup {

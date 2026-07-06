@@ -332,10 +332,11 @@ class _NavigationTree extends StatelessWidget {
   }
 
   List<AdminResourceDefinition> _visibleResources(AdminNavGroup group) {
+    final navigableResources = group.resources.where((resource) => resource.showInNavigation);
     if (roleCode == 'sysadmin') {
-      return group.resources;
+      return navigableResources.toList(growable: false);
     }
-    return group.resources.where((resource) => !resource.requiresSysadmin).toList(growable: false);
+    return navigableResources.where((resource) => !resource.requiresSysadmin).toList(growable: false);
   }
 }
 
