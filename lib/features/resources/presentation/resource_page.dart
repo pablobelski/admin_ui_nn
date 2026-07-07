@@ -247,6 +247,7 @@ class _ToolbarState extends ConsumerState<_Toolbar> {
       builder: (_) => ResourceEditorDialog(
         resource: widget.resource,
         repository: repository,
+        initialData: _createInitialData(widget.resource, widget.browserState.filters),
       ),
     );
     if (payload == null) return;
@@ -632,11 +633,14 @@ double _compactColumnWidth(String resourceKey, AdminColumn column) {
   if (resourceKey == 'catalog_media') {
     return switch (key) {
       'kind' => 64,
+      'scope_code' => 120,
       'use_type' => 96,
-      'catalog_item_id' => 260,
-      'catalog_variant_id' => 260,
+      'catalog_item_id' => 240,
+      'catalog_variant_id' => 240,
+      'roof_model_id' => 240,
       'file_id' => 260,
       'is_primary' => 80,
+      'is_active' => 80,
       _ => 140,
     };
   }
@@ -2078,23 +2082,43 @@ Future<void> loadQuoteToWorkspace(
   }
 }
 
+Map<String, dynamic>? _createInitialData(
+  AdminResourceDefinition resource,
+  Map<String, String> filters,
+) {
+  if (resource.key != 'reference_domains') return null;
+
+  final hasTableOwner = (filters['object_name'] ?? '').isNotEmpty ||
+      (filters['parent_id'] ?? '').isNotEmpty;
+  return {
+    if (hasTableOwner) 'scope_code': 'table' else 'scope_code': filters['scope_code'] ?? 'system',
+    if ((filters['object_name'] ?? '').isNotEmpty) 'object_name': filters['object_name'],
+    if ((filters['parent_id'] ?? '').isNotEmpty) 'parent_id': filters['parent_id'],
+    if (hasTableOwner) 'code': 'parameters',
+    if (hasTableOwner) 'is_system': false,
+    'is_active': true,
+  };
+}
+
 void _openDetailAction(WidgetRef ref, AdminDetailAction action, Map<String, dynamic> data) {
   final targetResource = findResourceByKey(action.targetResourceKey);
   final filterValue = _detailActionValue(action, data);
   if (filterValue == null) return;
 
-  final filters = {action.filterKey: filterValue};
+  final filters = {
+    action.filterKey: filterValue,
+    ...action.extraFilters,
+  };
   final selectedId = action.selectTargetRow && action.filterKey == 'id' ? filterValue : null;
   ref.read(selectedResourceProvider.notifier).select(
     action.targetResourceKey,
-    filters: filters,
+    updateUrl: false,
   );
   ref
       .read(resourceBrowserProvider(action.targetResourceKey).notifier)
       .openWithFilters(
         filters,
         selectedId: selectedId,
-        updateUrl: false,
       );
   ref.invalidate(resourceListProvider(targetResource));
   ref.invalidate(resourceDetailsProvider(targetResource));
@@ -2105,14 +2129,13 @@ void _openCatalogItem(WidgetRef ref, String catalogItemId) {
   final filters = {'id': catalogItemId};
   ref.read(selectedResourceProvider.notifier).select(
     'catalog_items',
-    filters: filters,
+    updateUrl: false,
   );
   ref
       .read(resourceBrowserProvider('catalog_items').notifier)
       .openWithFilters(
         filters,
         selectedId: catalogItemId,
-        updateUrl: false,
       );
   ref.invalidate(resourceListProvider(targetResource));
   ref.invalidate(resourceDetailsProvider(targetResource));
@@ -2123,14 +2146,13 @@ void _openOrganization(WidgetRef ref, String organizationId) {
   final filters = {'id': organizationId};
   ref.read(selectedResourceProvider.notifier).select(
     'organizations',
-    filters: filters,
+    updateUrl: false,
   );
   ref
       .read(resourceBrowserProvider('organizations').notifier)
       .openWithFilters(
         filters,
         selectedId: organizationId,
-        updateUrl: false,
       );
   ref.invalidate(resourceListProvider(targetResource));
   ref.invalidate(resourceDetailsProvider(targetResource));

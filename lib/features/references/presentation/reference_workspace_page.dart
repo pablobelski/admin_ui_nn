@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/navigation/admin_providers.dart';
 import '../../../core/navigation/admin_registry.dart';
+import '../../../core/navigation/browser_navigation.dart';
 import '../../../core/ui/admin_list_table.dart';
 import '../../../core/ui/header_focus_icon_button.dart';
 import '../../../core/ui/json_view_card.dart';
@@ -24,6 +25,16 @@ class ReferenceWorkspacePage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final selectedDomainAsync = ref.watch(selectedReferenceDomainProvider);
     final valuesAsync = ref.watch(referenceValuesProvider);
+    final domainResource = findResourceByKey('reference_domains');
+    final navigationFilters = _referenceDomainNavigationFilters(currentAdminResourceFilters(domainResource));
+    final workspaceFilters = ref.watch(
+      referenceWorkspaceProvider.select((state) => state.activeFilters),
+    );
+    if (!_sameStringMap(navigationFilters, workspaceFilters)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        ref.read(referenceWorkspaceProvider.notifier).applyNavigationFilters(navigationFilters);
+      });
+    }
     final isWide = MediaQuery.sizeOf(context).width >= 1360;
     final focusDependentLayer = ref.watch(referenceDependentLayerFocusProvider);
 
@@ -136,71 +147,112 @@ class _ReferenceToolbarState extends ConsumerState<_ReferenceToolbar> {
     final repository = ref.read(referenceRepositoryProvider);
     final adminRepository = ref.read(resourceRepositoryProvider);
     final domainResource = findResourceByKey('reference_domains');
-    final selectedDomainId = ref.watch(referenceWorkspaceProvider.select((value) => value.selectedDomainId));
+    final state = ref.watch(referenceWorkspaceProvider);
+    final selectedDomainId = state.selectedDomainId;
+    final ownerRecordAsync = state.objectName.isNotEmpty && state.parentId.isNotEmpty
+        ? ref.watch(referenceOwnerRecordLabelProvider(
+            ReferenceOwnerRecordKey(objectName: state.objectName, parentId: state.parentId),
+          ))
+        : null;
+    final ownerFilterLabel = _ownerFilterLabel(state, ownerRecordAsync);
 
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      crossAxisAlignment: WrapCrossAlignment.center,
+    final createButton = FilledButton.icon(
+      onPressed: () async {
+        final payload = await showDialog<Map<String, dynamic>>(
+          context: context,
+          builder: (_) => ResourceEditorDialog(
+            resource: domainResource,
+            repository: adminRepository,
+            initialData: _createDomainInitialData(state.activeFilters),
+          ),
+        );
+        if (payload == null) return;
+        await repository.createDomain(payload);
+        ref.invalidate(referenceDomainListProvider);
+      },
+      icon: const Icon(Icons.add),
+      label: const Text('Create domain'),
+    );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        SizedBox(
-          width: 300,
-          child: TextField(
-            controller: _domainSearchController,
-            decoration: const InputDecoration(
-              prefixIcon: Icon(Icons.search),
-              hintText: 'Search domain code / name',
-            ),
-            onSubmitted: browser.setDomainQuery,
-          ),
-        ),
-        FilledButton.tonalIcon(
-          onPressed: () => browser.setDomainQuery(_domainSearchController.text.trim()),
-          icon: const Icon(Icons.filter_alt_outlined),
-          label: const Text('Apply domain filter'),
-        ),
-        SizedBox(
-          width: 280,
-          child: TextField(
-            controller: _valueSearchController,
-            decoration: const InputDecoration(
-              prefixIcon: Icon(Icons.data_object_outlined),
-              hintText: 'Filter values by code / label',
-            ),
-            onSubmitted: browser.setValueQuery,
-          ),
-        ),
-        OutlinedButton.icon(
-          onPressed: selectedDomainId == null
-              ? null
-              : () => browser.setValueQuery(_valueSearchController.text.trim()),
-          icon: const Icon(Icons.manage_search_rounded),
-          label: const Text('Apply value filter'),
-        ),
-        IconButton(
-          tooltip: 'Refresh domains and values',
-          onPressed: () {
-            ref.invalidate(referenceDomainListProvider);
-            ref.invalidate(selectedReferenceDomainProvider);
-            ref.invalidate(referenceValuesProvider);
-          },
-          icon: const Icon(Icons.refresh),
-        ),
-        FilledButton.icon(
-          onPressed: () async {
-            final payload = await showDialog<Map<String, dynamic>>(
-              context: context,
-              builder: (_) => ResourceEditorDialog(
-                resource: domainResource,
-                repository: adminRepository,
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            SizedBox(
+              width: 300,
+              child: TextField(
+                controller: _domainSearchController,
+                decoration: const InputDecoration(
+                  prefixIcon: Icon(Icons.search),
+                  hintText: 'Search domain code / name',
+                ),
+                onSubmitted: browser.setDomainQuery,
               ),
-            );
-            if (payload == null) return;
-            await repository.createDomain(payload);
-            ref.invalidate(referenceDomainListProvider);
-          },
-          icon: const Icon(Icons.add),
-          label: const Text('Create domain'),
+            ),
+            SizedBox(
+              width: 190,
+              child: DropdownButtonFormField<String>(
+                initialValue: _scopeDropdownValue(state.scopeCode),
+                decoration: const InputDecoration(
+                  labelText: 'Scope',
+                  prefixIcon: Icon(Icons.filter_list_outlined),
+                ),
+                items: const <DropdownMenuItem<String>>[
+                  DropdownMenuItem(value: '', child: Text('All scopes')),
+                  DropdownMenuItem(value: 'system', child: Text('System/global')),
+                  DropdownMenuItem(value: 'table', child: Text('Table records')),
+                ],
+                onChanged: browser.setScopeFilter,
+              ),
+            ),
+            FilledButton.tonalIcon(
+              onPressed: () => browser.setDomainQuery(_domainSearchController.text.trim()),
+              icon: const Icon(Icons.filter_alt_outlined),
+              label: const Text('Apply domain filter'),
+            ),
+            if (ownerFilterLabel != null)
+              InputChip(
+                avatar: const Icon(Icons.account_tree_outlined, size: 18),
+                label: Text(ownerFilterLabel),
+                onDeleted: browser.clearOwnerFilters,
+              ),
+            SizedBox(
+              width: 280,
+              child: TextField(
+                controller: _valueSearchController,
+                decoration: const InputDecoration(
+                  prefixIcon: Icon(Icons.data_object_outlined),
+                  hintText: 'Filter values by code / label',
+                ),
+                onSubmitted: browser.setValueQuery,
+              ),
+            ),
+            OutlinedButton.icon(
+              onPressed: selectedDomainId == null
+                  ? null
+                  : () => browser.setValueQuery(_valueSearchController.text.trim()),
+              icon: const Icon(Icons.manage_search_rounded),
+              label: const Text('Apply value filter'),
+            ),
+            IconButton(
+              tooltip: 'Refresh domains and values',
+              onPressed: () {
+                ref.invalidate(referenceDomainListProvider);
+                ref.invalidate(selectedReferenceDomainProvider);
+                ref.invalidate(referenceValuesProvider);
+              },
+              icon: const Icon(Icons.refresh),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Align(
+          alignment: Alignment.centerRight,
+          child: createButton,
         ),
       ],
     );
@@ -241,7 +293,7 @@ class _DomainListCard extends ConsumerWidget {
                 Expanded(
                   child: ListView.separated(
                     key: PageStorageKey<String>(
-                      'reference-domain-list-${state.domainQuery}-${state.offset}-${state.limit}',
+                      'reference-domain-list-${state.domainQuery}-${state.scopeCode}-${state.objectName}-${state.parentId}-${state.offset}-${state.limit}',
                     ),
                     itemCount: response.items.length + 1,
                     separatorBuilder: (_, __) => const SizedBox(height: 8),
@@ -306,8 +358,14 @@ class _DomainListCard extends ConsumerWidget {
                                 runSpacing: 8,
                                 children: [
                                   _MetaChip(
+                                    icon: domain.scopeCode == 'table'
+                                        ? Icons.account_tree_outlined
+                                        : Icons.public_outlined,
+                                    label: domain.scopeCode == 'table' ? 'Table scope' : 'System scope',
+                                  ),
+                                  _MetaChip(
                                     icon: domain.isSystem ? Icons.lock_outline : Icons.edit_outlined,
-                                    label: domain.isSystem ? 'System' : 'Custom',
+                                    label: domain.isSystem ? 'Protected' : 'Editable',
                                   ),
                                 ],
                               ),
@@ -427,7 +485,10 @@ class _DomainDetailsCard extends ConsumerWidget {
                         runSpacing: 12,
                         children: [
                           _InfoTile(label: 'Domain id', value: domain.id),
-                          _InfoTile(label: 'System', value: domain.isSystem ? 'Yes' : 'No'),
+                          _InfoTile(label: 'Scope', value: domain.scopeCode ?? 'system'),
+                          _InfoTile(label: 'Object name', value: domain.objectName ?? '—'),
+                          _InfoTile(label: 'Parent id', value: domain.parentId ?? '—'),
+                          _InfoTile(label: 'System/protected', value: domain.isSystem ? 'Yes' : 'No'),
                           _InfoTile(label: 'Created', value: domain.createdAt ?? '—'),
                           _InfoTile(label: 'Updated', value: domain.updatedAt ?? '—'),
                         ],
@@ -954,6 +1015,56 @@ class _MetaChip extends StatelessWidget {
       visualDensity: VisualDensity.compact,
     );
   }
+}
+
+
+String _scopeDropdownValue(String value) {
+  return value == 'system' || value == 'table' ? value : '';
+}
+
+String? _ownerFilterLabel(
+  ReferenceWorkspaceState state,
+  AsyncValue<ReferenceOwnerRecord?>? ownerRecordAsync,
+) {
+  if (state.objectName.isEmpty && state.parentId.isEmpty) return null;
+  final object = state.objectName.isEmpty ? 'table' : state.objectName;
+  if (state.parentId.isEmpty) return object;
+
+  final ownerLabel = ownerRecordAsync?.maybeWhen(
+    data: (record) => record?.label.trim(),
+    orElse: () => null,
+  );
+  final displayValue = ownerLabel == null || ownerLabel.isEmpty ? state.parentId : ownerLabel;
+  return '$object · $displayValue';
+}
+
+Map<String, dynamic> _createDomainInitialData(Map<String, String> filters) {
+  final hasTableOwner = (filters['object_name'] ?? '').isNotEmpty ||
+      (filters['parent_id'] ?? '').isNotEmpty;
+  return {
+    if (hasTableOwner) 'scope_code': 'table' else 'scope_code': filters['scope_code'] ?? 'system',
+    if ((filters['object_name'] ?? '').isNotEmpty) 'object_name': filters['object_name'],
+    if ((filters['parent_id'] ?? '').isNotEmpty) 'parent_id': filters['parent_id'],
+    if (hasTableOwner) 'code': 'parameters',
+    if (hasTableOwner) 'is_system': false,
+    'is_active': true,
+  };
+}
+
+Map<String, String> _referenceDomainNavigationFilters(Map<String, String> filters) {
+  return <String, String>{
+    if ((filters['scope_code'] ?? '').isNotEmpty) 'scope_code': filters['scope_code']!,
+    if ((filters['object_name'] ?? '').isNotEmpty) 'object_name': filters['object_name']!,
+    if ((filters['parent_id'] ?? '').isNotEmpty) 'parent_id': filters['parent_id']!,
+  };
+}
+
+bool _sameStringMap(Map<String, String> left, Map<String, String> right) {
+  if (left.length != right.length) return false;
+  for (final entry in left.entries) {
+    if (right[entry.key] != entry.value) return false;
+  }
+  return true;
 }
 
 class _StatusChip extends StatelessWidget {

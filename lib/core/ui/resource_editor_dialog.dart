@@ -31,6 +31,9 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
   late final Map<String, bool> _boolValues;
   late final Map<String, Future<List<Map<String, dynamic>>>> _lookupFutures;
   late final Map<String, Future<List<AdminSelectOption>>> _referenceOptionFutures;
+  late final Future<List<Map<String, dynamic>>> _referenceOwnerTableFuture;
+  Future<List<Map<String, dynamic>>>? _referenceOwnerRecordFuture;
+  String? _referenceOwnerRecordObjectName;
   late final Map<String, FocusNode> _jsonFocusNodes;
   final Set<String> _uploadingFields = <String>{};
 
@@ -69,6 +72,8 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
           field.key: widget.repository?.fetchReferenceOptions(field.referenceDomain!.trim()) ??
               Future<List<AdminSelectOption>>.value(const <AdminSelectOption>[]),
     };
+    _referenceOwnerTableFuture = widget.repository?.fetchReferenceDomainOwnerTables(limit: 1000) ??
+        Future<List<Map<String, dynamic>>>.value(const <Map<String, dynamic>>[]);
   }
 
   bool _defaultBoolValue(String key) {
@@ -235,6 +240,14 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
       return _buildFileField(field);
     }
 
+    if (_isReferenceDomainObjectNameField(field)) {
+      return _buildReferenceDomainObjectNameField(field);
+    }
+
+    if (_isReferenceDomainParentIdField(field)) {
+      return _buildReferenceDomainParentIdField(field);
+    }
+
     if (field.options.isNotEmpty) {
       final controller = _controllers[field.key]!;
       final currentValue = controller.text.trim();
@@ -249,6 +262,9 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
         helperText: field.helperText,
         onChanged: (value) {
           controller.text = value ?? '';
+          if (_isReferenceDomainScopeField(field)) {
+            _handleReferenceDomainScopeChanged(controller.text);
+          }
         },
       );
     }
@@ -371,6 +387,154 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
           }
         }
         return null;
+      },
+    );
+  }
+
+
+  bool _isReferenceDomainScopeField(AdminField field) {
+    return widget.resource.key == 'reference_domains' && field.key == 'scope_code';
+  }
+
+  bool _isReferenceDomainObjectNameField(AdminField field) {
+    return widget.resource.key == 'reference_domains' && field.key == 'object_name';
+  }
+
+  bool _isReferenceDomainParentIdField(AdminField field) {
+    return widget.resource.key == 'reference_domains' && field.key == 'parent_id';
+  }
+
+  bool get _referenceDomainUsesTableScope {
+    final scope = _controllers['scope_code']?.text.trim().toLowerCase() ?? '';
+    return scope == 'table';
+  }
+
+  void _handleReferenceDomainScopeChanged(String scopeCode) {
+    final nextScope = scopeCode.trim().toLowerCase();
+    if (nextScope != 'table') {
+      _controllers['object_name']?.clear();
+      _controllers['parent_id']?.clear();
+      _referenceOwnerRecordObjectName = null;
+      _referenceOwnerRecordFuture = null;
+    }
+    setState(() {});
+  }
+
+  void _handleReferenceDomainObjectChanged(String? objectName) {
+    _controllers['object_name']!.text = objectName ?? '';
+    _controllers['parent_id']?.clear();
+    _referenceOwnerRecordObjectName = null;
+    _referenceOwnerRecordFuture = null;
+    setState(() {});
+  }
+
+  Future<List<Map<String, dynamic>>> _referenceOwnerRecordsFuture(String objectName) {
+    final normalized = objectName.trim();
+    if (normalized.isEmpty) {
+      return Future<List<Map<String, dynamic>>>.value(const <Map<String, dynamic>>[]);
+    }
+    if (_referenceOwnerRecordObjectName != normalized || _referenceOwnerRecordFuture == null) {
+      _referenceOwnerRecordObjectName = normalized;
+      _referenceOwnerRecordFuture = widget.repository?.fetchReferenceDomainOwnerRecords(
+            normalized,
+            limit: 1000,
+          ) ??
+          Future<List<Map<String, dynamic>>>.value(const <Map<String, dynamic>>[]);
+    }
+    return _referenceOwnerRecordFuture!;
+  }
+
+  Widget _buildReferenceDomainObjectNameField(AdminField field) {
+    final controller = _controllers[field.key]!;
+    final enabled = !field.readOnly && _referenceDomainUsesTableScope;
+
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: _referenceOwnerTableFuture,
+      builder: (context, snapshot) {
+        final currentValue = controller.text.trim();
+        final rows = snapshot.data ?? const <Map<String, dynamic>>[];
+        final options = <SearchableSelectOption>[];
+        var hasCurrentValue = currentValue.isEmpty;
+
+        for (final row in rows) {
+          final value = row['code']?.toString() ?? row['id']?.toString() ?? '';
+          if (value.isEmpty) continue;
+          final label = row['label']?.toString().trim() ?? value;
+          final labelColumns = row['label_columns']?.toString().trim() ?? '';
+          hasCurrentValue = hasCurrentValue || value == currentValue;
+          options.add(SearchableSelectOption(
+            value: value,
+            label: labelColumns.isEmpty ? label : '$label · $labelColumns',
+          ));
+        }
+
+        if (!hasCurrentValue) {
+          options.add(SearchableSelectOption(value: currentValue, label: currentValue));
+        }
+
+        return SearchableSelectFormField(
+          value: currentValue,
+          options: options,
+          enabled: enabled && snapshot.connectionState != ConnectionState.waiting,
+          labelText: field.label,
+          helperText: !_referenceDomainUsesTableScope
+              ? 'Available when Scope = Table records'
+              : snapshot.connectionState == ConnectionState.waiting
+              ? 'Loading configurator tables...'
+              : snapshot.hasError
+              ? 'Failed to load tables; keep existing value or leave empty'
+              : field.helperText,
+          onChanged: _handleReferenceDomainObjectChanged,
+        );
+      },
+    );
+  }
+
+  Widget _buildReferenceDomainParentIdField(AdminField field) {
+    final controller = _controllers[field.key]!;
+    final objectName = _controllers['object_name']?.text.trim() ?? '';
+    final enabled = !field.readOnly && _referenceDomainUsesTableScope && objectName.isNotEmpty;
+
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: enabled
+          ? _referenceOwnerRecordsFuture(objectName)
+          : Future<List<Map<String, dynamic>>>.value(const <Map<String, dynamic>>[]),
+      builder: (context, snapshot) {
+        final currentValue = controller.text.trim();
+        final rows = snapshot.data ?? const <Map<String, dynamic>>[];
+        final options = <SearchableSelectOption>[];
+        var hasCurrentValue = currentValue.isEmpty;
+
+        for (final row in rows) {
+          final id = row['id']?.toString() ?? '';
+          if (id.isEmpty) continue;
+          final label = row['label']?.toString().trim() ?? id;
+          hasCurrentValue = hasCurrentValue || id == currentValue;
+          options.add(SearchableSelectOption(value: id, label: label.isEmpty ? id : label));
+        }
+
+        if (!hasCurrentValue) {
+          options.add(SearchableSelectOption(value: currentValue, label: currentValue));
+        }
+
+        return SearchableSelectFormField(
+          value: currentValue,
+          options: options,
+          enabled: enabled && snapshot.connectionState != ConnectionState.waiting,
+          labelText: field.label,
+          helperText: !_referenceDomainUsesTableScope
+              ? 'Available when Scope = Table records'
+              : objectName.isEmpty
+              ? 'Select Object name first'
+              : snapshot.connectionState == ConnectionState.waiting
+              ? 'Loading records from $objectName...'
+              : snapshot.hasError
+              ? 'Failed to load records; keep existing id or leave empty'
+              : field.helperText,
+          onChanged: (value) {
+            controller.text = value ?? '';
+          },
+        );
       },
     );
   }

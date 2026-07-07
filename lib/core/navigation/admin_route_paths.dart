@@ -54,6 +54,9 @@ Map<String, String> adminFiltersFromLocationUri(Uri uri, AdminResourceDefinition
     for (final sourceResource in allResources)
       for (final action in sourceResource.detailActions)
         if (action.targetResourceKey == resource.key) action.filterKey,
+    for (final sourceResource in allResources)
+      for (final action in sourceResource.detailActions)
+        if (action.targetResourceKey == resource.key) ...action.extraFilters.keys,
   };
   if (acceptedFilterKeys.isEmpty) return const {};
 

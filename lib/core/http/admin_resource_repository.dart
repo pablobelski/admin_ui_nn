@@ -63,6 +63,51 @@ class AdminResourceRepository {
   }
 
 
+
+
+  Future<List<Map<String, dynamic>>> fetchReferenceDomainOwnerTables({
+    String query = '',
+    int limit = 500,
+  }) async {
+    final response = await _client.getJson(
+      '/api/admin/reference-domain-owner-tables',
+      query: {
+        if (query.trim().isNotEmpty) 'q': query.trim(),
+        'limit': '$limit',
+      },
+    );
+
+    return (response['items'] as List? ?? const [])
+        .cast<Map>()
+        .map((entry) => Map<String, dynamic>.from(entry))
+        .toList();
+  }
+
+  Future<List<Map<String, dynamic>>> fetchReferenceDomainOwnerRecords(
+    String objectName, {
+    String query = '',
+    String id = '',
+    int limit = 500,
+  }) async {
+    final normalizedObjectName = objectName.trim();
+    if (normalizedObjectName.isEmpty) return const <Map<String, dynamic>>[];
+
+    final response = await _client.getJson(
+      '/api/admin/reference-domain-owner-records',
+      query: {
+        'object_name': normalizedObjectName,
+        if (query.trim().isNotEmpty) 'q': query.trim(),
+        if (id.trim().isNotEmpty) 'id': id.trim(),
+        'limit': '$limit',
+      },
+    );
+
+    return (response['items'] as List? ?? const [])
+        .cast<Map>()
+        .map((entry) => Map<String, dynamic>.from(entry))
+        .toList();
+  }
+
   Future<List<AdminSelectOption>> fetchReferenceOptions(String domainCode) async {
     final response = await _client.getJson('/api/admin/reference-options/$domainCode');
     final items = response['items'] as List? ?? const [];

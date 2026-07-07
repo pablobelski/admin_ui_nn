@@ -1554,7 +1554,7 @@ class _RoofModelMediaPreview extends StatelessWidget {
 
     return MediaFileRef(
       fileId: fileId,
-      fieldKey: 'roof_model_media.file_id',
+      fieldKey: 'catalog_media.file_id',
       label: currentModel.label.isNotEmpty ? currentModel.label : 'Roof model image',
     );
   }

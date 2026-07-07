@@ -138,6 +138,11 @@ const activeFilterOptions = <AdminSelectOption>[
   AdminSelectOption(value: 'false', label: 'No'),
 ];
 
+const referenceScopeOptions = <AdminSelectOption>[
+  AdminSelectOption(value: 'system', label: 'System/global'),
+  AdminSelectOption(value: 'table', label: 'Table record'),
+];
+
 const globalRoleOptions = <AdminSelectOption>[
   AdminSelectOption(value: 'sysadmin', label: 'Sysadmin'),
   AdminSelectOption(value: 'admin', label: 'Admin'),
@@ -262,6 +267,11 @@ const mediaPurposeOptions = <AdminSelectOption>[
   AdminSelectOption(value: 'email_template', label: 'Email templates'),
   AdminSelectOption(value: 'media', label: 'General media'),
   AdminSelectOption(value: 'others', label: 'Others'),
+];
+
+const catalogMediaScopeOptions = <AdminSelectOption>[
+  AdminSelectOption(value: 'catalog_items', label: 'Catalog items'),
+  AdminSelectOption(value: 'roof_models', label: 'Roof models'),
 ];
 
 const additionalHandlingDependencyTypeOptions = <AdminSelectOption>[
@@ -1020,15 +1030,31 @@ const adminNavGroups = <AdminNavGroup>[
         icon: Icons.perm_media_outlined,
         columns: [
           AdminColumn(key: 'kind', label: 'Kind', isPrimary: true),
+          AdminColumn(key: 'scope_code', label: 'Scope'),
           AdminColumn(key: 'use_type', label: 'Use type'),
           AdminColumn(key: 'catalog_item_id', label: 'Item', lookup: catalogItemLookup),
           AdminColumn(key: 'catalog_variant_id', label: 'Variant', lookup: catalogVariantLookup),
+          AdminColumn(key: 'roof_model_id', label: 'Roof model', lookup: roofModelLookup),
           AdminColumn(key: 'file_id', label: 'File'),
           AdminColumn(key: 'is_primary', label: 'Primary'),
+          AdminColumn(key: 'is_active', label: 'Active'),
+        ],
+        listFilters: [
+          AdminResourceFilter(key: 'scope_code', label: 'Scope', options: catalogMediaScopeOptions),
+          AdminResourceFilter(key: 'catalog_item_id', label: 'Catalog item', lookup: catalogItemLookup),
+          AdminResourceFilter(key: 'catalog_variant_id', label: 'Catalog variant', lookup: catalogVariantLookup),
+          AdminResourceFilter(key: 'roof_model_id', label: 'Roof model', lookup: roofModelLookup),
         ],
         formFields: [
+          AdminField(
+            key: 'scope_code',
+            label: 'Scope',
+            options: catalogMediaScopeOptions,
+            defaultValue: 'catalog_items',
+          ),
           AdminField(key: 'catalog_item_id', label: 'Catalog item', lookup: catalogItemLookup),
           AdminField(key: 'catalog_variant_id', label: 'Catalog variant', lookup: catalogVariantLookup),
+          AdminField(key: 'roof_model_id', label: 'Roof model', lookup: roofModelLookup),
           AdminField(key: 'kind', label: 'Kind', options: mediaKindOptions),
           AdminField(
             key: 'use_type',
@@ -1036,6 +1062,7 @@ const adminNavGroups = <AdminNavGroup>[
             referenceDomain: catalogMediaUseTypeDomain,
             defaultValue: 'standard',
           ),
+          AdminField(key: 'label', label: 'Label'),
           AdminField(
             key: 'file_id',
             label: 'Media file',
@@ -1046,6 +1073,41 @@ const adminNavGroups = <AdminNavGroup>[
           AdminField(key: 'sort_order', label: 'Sort order', type: AdminFieldType.number),
           AdminField(key: 'is_primary', label: 'Primary', type: AdminFieldType.boolType),
           AdminField(key: 'metadata_json', label: 'Metadata JSON', type: AdminFieldType.json),
+          AdminField(key: 'is_active', label: 'Active', type: AdminFieldType.boolType),
+        ],
+        detailActions: [
+          AdminDetailAction(
+            label: 'Show catalog item',
+            targetResourceKey: 'catalog_items',
+            filterKey: 'id',
+            sourceValueKey: 'catalog_item_id',
+            selectTargetRow: true,
+            icon: Icons.view_list_rounded,
+          ),
+          AdminDetailAction(
+            label: 'Show catalog variant',
+            targetResourceKey: 'catalog_variants',
+            filterKey: 'id',
+            sourceValueKey: 'catalog_variant_id',
+            selectTargetRow: true,
+            icon: Icons.inventory_2_outlined,
+          ),
+          AdminDetailAction(
+            label: 'Show roof model',
+            targetResourceKey: 'roof_models',
+            filterKey: 'id',
+            sourceValueKey: 'roof_model_id',
+            selectTargetRow: true,
+            icon: Icons.roofing_outlined,
+          ),
+          AdminDetailAction(
+            label: 'Show file in Media Library',
+            targetResourceKey: 'asset_files',
+            filterKey: 'id',
+            sourceValueKey: 'file_id',
+            selectTargetRow: true,
+            icon: Icons.perm_media_outlined,
+          ),
         ],
       ),
     ],
@@ -1523,14 +1585,39 @@ const adminNavGroups = <AdminNavGroup>[
         columns: [
           AdminColumn(key: 'code', label: 'Code', isPrimary: true),
           AdminColumn(key: 'name', label: 'Name', flex: 2),
-          AdminColumn(key: 'is_system', label: 'System'),
+          AdminColumn(key: 'scope_code', label: 'Scope'),
+          AdminColumn(key: 'object_name', label: 'Object'),
+          AdminColumn(key: 'parent_id', label: 'Parent id', flex: 2),
           AdminColumn(key: 'is_active', label: 'Active'),
+        ],
+        listFilters: [
+          AdminResourceFilter(key: 'scope_code', label: 'Scope', options: referenceScopeOptions),
+          AdminResourceFilter(key: 'object_name', label: 'Object name'),
+          AdminResourceFilter(key: 'parent_id', label: 'Parent id'),
+          AdminResourceFilter(key: 'is_active', label: 'Active', options: activeFilterOptions),
         ],
         formFields: [
           AdminField(key: 'code', label: 'Code'),
           AdminField(key: 'name', label: 'Name'),
           AdminField(key: 'description', label: 'Description', type: AdminFieldType.longText),
-          AdminField(key: 'is_system', label: 'System', type: AdminFieldType.boolType),
+          AdminField(
+            key: 'scope_code',
+            label: 'Scope',
+            options: referenceScopeOptions,
+            defaultValue: 'system',
+            helperText: 'system = global list; table = list attached to object_name + parent_id',
+          ),
+          AdminField(
+            key: 'object_name',
+            label: 'Object name',
+            helperText: 'For table scope, for example: roof_models',
+          ),
+          AdminField(
+            key: 'parent_id',
+            label: 'Parent id',
+            helperText: 'For table scope: id of the owner record',
+          ),
+          AdminField(key: 'is_system', label: 'System/protected', type: AdminFieldType.boolType),
           AdminField(key: 'is_active', label: 'Active', type: AdminFieldType.boolType),
         ],
       ),
@@ -1700,63 +1787,19 @@ const adminNavGroups = <AdminNavGroup>[
           ),
           AdminDetailAction(
             label: 'Show roof model media',
-            targetResourceKey: 'roof_model_media',
+            targetResourceKey: 'catalog_media',
             filterKey: 'roof_model_id',
             sourceValueKey: 'id',
+            extraFilters: {'scope_code': 'roof_models'},
             icon: Icons.perm_media_outlined,
           ),
-        ],
-      ),
-      AdminResourceDefinition(
-        key: 'roof_model_media',
-        title: 'Roof Model Media',
-        endpoint: '/api/admin/roof-model-media',
-        icon: Icons.perm_media_outlined,
-        columns: [
-          AdminColumn(key: 'roof_model_id', label: 'Roof model', flex: 2, lookup: roofModelLookup),
-          AdminColumn(key: 'file_id', label: 'Media file', flex: 2, lookup: assetFileLookup),
-          AdminColumn(key: 'use_type', label: 'Use type'),
-          AdminColumn(key: 'is_default', label: 'Default'),
-          AdminColumn(key: 'sort_order', label: 'Sort'),
-          AdminColumn(key: 'is_active', label: 'Active'),
-        ],
-        listFilters: [
-          AdminResourceFilter(key: 'roof_model_id', label: 'Roof model', lookup: roofModelLookup),
-          AdminResourceFilter(key: 'is_default', label: 'Default', options: activeFilterOptions),
-          AdminResourceFilter(key: 'is_active', label: 'Active', options: activeFilterOptions),
-        ],
-        formFields: [
-          AdminField(key: 'roof_model_id', label: 'Roof model', lookup: roofModelLookup),
-          AdminField(
-            key: 'file_id',
-            label: 'Media file',
-            type: AdminFieldType.file,
-            filePurpose: 'roof_model_media',
-            accept: 'image/*,.pdf,.dwg,.dxf',
-          ),
-          AdminField(key: 'use_type', label: 'Use type', defaultValue: 'preview'),
-          AdminField(key: 'label', label: 'Label'),
-          AdminField(key: 'sort_order', label: 'Sort order', type: AdminFieldType.number),
-          AdminField(key: 'is_default', label: 'Default image', type: AdminFieldType.boolType),
-          AdminField(key: 'metadata_json', label: 'Metadata JSON', type: AdminFieldType.json),
-          AdminField(key: 'is_active', label: 'Active', type: AdminFieldType.boolType),
-        ],
-        detailActions: [
           AdminDetailAction(
-            label: 'Show roof model',
-            targetResourceKey: 'roof_models',
-            filterKey: 'id',
-            sourceValueKey: 'roof_model_id',
-            selectTargetRow: true,
-            icon: Icons.roofing_outlined,
-          ),
-          AdminDetailAction(
-            label: 'Show file in Media Library',
-            targetResourceKey: 'asset_files',
-            filterKey: 'id',
-            sourceValueKey: 'file_id',
-            selectTargetRow: true,
-            icon: Icons.perm_media_outlined,
+            label: 'Show parameter domains',
+            targetResourceKey: 'reference_domains',
+            filterKey: 'parent_id',
+            sourceValueKey: 'id',
+            extraFilters: {'scope_code': 'table', 'object_name': 'roof_models'},
+            icon: Icons.tune_outlined,
           ),
         ],
       ),

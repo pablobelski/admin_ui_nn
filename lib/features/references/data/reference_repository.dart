@@ -10,6 +10,9 @@ class ReferenceRepository {
 
   Future<ReferenceDomainListResponse> fetchDomains({
     String query = '',
+    String scopeCode = '',
+    String objectName = '',
+    String parentId = '',
     int limit = 30,
     int offset = 0,
   }) async {
@@ -17,6 +20,9 @@ class ReferenceRepository {
       _domainsEndpoint,
       query: {
         if (query.isNotEmpty) 'q': query,
+        if (scopeCode.isNotEmpty) 'scope_code': scopeCode,
+        if (objectName.isNotEmpty) 'object_name': objectName,
+        if (parentId.isNotEmpty) 'parent_id': parentId,
         'limit': '$limit',
         'offset': '$offset',
       },
@@ -70,6 +76,33 @@ class ReferenceRepository {
     return ReferenceValue.fromJson(response);
   }
 
+
+
+  Future<List<ReferenceOwnerRecord>> fetchOwnerRecords({
+    required String objectName,
+    String query = '',
+    String id = '',
+    int limit = 500,
+  }) async {
+    final normalizedObjectName = objectName.trim();
+    if (normalizedObjectName.isEmpty) return const <ReferenceOwnerRecord>[];
+
+    final response = await _client.getJson(
+      '/api/admin/reference-domain-owner-records',
+      query: {
+        'object_name': normalizedObjectName,
+        if (query.trim().isNotEmpty) 'q': query.trim(),
+        if (id.trim().isNotEmpty) 'id': id.trim(),
+        'limit': '$limit',
+      },
+    );
+
+    return (response['items'] as List? ?? const [])
+        .cast<Map>()
+        .map((entry) => ReferenceOwnerRecord.fromJson(Map<String, dynamic>.from(entry)))
+        .toList();
+  }
+
   Future<Map<String, dynamic>> createDomain(Map<String, dynamic> body) {
     return _client.postJson(_domainsEndpoint, body: body);
   }
@@ -89,6 +122,23 @@ class ReferenceRepository {
   Future<void> deleteValue(String id) {
     return _client.delete('$_valuesEndpoint/$id');
   }
+}
+
+
+class ReferenceOwnerRecord {
+  const ReferenceOwnerRecord({
+    required this.id,
+    required this.label,
+  });
+
+  factory ReferenceOwnerRecord.fromJson(Map<String, dynamic> json) {
+    final id = _string(json['id']);
+    final label = _stringOrNull(json['label']) ?? id;
+    return ReferenceOwnerRecord(id: id, label: label.isEmpty ? id : label);
+  }
+
+  final String id;
+  final String label;
 }
 
 class ReferenceDomainListResponse {
@@ -120,6 +170,9 @@ class ReferenceDomain {
     required this.isActive,
     required this.raw,
     this.description,
+    this.scopeCode,
+    this.objectName,
+    this.parentId,
     this.createdAt,
     this.updatedAt,
   });
@@ -130,6 +183,9 @@ class ReferenceDomain {
       code: _string(json['code']),
       name: _string(json['name']),
       description: _stringOrNull(json['description']),
+      scopeCode: _stringOrNull(json['scope_code']),
+      objectName: _stringOrNull(json['object_name']),
+      parentId: _stringOrNull(json['parent_id']),
       isSystem: _boolValue(json['is_system']),
       isActive: _boolValue(json['is_active']),
       createdAt: _stringOrNull(json['created_at']),
@@ -142,6 +198,9 @@ class ReferenceDomain {
   final String code;
   final String name;
   final String? description;
+  final String? scopeCode;
+  final String? objectName;
+  final String? parentId;
   final bool isSystem;
   final bool isActive;
   final String? createdAt;

@@ -96,6 +96,7 @@ class AdminDetailAction {
     required this.sourceValueKey,
     this.icon = Icons.open_in_new_rounded,
     this.selectTargetRow = false,
+    this.extraFilters = const {},
   }) : assert(
           !selectTargetRow || filterKey == 'id',
           'selectTargetRow can only be used with filterKey: id',
@@ -106,6 +107,7 @@ class AdminDetailAction {
   final String filterKey;
   final String sourceValueKey;
   final IconData icon;
+  final Map<String, String> extraFilters;
 
   /// Select the target row after opening the target resource.
   ///
