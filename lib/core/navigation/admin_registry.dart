@@ -646,14 +646,14 @@ const adminNavGroups = <AdminNavGroup>[
         supportsEdit: false,
         supportsDelete: false,
         columns: [
+          AdminColumn(key: 'quote_date', label: 'Date', flex: 2),
           AdminColumn(key: 'quote_no', label: 'Quote no', isPrimary: true, flex: 2),
-          AdminColumn(key: 'quote_no_external', label: 'Komission name', flex: 2),
+          AdminColumn(key: 'quote_no_external', label: 'Kommission name', flex: 2),
           AdminColumn(key: 'status_code', label: 'Status'),
           AdminColumn(key: 'order_type_code', label: 'Type'),
           AdminColumn(key: 'buyer_organization_id', label: 'Buyer', flex: 2, lookup: organizationLookup),
           AdminColumn(key: 'configurator_template_id', label: 'Template', flex: 2, lookup: configuratorTemplateLookup),
-          AdminColumn(key: 'currency', label: 'Currency'),
-          AdminColumn(key: 'quote_date', label: 'Date'),
+          AdminColumn(key: 'calculated_amount_eur', label: 'Amount EUR'),
         ],
         listFilters: [
           AdminResourceFilter(key: 'seller_organization_id', label: 'Seller', lookup: organizationLookup),
@@ -665,7 +665,7 @@ const adminNavGroups = <AdminNavGroup>[
         ],
         formFields: [
           AdminField(key: 'quote_no', label: 'Quote no', readOnly: true),
-          AdminField(key: 'quote_no_external', label: 'Komission name', readOnly: true),
+          AdminField(key: 'quote_no_external', label: 'Kommission name', readOnly: true),
           AdminField(key: 'external_notes', label: 'Quote notes', type: AdminFieldType.longText, readOnly: true),
           AdminField(key: 'seller_organization_id', label: 'Seller', lookup: organizationLookup, readOnly: true),
           AdminField(key: 'buyer_organization_id', label: 'Buyer', lookup: organizationLookup, readOnly: true),

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -24,6 +25,9 @@ import '../../calculator/presentation/calculator_providers.dart';
 import '../../calculator/presentation/model_geometry_preview.dart';
 import 'catalog_item_dependency_tree.dart';
 import 'organization_relation_tree.dart';
+
+final _uiDateTimeFormat = DateFormat('dd.MM.yy HH:mm');
+final _quoteEuroFormat = NumberFormat.currency(locale: 'de_DE', symbol: '€');
 
 class ResourcePage extends ConsumerWidget {
   const ResourcePage({
@@ -355,7 +359,8 @@ class _ListCard extends ConsumerWidget {
   });
 
   static const double _previewColumnWidth = 64;
-  static const double _rowHorizontalPadding = 12;
+  static const double _rowHorizontalPadding = 8;
+  static const double _rowVerticalPadding = 6;
 
   final AdminResourceDefinition resource;
   final AsyncValue<ResourceListResponse> listAsync;
@@ -391,92 +396,116 @@ class _ListCard extends ConsumerWidget {
               return const Center(child: Text('No rows found'));
             }
 
-            final tableContentWidth = useCompactLayout
-                ? adminRowNumberColumnWidth
-                    + (hasLeadingPreview ? _previewColumnWidth : 0)
-                    + visibleColumns.fold<double>(
-                        0,
-                        (sum, column) => sum + _compactColumnWidth(resource.key, column),
-                      )
-                : adminRowNumberColumnWidth
-                    + visibleColumns.fold<double>(0, (sum, col) => sum + (col.flex * 180.0));
-            final tableWidth = tableContentWidth + (_rowHorizontalPadding * 2);
+            final baseColumnWidths = _listColumnWidths(
+              resource: resource,
+              columns: visibleColumns,
+              useCompactLayout: useCompactLayout,
+            );
+            final fixedContentWidth = adminRowNumberColumnWidth +
+                (hasLeadingPreview ? _previewColumnWidth : 0);
+            final baseTableContentWidth = fixedContentWidth +
+                visibleColumns.fold<double>(
+                  0,
+                  (sum, column) => sum + (baseColumnWidths[column.key] ?? 0),
+                );
+            final baseTableWidth = baseTableContentWidth + (_rowHorizontalPadding * 2);
 
             return Column(
               children: [
                 Expanded(
-                  child: HorizontalScrollArea(
-                    child: SizedBox(
-                      width: tableWidth,
-                      child: ListView.separated(
-                        key: PageStorageKey<String>(
-                          'resource-list-${resource.key}-${browserState.query}-$filtersKey-${browserState.offset}-${browserState.limit}',
-                        ),
-                        itemCount: response.items.length + 1,
-                        separatorBuilder: (_, index) => index == 0
-                            ? const Divider(height: 2)
-                            : const Divider(height: 1),
-                        itemBuilder: (context, index) {
-                          if (index == 0) {
-                            return Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                              child: Row(
-                                children: [
-                                  const AdminRowNumberHeader(),
-                                  if (hasLeadingPreview)
-                                    const AdminTableHeaderCell(
-                                      label: 'Media',
-                                      width: _previewColumnWidth,
-                                      align: TextAlign.left,
-                                    ),
-                                  for (final column in visibleColumns)
-                                    AdminTableHeaderCell(
-                                      label: column.label,
-                                      width: useCompactLayout
-                                          ? _compactColumnWidth(resource.key, column)
-                                          : null,
-                                      flex: useCompactLayout ? null : column.flex,
-                                      align: TextAlign.left,
-                                    ),
-                                ],
-                              ),
-                            );
-                          }
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final viewportWidth = constraints.maxWidth.isFinite
+                          ? constraints.maxWidth
+                          : baseTableWidth;
+                      final tableWidth = math.max(baseTableWidth, viewportWidth);
+                      final columnWidths = _expandListColumnWidths(
+                        columns: visibleColumns,
+                        baseWidths: baseColumnWidths,
+                        extraWidth: tableWidth - baseTableWidth,
+                      );
 
-                          final rowIndex = index - 1;
-                          final row = response.items[rowIndex];
-                          final rowId = row['id']?.toString();
-                          final isSelected = browserState.selectedId == rowId;
-                          return InkWell(
-                            onTap: () => browser.select(rowId),
-                            child: Container(
-                              color: isSelected ? Theme.of(context).colorScheme.primaryContainer : null,
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                              child: Row(
-                                children: [
-                                  AdminRowNumberCell(index: rowIndex, offset: browserState.offset),
-                                  if (hasLeadingPreview)
-                                    _MediaPreviewListCell(
-                                      repository: repository,
-                                      mediaRef: _leadingListMediaRef(resource, row),
-                                      width: _previewColumnWidth,
-                                    ),
-                                  for (final column in visibleColumns)
-                                    _buildListValueCell(
-                                      resource: resource,
-                                      repository: repository,
-                                      row: row,
-                                      column: column,
-                                      lookupLabels: lookupLabelsByColumn[column.key],
-                                      useCompactLayout: useCompactLayout,
-                                    ),
-                                ],
-                              ),
+                      return HorizontalScrollArea(
+                        child: SizedBox(
+                          width: tableWidth,
+                          child: ListView.separated(
+                            key: PageStorageKey<String>(
+                              'resource-list-${resource.key}-${browserState.query}-$filtersKey-${browserState.offset}-${browserState.limit}',
                             ),
-                          );
-                        },
-                      ),
-                    ),
+                            itemCount: response.items.length + 1,
+                            separatorBuilder: (_, index) => index == 0
+                                ? const Divider(height: 2)
+                                : const Divider(height: 1),
+                            itemBuilder: (context, index) {
+                              if (index == 0) {
+                                return Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: _rowHorizontalPadding,
+                                    vertical: _rowVerticalPadding,
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.max,
+                                    children: [
+                                      const AdminRowNumberHeader(),
+                                      if (hasLeadingPreview)
+                                        const AdminTableHeaderCell(
+                                          label: 'Media',
+                                          width: _previewColumnWidth,
+                                          align: TextAlign.left,
+                                        ),
+                                      for (final column in visibleColumns)
+                                        AdminTableHeaderCell(
+                                          label: column.label,
+                                          width: useCompactLayout ? columnWidths[column.key] : null,
+                                          flex: useCompactLayout ? null : column.flex,
+                                          align: TextAlign.left,
+                                        ),
+                                    ],
+                                  ),
+                                );
+                              }
+
+                              final rowIndex = index - 1;
+                              final row = response.items[rowIndex];
+                              final rowId = row['id']?.toString();
+                              final isSelected = browserState.selectedId == rowId;
+                              return InkWell(
+                                onTap: () => browser.select(rowId),
+                                child: Container(
+                                  color: isSelected ? Theme.of(context).colorScheme.primaryContainer : null,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: _rowHorizontalPadding,
+                                    vertical: _rowVerticalPadding,
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.max,
+                                    children: [
+                                      AdminRowNumberCell(index: rowIndex, offset: browserState.offset),
+                                      if (hasLeadingPreview)
+                                        _MediaPreviewListCell(
+                                          repository: repository,
+                                          mediaRef: _leadingListMediaRef(resource, row),
+                                          width: _previewColumnWidth,
+                                        ),
+                                      for (final column in visibleColumns)
+                                        _buildListValueCell(
+                                          resource: resource,
+                                          repository: repository,
+                                          row: row,
+                                          column: column,
+                                          lookupLabels: lookupLabelsByColumn[column.key],
+                                          useCompactLayout: useCompactLayout,
+                                          width: useCompactLayout ? columnWidths[column.key] : null,
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                      );
+                    },
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -511,8 +540,8 @@ Widget _buildListValueCell({
   required AdminColumn column,
   required Map<String, String>? lookupLabels,
   required bool useCompactLayout,
+  required double? width,
 }) {
-  final width = useCompactLayout ? _compactColumnWidth(resource.key, column) : null;
 
   if (_isInlinePreviewColumn(resource, column)) {
     return _MediaPreviewListCell(
@@ -536,10 +565,40 @@ Widget _buildListValueCell({
 }
 
 bool _usesCompactListLayout(AdminResourceDefinition resource) {
-  return resource.key == 'catalog_media'
-      || resource.key == 'catalog_items'
-      || resource.key == 'catalog_variants'
-      || resource.key == 'asset_files';
+  return true;
+}
+
+Map<String, double> _listColumnWidths({
+  required AdminResourceDefinition resource,
+  required List<AdminColumn> columns,
+  required bool useCompactLayout,
+}) {
+  return <String, double>{
+    for (final column in columns)
+      column.key: useCompactLayout
+          ? _compactColumnWidth(resource.key, column)
+          : column.flex * 180.0,
+  };
+}
+
+Map<String, double> _expandListColumnWidths({
+  required List<AdminColumn> columns,
+  required Map<String, double> baseWidths,
+  required double extraWidth,
+}) {
+  if (extraWidth <= 0 || columns.isEmpty) return baseWidths;
+
+  final totalFlex = columns.fold<int>(
+    0,
+    (sum, column) => sum + math.max(1, column.flex),
+  );
+  if (totalFlex <= 0) return baseWidths;
+
+  return <String, double>{
+    for (final column in columns)
+      column.key: (baseWidths[column.key] ?? 0) +
+          extraWidth * (math.max(1, column.flex) / totalFlex),
+  };
 }
 
 bool _hasLeadingPreviewColumn(AdminResourceDefinition resource) {
@@ -613,7 +672,69 @@ double _compactColumnWidth(String resourceKey, AdminColumn column) {
     };
   }
 
-  return column.flex * 180.0;
+  if (resourceKey == 'quotes') {
+    return switch (key) {
+      'quote_date' => 128,
+      'quote_no' => 128,
+      'quote_no_external' => 170,
+      'status_code' => 96,
+      'order_type_code' => 104,
+      'buyer_organization_id' => 180,
+      'configurator_template_id' => 180,
+      'calculated_amount_eur' => 130,
+      _ => 130,
+    };
+  }
+
+  return _defaultCompactColumnWidth(column);
+}
+
+double _defaultCompactColumnWidth(AdminColumn column) {
+  final key = column.key.toLowerCase();
+  final label = column.label.toLowerCase();
+
+  if (key == 'id') return 150;
+  if (key.endsWith('_id')) return column.lookup == null ? 150 : 180;
+  if (key.contains('json')) return 260;
+  if (key.contains('date') ||
+      key.contains('time') ||
+      key.contains('created') ||
+      key.contains('updated') ||
+      key.contains('expires') ||
+      key.contains('valid_from') ||
+      key.contains('valid_to')) {
+    return 128;
+  }
+  if (key.startsWith('is_') || key.startsWith('has_') || label == 'active') {
+    return 76;
+  }
+  if (key.contains('price') ||
+      key.contains('amount') ||
+      key.contains('cost') ||
+      key.contains('total') ||
+      key.contains('rate')) {
+    return 120;
+  }
+  if (key.contains('name') ||
+      key.contains('title') ||
+      key.contains('description') ||
+      key.contains('notes') ||
+      key.contains('label')) {
+    return column.flex >= 3 ? 260 : 210;
+  }
+  if (key.contains('code') ||
+      key.contains('type') ||
+      key.contains('status') ||
+      key.contains('kind') ||
+      key.contains('unit') ||
+      key.contains('currency')) {
+    return 110;
+  }
+
+  if (column.flex <= 1) return 120;
+  if (column.flex == 2) return 150;
+  if (column.flex == 3) return 180;
+  return 210;
 }
 
 String _displayListValue({
@@ -625,6 +746,10 @@ String _displayListValue({
   if (resource.key == 'catalog_media' && column.key == 'file_id') {
     final filename = row['file_original_filename']?.toString().trim();
     if (filename != null && filename.isNotEmpty) return filename;
+  }
+
+  if (resource.key == 'quotes' && column.key == 'calculated_amount_eur') {
+    return _quoteAmountEurDisplay(row);
   }
 
   return _displayValue(
@@ -1122,6 +1247,8 @@ class _ResourceDetailsContent extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            _QuoteDetailsSummaryCard(rows: _quoteDetailsSummaryRows()),
+            const SizedBox(height: 12),
             const TabBar(
               isScrollable: true,
               tabs: [
@@ -1188,6 +1315,24 @@ class _ResourceDetailsContent extends StatelessWidget {
         JsonViewCard(title: 'Raw JSON', data: data),
       ],
     );
+  }
+
+  List<_DetailRowData> _quoteDetailsSummaryRows() {
+    final buyerValue = data['buyer_organization_id'] ?? data['buyerOrganizationId'];
+
+    return [
+      _DetailRowData('Quote no', data['quote_no'] ?? data['quoteNo']),
+      _DetailRowData(
+        'Buyer',
+        _displayValue(
+          buyerValue,
+          lookupLabels: lookupLabelsByKey['buyer_organization_id'],
+        ),
+      ),
+      _DetailRowData('Quote date', data['quote_date'] ?? data['quoteDate']),
+      _DetailRowData('Quote type', data['order_type_code'] ?? data['orderTypeCode']),
+      _DetailRowData('Amount EUR', _quoteAmountEurDisplay(data)),
+    ];
   }
 
   Widget _detailsListView(BuildContext context) {
@@ -1259,6 +1404,57 @@ class _DetailRowData {
   final Object? value;
 }
 
+class _QuoteDetailsSummaryCard extends StatelessWidget {
+  const _QuoteDetailsSummaryCard({required this.rows});
+
+  final List<_DetailRowData> rows;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.45),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: colorScheme.outlineVariant),
+      ),
+      child: Wrap(
+        spacing: 16,
+        runSpacing: 10,
+        children: [
+          for (final row in rows)
+            SizedBox(
+              width: 190,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    row.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                  ),
+                  const SizedBox(height: 2),
+                  SelectableText(
+                    _displayValue(row.value),
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
 class _SavedQuoteGeometryPreviewTab extends StatelessWidget {
   const _SavedQuoteGeometryPreviewTab({
     required this.data,
@@ -1292,7 +1488,7 @@ class _SavedQuoteGeometryPreviewTab extends StatelessWidget {
           const SizedBox(height: 8),
           _QuotePreviewInfoCard(
             rows: [
-              if (quoteNoExternal != null) _DetailRowData('Komission name', quoteNoExternal),
+              if (quoteNoExternal != null) _DetailRowData('Kommission name', quoteNoExternal),
               if (externalNotes != null) _DetailRowData('Quote notes', externalNotes),
             ],
           ),
@@ -1414,9 +1610,11 @@ class _QuotePreviewInfoCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   SizedBox(
-                    width: 74,
+                    width: 124,
                     child: Text(
                       row.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                             color: colorScheme.onSurfaceVariant,
                           ),
@@ -2376,6 +2574,124 @@ String _lookupLabel(AdminLookup lookup, Map<String, dynamic> row) {
   return '$compactLabel ($id)';
 }
 
+String _quoteAmountEurDisplay(Map<String, dynamic> row) {
+  final amount = _quoteAmountEur(row);
+  return amount == null ? '—' : _quoteEuroFormat.format(amount);
+}
+
+num? _quoteAmountEur(Map<String, dynamic> row) {
+  final direct = _firstQuoteAmountIn(row);
+  if (direct != null) return direct;
+
+  for (final key in ['totals_json', 'totalsJson', 'result_json', 'resultJson']) {
+    final source = _mapFromJsonLike(row[key]);
+    if (source.isEmpty) continue;
+
+    final amount = _firstQuoteAmountIn(source);
+    if (amount != null) return amount;
+  }
+
+  return null;
+}
+
+num? _firstQuoteAmountIn(Map<String, dynamic> source) {
+  final direct = _firstNumberValue(source, [
+    'calculated_amount_eur',
+    'amount_eur',
+    'total_eur',
+    'grand_total_eur',
+    'total_amount_eur',
+    'sales_total_eur',
+    'salesTotalEur',
+    'amount',
+    'total_amount',
+    'totalAmount',
+    'grand_total',
+    'grandTotal',
+    'sales_total',
+    'salesTotal',
+    'gross',
+    'net',
+    'subtotal',
+    'total',
+  ]);
+  if (direct != null) return direct;
+
+  for (final key in ['price', 'totals', 'totals_json', 'totalsJson']) {
+    final nested = _mapFromJsonLike(source[key]);
+    if (nested.isEmpty) continue;
+
+    final amount = _firstNumberValue(nested, [
+      'amount_eur',
+      'total_eur',
+      'grand_total_eur',
+      'total_amount_eur',
+      'sales_total_eur',
+      'salesTotalEur',
+      'amount',
+      'total_amount',
+      'totalAmount',
+      'grand_total',
+      'grandTotal',
+      'sales_total',
+      'salesTotal',
+      'gross',
+      'net',
+      'subtotal',
+      'total',
+      'value',
+    ]);
+    if (amount != null) return amount;
+  }
+
+  return null;
+}
+
+num? _firstNumberValue(Map<String, dynamic> source, List<String> keys) {
+  for (final key in keys) {
+    final parsed = _numFromRaw(source[key]);
+    if (parsed != null) return parsed;
+  }
+  return null;
+}
+
+num? _numFromRaw(Object? value) {
+  if (value is num) return value;
+  if (value is String) {
+    var normalized = value
+        .trim()
+        .replaceAll('€', '')
+        .replaceAll(RegExp(r'\s+'), '');
+
+    if (normalized.contains(',') && normalized.contains('.')) {
+      normalized = normalized.replaceAll('.', '').replaceAll(',', '.');
+    } else {
+      normalized = normalized.replaceAll(',', '.');
+    }
+
+    return num.tryParse(normalized);
+  }
+  return null;
+}
+
+String _formatUiDateTime(DateTime value) {
+  return _uiDateTimeFormat.format(value.toLocal());
+}
+
+String? _formatUiDateString(String value) {
+  final trimmed = value.trim();
+  if (trimmed.isEmpty) return null;
+  if (!RegExp(r'^\d{4}-\d{2}-\d{2}').hasMatch(trimmed)) return null;
+
+  final normalized = trimmed.contains('T')
+      ? trimmed
+      : trimmed.replaceFirst(RegExp(r'\s+'), 'T');
+  final parsed = DateTime.tryParse(normalized);
+  if (parsed == null) return null;
+
+  return _formatUiDateTime(parsed);
+}
+
 String _displayValue(Object? value, {Map<String, String>? lookupLabels}) {
   if (value == null) return '—';
   if (lookupLabels != null) {
@@ -2386,7 +2702,11 @@ String _displayValue(Object? value, {Map<String, String>? lookupLabels}) {
     }
   }
   if (value is bool) return value ? 'Yes' : 'No';
-  if (value is DateTime) return DateFormat('yyyy-MM-dd HH:mm').format(value);
+  if (value is DateTime) return _formatUiDateTime(value);
+  if (value is String) {
+    final formattedDate = _formatUiDateString(value);
+    if (formattedDate != null) return formattedDate;
+  }
   if (value is Map || value is List) {
     return jsonEncode(value);
   }

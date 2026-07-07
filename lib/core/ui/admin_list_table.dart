@@ -2,7 +2,8 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-const double adminRowNumberColumnWidth = 80;
+const double adminRowNumberColumnWidth = 56;
+const double adminTableColumnGap = 16;
 
 class AdminListFooter extends StatelessWidget {
   const AdminListFooter({
@@ -69,15 +70,18 @@ class AdminTableHeaderCell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final child = Text(
-      label,
-      textAlign: align,
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
-      style: Theme.of(context).textTheme.labelMedium?.copyWith(
-            fontWeight: FontWeight.w700,
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
-          ),
+    final child = Padding(
+      padding: const EdgeInsetsDirectional.only(end: adminTableColumnGap),
+      child: Text(
+        label,
+        textAlign: align,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: Theme.of(context).textTheme.labelMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+      ),
     );
 
     if (width != null) {
@@ -105,14 +109,17 @@ class AdminTableValueCell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final child = Text(
-      value,
-      textAlign: align,
-      maxLines: 2,
-      overflow: TextOverflow.ellipsis,
-      style: strong
-          ? Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600)
-          : null,
+    final child = Padding(
+      padding: const EdgeInsetsDirectional.only(end: adminTableColumnGap),
+      child: Text(
+        value,
+        textAlign: align,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: strong
+            ? Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600)
+            : null,
+      ),
     );
 
     if (width != null) {

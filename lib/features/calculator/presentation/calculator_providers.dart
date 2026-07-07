@@ -344,6 +344,36 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
     state = state.copyWith(setContents: tabs);
   }
 
+  void updateSetContentAggregateLineQuantity(List<({int tabIndex, int itemIndex})> refs, num quantity) {
+    if (refs.isEmpty) return;
+    final normalizedQuantity = quantity <= 0 ? 1 : quantity;
+    final current = state.setContents;
+    var currentTotal = 0.0;
+    for (final ref in refs) {
+      if (ref.tabIndex < 0 || ref.tabIndex >= current.length) continue;
+      final tab = current[ref.tabIndex];
+      if (ref.itemIndex < 0 || ref.itemIndex >= tab.items.length) continue;
+      currentTotal += tab.items[ref.itemIndex].quantity.toDouble();
+    }
+    if (currentTotal <= 0) currentTotal = refs.length.toDouble();
+
+    final tabs = [...current];
+    var changed = false;
+    for (final ref in refs) {
+      if (ref.tabIndex < 0 || ref.tabIndex >= tabs.length) continue;
+      final tab = tabs[ref.tabIndex];
+      if (ref.itemIndex < 0 || ref.itemIndex >= tab.items.length) continue;
+      final items = [...tab.items];
+      final currentItem = items[ref.itemIndex];
+      final ratio = currentTotal <= 0 ? 1 / refs.length : currentItem.quantity.toDouble() / currentTotal;
+      final itemQuantity = normalizedQuantity * ratio;
+      items[ref.itemIndex] = currentItem.copyWith(quantity: itemQuantity <= 0 ? 1 : itemQuantity);
+      tabs[ref.tabIndex] = tab.copyWith(items: items);
+      changed = true;
+    }
+    if (changed) state = state.copyWith(setContents: tabs);
+  }
+
   void updateSetContentItemLength(int tabIndex, int itemIndex, int? lengthMm) {
     if (tabIndex < 0 || tabIndex >= state.setContents.length) return;
     final tab = state.setContents[tabIndex];
@@ -377,6 +407,13 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
     if (index < 0 || index >= state.options.length) return;
     final next = [...state.options];
     next[index] = next[index].copyWith(additionalHandlings: additionalHandlings);
+    state = state.copyWith(options: next);
+  }
+
+  void updateOptionQuantity(int index, num quantity) {
+    if (index < 0 || index >= state.options.length) return;
+    final next = [...state.options];
+    next[index] = next[index].copyWith(quantity: quantity <= 0 ? 1 : quantity);
     state = state.copyWith(options: next);
   }
 

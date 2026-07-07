@@ -1363,7 +1363,7 @@ String _dateTimeLabel(String? value) {
   if (value == null || value.isEmpty) return '—';
   final parsed = DateTime.tryParse(value);
   if (parsed == null) return value;
-  return DateFormat('yyyy-MM-dd HH:mm').format(parsed.toLocal());
+  return DateFormat('MM-dd-yy HH:mm').format(parsed.toLocal());
 }
 
 String _jsonSummary(Map<String, dynamic> value) {

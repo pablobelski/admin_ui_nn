@@ -237,7 +237,7 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
     if (value.isNotEmpty) return true;
     setState(() => _selectedStep = 0);
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Fill Komission name first.')),
+      const SnackBar(content: Text('Fill Kommission name first.')),
     );
     return false;
   }
@@ -1026,7 +1026,7 @@ class _ProductStepState extends State<_ProductStep> {
             initialValue: selectedRelatedCustomerId,
             isExpanded: true,
             decoration: const InputDecoration(
-              labelText: 'Komission name *',
+              labelText: 'Kommission name *',
               helperText: 'Uses the selected related customer short name.',
               border: OutlineInputBorder(),
               isDense: true,
@@ -1049,7 +1049,7 @@ class _ProductStepState extends State<_ProductStep> {
           TextField(
             controller: _quoteNoExternal,
             decoration: const InputDecoration(
-              labelText: 'Komission name *',
+              labelText: 'Kommission name *',
               helperText: 'Customer-side calculation name / external quote number. Required.',
               border: OutlineInputBorder(),
               isDense: true,
@@ -2561,10 +2561,9 @@ class _AccessoryStep extends StatelessWidget {
               child: Text('Accessory / Zubehör', style: Theme.of(context).textTheme.titleMedium),
             ),
             const SizedBox(width: 12),
-            FilledButton.tonalIcon(
+            FilledButton.tonal(
               onPressed: onFastenersPressed,
-              icon: const Icon(Icons.construction_outlined),
-              label: const Text('Fasteners'),
+              child: const Text('+ Fasteners'),
             ),
           ],
         ),
@@ -2593,6 +2592,12 @@ class _AccessoryStep extends StatelessWidget {
           const SizedBox(height: 12),
           _AccessoryTable(
             lines: lines,
+            onQuantityChanged: (line, quantity) {
+              notifier.updateSetContentAggregateLineQuantity(
+                line.sourceRefs.map((ref) => (tabIndex: ref.tabIndex, itemIndex: ref.itemIndex)).toList(growable: false),
+                quantity,
+              );
+            },
             onToggleLine: (line) {
               notifier.setSetContentItemsEnabled(
                 line.sourceRefs.map((ref) => (tabIndex: ref.tabIndex, itemIndex: ref.itemIndex)).toList(growable: false),
@@ -2607,11 +2612,12 @@ class _AccessoryStep extends StatelessWidget {
 }
 
 class _AccessoryTable extends StatelessWidget {
-  const _AccessoryTable({required this.lines, required this.onToggleLine});
+  const _AccessoryTable({required this.lines, required this.onQuantityChanged, required this.onToggleLine});
 
   static const _toggleWidth = _SetContentTabTable._toggleWidth;
 
   final List<_AccessoryAggregateLine> lines;
+  final void Function(_AccessoryAggregateLine line, num quantity) onQuantityChanged;
   final ValueChanged<_AccessoryAggregateLine> onToggleLine;
 
   @override
@@ -2681,7 +2687,18 @@ class _AccessoryTable extends StatelessWidget {
           ),
           flex: 5,
         ),
-        _cell(context, Text(_formatInputQuantity(line.quantity)), width: 72),
+        _cell(
+          context,
+          TextFormField(
+            key: ValueKey('accessory-qty-${line.key}-${line.sourceRefs.length}'),
+            initialValue: _formatInputQuantity(line.quantity),
+            enabled: enabled,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(isDense: true),
+            onChanged: (value) => onQuantityChanged(line, num.tryParse(value.replaceAll(',', '.')) ?? line.quantity),
+          ),
+          width: 72,
+        ),
         _cell(context, Text(_formatUnitLabel(line.unitCode)), width: 64),
         _cell(context, Text(line.hasAmount ? _moneyFormat.format(line.amount) : '—'), width: 104),
       ],
@@ -3070,6 +3087,7 @@ class _OptionsStepState extends State<_OptionsStep> {
           contextData: widget.contextData,
           options: widget.draft.options,
           optionDiagnostics: widget.optionDiagnostics,
+          onQuantityChanged: widget.notifier.updateOptionQuantity,
           onRemove: widget.notifier.removeOptionAt,
         ),
       ],
@@ -3912,12 +3930,14 @@ class _SelectedOptionsTable extends StatelessWidget {
     required this.contextData,
     required this.options,
     required this.optionDiagnostics,
+    required this.onQuantityChanged,
     required this.onRemove,
   });
 
   final CalculatorContext contextData;
   final List<CalculatorSelectedOption> options;
   final List<Map<String, dynamic>> optionDiagnostics;
+  final void Function(int index, num quantity) onQuantityChanged;
   final ValueChanged<int> onRemove;
 
   @override
@@ -3957,7 +3977,7 @@ class _SelectedOptionsTable extends StatelessWidget {
         children: [
           _cell(context, const Text('Profile no'), width: 74, header: true),
           _cell(context, const Text('Name / additional handling'), flex: 5, header: true),
-          _cell(context, const Text('Qty'), width: 46, header: true),
+          _cell(context, const Text('Qty'), width: 64, header: true),
           _cell(context, const Text('Unit'), width: 52, header: true),
           _cell(context, const Text('Option info'), width: 132, header: true),
           _cell(context, const Text('Price'), width: 84, header: true),
@@ -4005,7 +4025,17 @@ class _SelectedOptionsTable extends StatelessWidget {
             ),
             flex: 5,
           ),
-          _cell(context, Text('${option.quantity}'), width: 46),
+          _cell(
+            context,
+            TextFormField(
+              key: ValueKey('selected-option-qty-$index-${option.catalogItemId ?? option.optionCode ?? ''}-${option.catalogVariantId ?? ''}'),
+              initialValue: _formatInputQuantity(option.quantity),
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(isDense: true),
+              onChanged: (value) => onQuantityChanged(index, num.tryParse(value.replaceAll(',', '.')) ?? option.quantity),
+            ),
+            width: 64,
+          ),
           _cell(context, Text(_formatUnitLabel(unitCode)), width: 52),
           _cell(
             context,

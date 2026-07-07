@@ -31,6 +31,7 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
   late final Map<String, bool> _boolValues;
   late final Map<String, Future<List<Map<String, dynamic>>>> _lookupFutures;
   late final Map<String, Future<List<AdminSelectOption>>> _referenceOptionFutures;
+  late final Map<String, FocusNode> _jsonFocusNodes;
   final Set<String> _uploadingFields = <String>{};
 
   @override
@@ -43,6 +44,13 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
             text: _initialText(field),
           ),
     };
+    _jsonFocusNodes = {
+      for (final field in widget.resource.formFields)
+        if (field.type == AdminFieldType.json) field.key: FocusNode(),
+    };
+    for (final entry in _jsonFocusNodes.entries) {
+      entry.value.addListener(() => _formatJsonController(entry.key));
+    }
     _boolValues = {
       for (final field in widget.resource.formFields)
         if (field.type == AdminFieldType.boolType)
@@ -112,16 +120,52 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
   String _initialText(AdminField field) {
     final value = _valueAtPath(widget.initialData, field.key);
     if (value == null) return widget.initialData == null ? field.defaultValue ?? '' : '';
-    if (value is Map || value is List) {
-      return const JsonEncoder.withIndent('  ').convert(value);
-    }
+    if (field.type == AdminFieldType.json) return _prettyJsonText(value);
     return '$value';
+  }
+
+  String _prettyJsonText(Object? value) {
+    if (value == null) return '';
+
+    try {
+      if (value is Map || value is List) {
+        return const JsonEncoder.withIndent('  ').convert(value);
+      }
+
+      if (value is String) {
+        final trimmed = value.trim();
+        if (trimmed.isEmpty) return '';
+        final decoded = jsonDecode(trimmed);
+        return const JsonEncoder.withIndent('  ').convert(decoded);
+      }
+    } catch (_) {
+      return '$value';
+    }
+
+    return '$value';
+  }
+
+  void _formatJsonController(String key) {
+    final controller = _controllers[key];
+    if (controller == null) return;
+
+    final currentText = controller.text;
+    final prettyText = _prettyJsonText(currentText);
+    if (prettyText == currentText) return;
+
+    controller.value = TextEditingValue(
+      text: prettyText,
+      selection: TextSelection.collapsed(offset: prettyText.length),
+    );
   }
 
   @override
   void dispose() {
     for (final controller in _controllers.values) {
       controller.dispose();
+    }
+    for (final focusNode in _jsonFocusNodes.values) {
+      focusNode.dispose();
     }
     super.dispose();
   }
@@ -288,11 +332,28 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
 
     return TextFormField(
       controller: _controllers[field.key],
+      focusNode: field.type == AdminFieldType.json ? _jsonFocusNodes[field.key] : null,
       readOnly: field.readOnly,
       maxLines: field.type == AdminFieldType.longText || field.type == AdminFieldType.json ? 8 : 1,
-      keyboardType: field.type == AdminFieldType.number ? TextInputType.number : TextInputType.text,
+      keyboardType: field.type == AdminFieldType.number
+          ? TextInputType.number
+          : field.type == AdminFieldType.json
+          ? TextInputType.multiline
+          : TextInputType.text,
       obscureText: field.type == AdminFieldType.password,
+      autocorrect: field.type != AdminFieldType.json,
+      enableSuggestions: field.type != AdminFieldType.json,
+      style: field.type == AdminFieldType.json
+          ? Theme.of(context).textTheme.bodySmall?.copyWith(fontFamily: 'monospace')
+          : null,
       decoration: InputDecoration(labelText: field.label, helperText: field.helperText),
+      onChanged: field.type == AdminFieldType.json
+          ? (value) {
+              if (!value.contains('\n')) {
+                _formatJsonController(field.key);
+              }
+            }
+          : null,
       validator: (value) {
         if (!field.readOnly && (value == null || value.trim().isEmpty) && field.key != 'id') {
           return null;
@@ -508,6 +569,12 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
   }
 
   void _submit() {
+    for (final field in widget.resource.formFields) {
+      if (field.type == AdminFieldType.json) {
+        _formatJsonController(field.key);
+      }
+    }
+
     if (!_formKey.currentState!.validate()) {
       return;
     }
