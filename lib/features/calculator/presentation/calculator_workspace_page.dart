@@ -774,11 +774,15 @@ class _StepCard extends ConsumerWidget {
         return _ProductStep(
           contextData: calculatorContext,
           draft: draft,
+          mediaRepository: ref.read(resourceRepositoryProvider),
           onOrganizationChanged: notifier.setOrganization,
           onProductFamilyChanged: notifier.setProductFamily,
           onPriceModeChanged: notifier.setPriceMode,
           onQuoteNoExternalChanged: notifier.setQuoteNoExternal,
           onExternalNotesChanged: notifier.setExternalNotes,
+          onRelatedCustomerChanged: notifier.setRelatedCustomer,
+          onBrandingChanged: notifier.setBranding,
+          onEngravingEnabledChanged: notifier.setEngravingEnabled,
         );
       case 'template':
         return _TemplateStep(
@@ -873,20 +877,28 @@ class _ProductStep extends StatefulWidget {
   const _ProductStep({
     required this.contextData,
     required this.draft,
+    required this.mediaRepository,
     required this.onOrganizationChanged,
     required this.onProductFamilyChanged,
     required this.onPriceModeChanged,
     required this.onQuoteNoExternalChanged,
     required this.onExternalNotesChanged,
+    required this.onRelatedCustomerChanged,
+    required this.onBrandingChanged,
+    required this.onEngravingEnabledChanged,
   });
 
   final CalculatorContext contextData;
   final CalculatorDraft draft;
+  final AdminResourceRepository mediaRepository;
   final ValueChanged<String?> onOrganizationChanged;
   final ValueChanged<String?> onProductFamilyChanged;
   final ValueChanged<String?> onPriceModeChanged;
   final ValueChanged<String> onQuoteNoExternalChanged;
   final ValueChanged<String> onExternalNotesChanged;
+  final ValueChanged<String?> onRelatedCustomerChanged;
+  final ValueChanged<Map<String, dynamic>> onBrandingChanged;
+  final ValueChanged<bool> onEngravingEnabledChanged;
 
   @override
   State<_ProductStep> createState() => _ProductStepState();
@@ -903,6 +915,10 @@ class _ProductStepState extends State<_ProductStep> {
     super.initState();
     _quoteNoExternal = TextEditingController(text: widget.draft.quoteNoExternal ?? '');
     _externalNotes = TextEditingController(text: widget.draft.externalNotes ?? '');
+    _byRelatedCustomer = _brandingSourceCode(widget.draft.branding) == 'selected_organization' ||
+        (widget.draft.relatedCustomerId ?? '').isNotEmpty;
+    _selectedRelatedCustomerId = widget.draft.relatedCustomerId;
+    _scheduleBrandingSync();
   }
 
   @override
@@ -914,11 +930,97 @@ class _ProductStepState extends State<_ProductStep> {
       _byRelatedCustomer = false;
       _selectedRelatedCustomerId = null;
     }
+    if (oldWidget.draft.relatedCustomerId != widget.draft.relatedCustomerId &&
+        widget.draft.relatedCustomerId != _selectedRelatedCustomerId) {
+      _selectedRelatedCustomerId = widget.draft.relatedCustomerId;
+    }
+    _scheduleBrandingSync();
   }
 
   void _sync(TextEditingController controller, String? value) {
     final text = value ?? '';
     if (controller.text != text) controller.text = text;
+  }
+
+  void _scheduleBrandingSync() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final relatedCustomers = widget.contextData.relatedCustomersFor(widget.draft.organizationId);
+      final canUseRelatedCustomer = relatedCustomers.isNotEmpty;
+      final shouldUseRelatedBranding = _byRelatedCustomer && canUseRelatedCustomer;
+      if (_byRelatedCustomer && !canUseRelatedCustomer) {
+        setState(() {
+          _byRelatedCustomer = false;
+          _selectedRelatedCustomerId = null;
+        });
+        widget.onRelatedCustomerChanged(null);
+      }
+      _applyBranding(byRelatedCustomer: shouldUseRelatedBranding);
+    });
+  }
+
+  String _brandingSourceCode(Map<String, dynamic> branding) {
+    final value = branding['source_code'] ?? branding['sourceCode'];
+    return value == null ? '' : '$value'.trim();
+  }
+
+  bool _brandingEngravingEnabled() {
+    final value = widget.draft.branding['engraving_enabled'] ?? widget.draft.branding['engravingEnabled'];
+    if (value is bool) return value;
+    if (value is num) return value != 0;
+    if (value is String) {
+      return ['true', '1', 'yes', 'y'].contains(value.trim().toLowerCase());
+    }
+    return false;
+  }
+
+  CalculatorOption? _organizationById(String? organizationId) {
+    final id = organizationId?.trim() ?? '';
+    if (id.isEmpty) return null;
+    return widget.contextData.organizations.where((entry) => entry.id == id).firstOrNull;
+  }
+
+  CalculatorBranding? _brandingFromOrganization(CalculatorOption? organization) {
+    if (organization == null) return null;
+    final branding = CalculatorBranding.fromJson(organization.raw);
+    return branding.hasLogo || (branding.engravingText ?? '').isNotEmpty ? branding : null;
+  }
+
+  Map<String, dynamic> _brandingJsonFor({
+    required bool byRelatedCustomer,
+    bool? engravingEnabled,
+  }) {
+    final branding = byRelatedCustomer
+        ? _brandingFromOrganization(_organizationById(widget.draft.organizationId))
+        : widget.contextData.headBranding;
+    if (branding == null) return const {};
+    return branding.toCalculationJson(
+      sourceCode: byRelatedCustomer ? 'selected_organization' : 'head_company',
+      engravingEnabled: byRelatedCustomer ? (engravingEnabled ?? _brandingEngravingEnabled()) : false,
+    );
+  }
+
+  void _applyBranding({required bool byRelatedCustomer, bool? engravingEnabled}) {
+    final next = _brandingJsonFor(
+      byRelatedCustomer: byRelatedCustomer,
+      engravingEnabled: engravingEnabled,
+    );
+    if (_sameStringMap(widget.draft.branding, next)) return;
+    widget.onBrandingChanged(next);
+  }
+
+  bool _sameStringMap(Map<String, dynamic> a, Map<String, dynamic> b) {
+    if (a.length != b.length) return false;
+    for (final key in {...a.keys, ...b.keys}) {
+      if ('${a[key] ?? ''}' != '${b[key] ?? ''}') return false;
+    }
+    return true;
+  }
+
+  CalculatorBranding? _activeBranding(bool canUseRelatedCustomer) {
+    return _byRelatedCustomer && canUseRelatedCustomer
+        ? _brandingFromOrganization(_organizationById(widget.draft.organizationId))
+        : widget.contextData.headBranding;
   }
 
   @override
@@ -953,6 +1055,8 @@ class _ProductStepState extends State<_ProductStep> {
         _byRelatedCustomer = false;
         _selectedRelatedCustomerId = null;
       });
+      widget.onRelatedCustomerChanged(null);
+      _applyBranding(byRelatedCustomer: false, engravingEnabled: false);
       return;
     }
 
@@ -962,7 +1066,9 @@ class _ProductStepState extends State<_ProductStep> {
       _byRelatedCustomer = true;
       _selectedRelatedCustomerId = selected.id;
     });
+    widget.onRelatedCustomerChanged(selected.id);
     widget.onQuoteNoExternalChanged(_relatedCustomerName(selected));
+    _applyBranding(byRelatedCustomer: true);
   }
 
   @override
@@ -971,6 +1077,9 @@ class _ProductStepState extends State<_ProductStep> {
     final canUseRelatedCustomer = relatedCustomers.isNotEmpty;
     final selectedRelatedCustomer = _selectedRelatedCustomer(relatedCustomers);
     final selectedRelatedCustomerId = selectedRelatedCustomer?.id;
+    final activeBranding = _activeBranding(canUseRelatedCustomer);
+    final engravingText = activeBranding?.engravingText?.trim() ?? '';
+    final engravingEnabled = _brandingEngravingEnabled();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -987,7 +1096,17 @@ class _ProductStepState extends State<_ProductStep> {
           value: widget.draft.organizationId,
           options: widget.contextData.organizations,
           idSelector: (option) => option.id,
-          onChanged: widget.onOrganizationChanged,
+          onChanged: (value) {
+            widget.onOrganizationChanged(value);
+            if (_byRelatedCustomer) {
+              setState(() {
+                _byRelatedCustomer = false;
+                _selectedRelatedCustomerId = null;
+              });
+              widget.onRelatedCustomerChanged(null);
+            }
+            _applyBranding(byRelatedCustomer: false, engravingEnabled: false);
+          },
           emptyLabel: '— No organization terms —',
         ),
         const SizedBox(height: 16),
@@ -1042,7 +1161,9 @@ class _ProductStepState extends State<_ProductStep> {
               final selected = relatedCustomers.where((option) => option.id == value).firstOrNull;
               if (selected == null) return;
               setState(() => _selectedRelatedCustomerId = selected.id);
+              widget.onRelatedCustomerChanged(selected.id);
               widget.onQuoteNoExternalChanged(_relatedCustomerName(selected));
+              _applyBranding(byRelatedCustomer: true);
             },
           )
         else
@@ -1057,19 +1178,160 @@ class _ProductStepState extends State<_ProductStep> {
             onChanged: widget.onQuoteNoExternalChanged,
           ),
         const SizedBox(height: 16),
-        TextField(
-          controller: _externalNotes,
-          minLines: 3,
-          maxLines: 5,
-          decoration: const InputDecoration(
-            labelText: 'Quote notes',
-            helperText: 'Customer-side notes for this quote.',
-            border: OutlineInputBorder(),
-            alignLabelWithHint: true,
+        IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              SizedBox(
+                width: 104,
+                child: _BrandingLogoPlaque(
+                  branding: activeBranding,
+                  repository: widget.mediaRepository,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: TextField(
+                  controller: _externalNotes,
+                  minLines: 3,
+                  maxLines: 5,
+                  decoration: const InputDecoration(
+                    labelText: 'Quote notes',
+                    helperText: 'Customer-side notes for this quote.',
+                    border: OutlineInputBorder(),
+                    alignLabelWithHint: true,
+                  ),
+                  onChanged: widget.onExternalNotesChanged,
+                ),
+              ),
+            ],
           ),
-          onChanged: widget.onExternalNotesChanged,
         ),
+        if (_byRelatedCustomer && canUseRelatedCustomer) ...[
+          const SizedBox(height: 16),
+          _EngravingTextToggle(
+            text: engravingText,
+            enabled: engravingEnabled && engravingText.isNotEmpty,
+            onChanged: engravingText.isEmpty
+                ? null
+                : (value) {
+                    widget.onEngravingEnabledChanged(value);
+                    _applyBranding(byRelatedCustomer: true, engravingEnabled: value);
+                  },
+          ),
+        ],
       ],
+    );
+  }
+}
+
+
+class _BrandingLogoPlaque extends StatelessWidget {
+  const _BrandingLogoPlaque({
+    required this.branding,
+    required this.repository,
+  });
+
+  final CalculatorBranding? branding;
+  final AdminResourceRepository repository;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final logoFileId = branding?.logoFileId?.trim() ?? '';
+    final label = branding == null ? 'Logo —' : 'Logo ${branding!.shortLabel}';
+
+    return InputDecorator(
+      decoration: InputDecoration(
+        labelText: label,
+        border: const OutlineInputBorder(),
+        contentPadding: const EdgeInsets.all(6),
+      ),
+      child: Center(
+        child: logoFileId.isEmpty
+            ? Icon(Icons.image_not_supported_outlined, color: colorScheme.onSurfaceVariant)
+            : FutureBuilder<ApiBinaryResponse>(
+                future: repository.viewMediaFile(logoFileId),
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    );
+                  }
+                  final response = snapshot.data;
+                  if (snapshot.hasError || response == null || response.bytes.isEmpty) {
+                    return Icon(Icons.broken_image_outlined, color: colorScheme.onSurfaceVariant);
+                  }
+                  return Padding(
+                    padding: const EdgeInsets.all(2),
+                    child: FittedBox(
+                      fit: BoxFit.contain,
+                      child: Image.memory(
+                        response.bytes,
+                        errorBuilder: (_, __, ___) => Icon(Icons.broken_image_outlined, color: colorScheme.onSurfaceVariant),
+                      ),
+                    ),
+                  );
+                },
+              ),
+      ),
+    );
+  }
+}
+
+class _EngravingTextToggle extends StatelessWidget {
+  const _EngravingTextToggle({
+    required this.text,
+    required this.enabled,
+    required this.onChanged,
+  });
+
+  final String text;
+  final bool enabled;
+  final ValueChanged<bool>? onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final engravingText = text.trim();
+    final hasText = engravingText.isNotEmpty;
+    final active = enabled && hasText;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        border: Border.all(color: colorScheme.outlineVariant),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          Switch(
+            value: active,
+            onChanged: hasText ? onChanged : null,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Opacity(
+              opacity: active ? 1 : 0.45,
+              child: SelectableText.rich(
+                TextSpan(
+                  style: theme.textTheme.bodyMedium,
+                  children: [
+                    TextSpan(
+                      text: 'Engraving text: ',
+                      style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+                    ),
+                    TextSpan(text: hasText ? engravingText : '—'),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

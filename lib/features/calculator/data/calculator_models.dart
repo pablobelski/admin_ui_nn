@@ -4,6 +4,7 @@ class CalculatorContext {
   const CalculatorContext({
     required this.organizations,
     required this.relatedCustomers,
+    this.headBranding,
     required this.productFamilies,
     required this.templates,
     required this.references,
@@ -31,6 +32,9 @@ class CalculatorContext {
     return CalculatorContext(
       organizations: _list(json['organizations']).map(CalculatorOption.fromJson).toList(),
       relatedCustomers: _list(json['relatedCustomers'] ?? json['related_customers']).map(CalculatorOption.fromJson).toList(),
+      headBranding: (json['headBranding'] ?? json['head_branding']) is Map
+          ? CalculatorBranding.fromJson(Map<String, dynamic>.from((json['headBranding'] ?? json['head_branding']) as Map))
+          : null,
       productFamilies: _list(json['productFamilies']).map(CalculatorOption.fromJson).toList(),
       templates: _list(json['templates']).map(CalculatorTemplateOption.fromJson).toList(),
       references: _references(json['references']),
@@ -48,6 +52,7 @@ class CalculatorContext {
 
   final List<CalculatorOption> organizations;
   final List<CalculatorOption> relatedCustomers;
+  final CalculatorBranding? headBranding;
   final List<CalculatorOption> productFamilies;
   final List<CalculatorTemplateOption> templates;
   final Map<String, List<CalculatorOption>> references;
@@ -64,6 +69,68 @@ class CalculatorContext {
     return relatedCustomers
         .where((entry) => '${entry.raw['parent_organization_id'] ?? ''}' == parentOrganizationId)
         .toList(growable: false);
+  }
+}
+
+
+class CalculatorBranding {
+  const CalculatorBranding({
+    this.brandingId,
+    this.organizationId,
+    this.organizationShortName,
+    this.brandName,
+    this.logoFileId,
+    this.logoFilename,
+    this.engravingText,
+  });
+
+  factory CalculatorBranding.fromJson(Map<String, dynamic> json) {
+    return CalculatorBranding(
+      brandingId: _nullableString(json['branding_id'] ?? json['id']),
+      organizationId: _nullableString(
+        json['organization_id'] ?? json['branding_organization_id'] ?? json['child_organization_id'],
+      ),
+      organizationShortName: _nullableString(
+        json['organization_short_name'] ?? json['short_name'] ?? json['display_name'] ?? json['legal_name'],
+      ),
+      brandName: _nullableString(json['branding_brand_name'] ?? json['brand_name']),
+      logoFileId: _nullableString(json['branding_logo_file_id'] ?? json['logo_file_id']),
+      logoFilename: _nullableString(json['branding_logo_filename'] ?? json['logo_filename'] ?? json['logo_original_filename']),
+      engravingText: _nullableString(json['branding_engraving_text'] ?? json['engraving_text']),
+    );
+  }
+
+  final String? brandingId;
+  final String? organizationId;
+  final String? organizationShortName;
+  final String? brandName;
+  final String? logoFileId;
+  final String? logoFilename;
+  final String? engravingText;
+
+  bool get hasLogo => logoFileId != null && logoFileId!.isNotEmpty;
+
+  String get shortLabel {
+    final raw = organizationShortName ?? brandName ?? '';
+    final value = raw.trim();
+    return value.isEmpty ? 'Logo' : value;
+  }
+
+  Map<String, dynamic> toCalculationJson({
+    required String sourceCode,
+    bool engravingEnabled = false,
+  }) {
+    return {
+      'source_code': sourceCode,
+      if (brandingId != null && brandingId!.isNotEmpty) 'branding_id': brandingId,
+      if (organizationId != null && organizationId!.isNotEmpty) 'organization_id': organizationId,
+      if (organizationShortName != null && organizationShortName!.isNotEmpty) 'organization_short_name': organizationShortName,
+      if (brandName != null && brandName!.isNotEmpty) 'brand_name': brandName,
+      if (logoFileId != null && logoFileId!.isNotEmpty) 'logo_file_id': logoFileId,
+      if (logoFilename != null && logoFilename!.isNotEmpty) 'logo_filename': logoFilename,
+      if (engravingText != null && engravingText!.isNotEmpty) 'engraving_text': engravingText,
+      'engraving_enabled': engravingEnabled,
+    };
   }
 }
 
@@ -631,6 +698,8 @@ class CalculatorDraft {
     this.handoverTypeCode,
     this.quoteNoExternal,
     this.externalNotes,
+    this.relatedCustomerId,
+    this.branding = const {},
     this.options = const [],
     this.setContents = const [],
   });
@@ -664,6 +733,8 @@ class CalculatorDraft {
       handoverTypeCode: _nullableString(json['handover_type_code']),
       quoteNoExternal: _nullableString(json['quote_no_external'] ?? json['quoteNoExternal']),
       externalNotes: _nullableString(json['external_notes'] ?? json['externalNotes']),
+      relatedCustomerId: _nullableString(json['related_customer_id'] ?? json['relatedCustomerId']),
+      branding: _map(json['branding']),
       options: options,
       setContents: setContents,
     );
@@ -682,6 +753,8 @@ class CalculatorDraft {
   final String? handoverTypeCode;
   final String? quoteNoExternal;
   final String? externalNotes;
+  final String? relatedCustomerId;
+  final Map<String, dynamic> branding;
   final List<CalculatorSelectedOption> options;
   final List<CalculatorSetContentTab> setContents;
 
@@ -711,6 +784,10 @@ class CalculatorDraft {
     bool clearQuoteNoExternal = false,
     String? externalNotes,
     bool clearExternalNotes = false,
+    String? relatedCustomerId,
+    bool clearRelatedCustomer = false,
+    Map<String, dynamic>? branding,
+    bool clearBranding = false,
     List<CalculatorSelectedOption>? options,
     List<CalculatorSetContentTab>? setContents,
   }) {
@@ -728,6 +805,8 @@ class CalculatorDraft {
       handoverTypeCode: clearHandover ? null : handoverTypeCode ?? this.handoverTypeCode,
       quoteNoExternal: clearQuoteNoExternal ? null : quoteNoExternal ?? this.quoteNoExternal,
       externalNotes: clearExternalNotes ? null : externalNotes ?? this.externalNotes,
+      relatedCustomerId: clearRelatedCustomer ? null : relatedCustomerId ?? this.relatedCustomerId,
+      branding: clearBranding ? const {} : branding ?? this.branding,
       options: options ?? this.options,
       setContents: setContents ?? this.setContents,
     );
@@ -749,6 +828,8 @@ class CalculatorDraft {
       if (handoverTypeCode != null && handoverTypeCode!.isNotEmpty) 'handover_type_code': handoverTypeCode,
       if (quoteNoExternal != null && quoteNoExternal!.isNotEmpty) 'quote_no_external': quoteNoExternal,
       if (externalNotes != null && externalNotes!.isNotEmpty) 'external_notes': externalNotes,
+      if (relatedCustomerId != null && relatedCustomerId!.isNotEmpty) 'related_customer_id': relatedCustomerId,
+      if (branding.isNotEmpty) 'branding': branding,
       'options': options.map((entry) => entry.toJson()).toList(),
       'set_contents': setContentsJson,
       'language_code': 'de',

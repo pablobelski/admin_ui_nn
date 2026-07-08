@@ -1761,15 +1761,18 @@ const adminNavGroups = <AdminNavGroup>[
           AdminColumn(key: 'code', label: 'Code', isPrimary: true),
           AdminColumn(key: 'name', label: 'Name', flex: 2),
           AdminColumn(key: 'product_family_id', label: 'Family', flex: 2, lookup: productFamilyLookup),
+          AdminColumn(key: 'configurator_template_id', label: 'Template', flex: 2, lookup: configuratorTemplateLookup),
           AdminColumn(key: 'sort_order', label: 'Sort'),
           AdminColumn(key: 'is_active', label: 'Active'),
         ],
         listFilters: [
           AdminResourceFilter(key: 'product_family_id', label: 'Product family', lookup: productFamilyLookup),
+          AdminResourceFilter(key: 'configurator_template_id', label: 'Template', lookup: configuratorTemplateLookup),
           AdminResourceFilter(key: 'is_active', label: 'Active', options: activeFilterOptions),
         ],
         formFields: [
           AdminField(key: 'product_family_id', label: 'Product family', lookup: productFamilyLookup),
+          AdminField(key: 'configurator_template_id', label: 'Configurator template', lookup: configuratorTemplateLookup),
           AdminField(key: 'code', label: 'Code'),
           AdminField(key: 'name', label: 'Name'),
           AdminField(key: 'sort_order', label: 'Sort order', type: AdminFieldType.number),

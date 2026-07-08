@@ -605,11 +605,15 @@ Map<String, double> _expandListColumnWidths({
 bool _hasLeadingPreviewColumn(AdminResourceDefinition resource) {
   return resource.key == 'catalog_items'
       || resource.key == 'catalog_variants'
-      || resource.key == 'asset_files';
+      || resource.key == 'asset_files'
+      || resource.key == 'organization_branding'
+      || resource.key == 'roof_models';
 }
 
 bool _hideListColumn(AdminResourceDefinition resource, AdminColumn column) {
-  return resource.key == 'catalog_variants' && column.key == 'image_file_id';
+  if (resource.key == 'catalog_variants' && column.key == 'image_file_id') return true;
+  if (resource.key == 'organization_branding' && column.key == 'logo_file_id') return true;
+  return false;
 }
 
 bool _isInlinePreviewColumn(AdminResourceDefinition resource, AdminColumn column) {
@@ -671,6 +675,29 @@ double _compactColumnWidth(String resourceKey, AdminColumn column) {
       'glass_type_code' => 100,
       'coating_price_per_meter' => 120,
       'purchase_price_fixed' => 120,
+      'is_active' => 80,
+      _ => 130,
+    };
+  }
+
+  if (resourceKey == 'organization_branding') {
+    return switch (key) {
+      'brand_name' => 220,
+      'organization_id' => 240,
+      'email_from_name' => 180,
+      'is_default' => 80,
+      'is_active' => 80,
+      _ => 130,
+    };
+  }
+
+  if (resourceKey == 'roof_models') {
+    return switch (key) {
+      'code' => 140,
+      'name' => 260,
+      'product_family_id' => 200,
+      'configurator_template_id' => 240,
+      'sort_order' => 80,
       'is_active' => 80,
       _ => 130,
     };
@@ -798,6 +825,24 @@ MediaFileRef? _leadingListMediaRef(
       fileIdKey: 'id',
       filenameKey: 'original_filename',
       fallbackLabel: 'Media file',
+    );
+  }
+
+  if (resource.key == 'organization_branding') {
+    return _mediaRefFromRow(
+      row: row,
+      fileIdKey: 'logo_file_id',
+      filenameKey: 'logo_original_filename',
+      fallbackLabel: 'Branding logo',
+    );
+  }
+
+  if (resource.key == 'roof_models') {
+    return _mediaRefFromRow(
+      row: row,
+      fileIdKey: 'preview_media_file_id',
+      filenameKey: 'preview_media_filename',
+      fallbackLabel: 'Roof model preview',
     );
   }
 
@@ -1652,7 +1697,7 @@ class _QuoteColorPreviewData {
 
 
 bool _hasDetailImageButton(AdminResourceDefinition resource) {
-  return resource.key == 'catalog_items' || resource.key == 'catalog_variants';
+  return resource.key == 'catalog_items' || resource.key == 'catalog_variants' || resource.key == 'roof_models';
 }
 
 
@@ -2240,8 +2285,8 @@ Map<String, Map<String, String>> _detailLookupLabelsByKey(
   WidgetRef ref,
   AdminResourceDefinition resource,
 ) {
-  if (!_usesReadableQuoteDetails(resource)) return const <String, Map<String, String>>{};
-  final lookups = _quoteRelationLookupsByKey(resource.key);
+  if (!_usesReadableDetails(resource)) return const <String, Map<String, String>>{};
+  final lookups = _detailRelationLookupsByKey(resource);
   return {
     for (final entry in lookups.entries)
       entry.key: ref.watch(adminLookupProvider(entry.value)).maybeWhen(
@@ -2251,8 +2296,21 @@ Map<String, Map<String, String>> _detailLookupLabelsByKey(
   };
 }
 
-bool _usesReadableQuoteDetails(AdminResourceDefinition resource) {
-  return resource.key == 'quotes' || resource.key == 'quote_lines';
+bool _usesReadableDetails(AdminResourceDefinition resource) {
+  return resource.key == 'quotes' ||
+      resource.key == 'quote_lines' ||
+      resource.key == 'roof_models' ||
+      resource.key == 'organization_relations';
+}
+
+Map<String, AdminLookup> _detailRelationLookupsByKey(AdminResourceDefinition resource) {
+  if (resource.key == 'quotes' || resource.key == 'quote_lines') {
+    return _quoteRelationLookupsByKey(resource.key);
+  }
+  return {
+    for (final field in resource.formFields)
+      if (field.lookup != null) field.key: field.lookup!,
+  };
 }
 
 Map<String, AdminLookup> _quoteRelationLookupsByKey(String resourceKey) {
@@ -2294,7 +2352,7 @@ List<_DetailRowData> _detailRowsFor(
   Map<String, dynamic> data,
   Map<String, Map<String, String>> lookupLabelsByKey,
 ) {
-  if (!_usesReadableQuoteDetails(resource)) {
+  if (!_usesReadableDetails(resource)) {
     return data.entries
         .take(12)
         .map((entry) => _DetailRowData(entry.key, entry.value))
@@ -2343,8 +2401,8 @@ Map<String, dynamic> _withReadableRelationFields(
   Map<String, dynamic> data,
   Map<String, Map<String, String>> lookupLabelsByKey,
 ) {
-  if (!_usesReadableQuoteDetails(resource)) return data;
-  final allLookups = _quoteRelationLookupsByKey(resource.key);
+  if (!_usesReadableDetails(resource)) return data;
+  final allLookups = _detailRelationLookupsByKey(resource);
   return _enrichReadableRelations(data, allLookups, lookupLabelsByKey) as Map<String, dynamic>;
 }
 

@@ -92,6 +92,7 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
   void setOrganization(String? value) => state = state.copyWith(
         organizationId: value,
         clearOrganization: value == null || value.isEmpty,
+        clearRelatedCustomer: true,
       );
 
   void setProductFamily(String? value) => state = state.copyWith(
@@ -161,6 +162,26 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
         externalNotes: value,
         clearExternalNotes: value.trim().isEmpty,
       );
+
+  void setRelatedCustomer(String? value) => state = state.copyWith(
+        relatedCustomerId: value,
+        clearRelatedCustomer: value == null || value.isEmpty,
+      );
+
+  void setBranding(Map<String, dynamic> value) => state = state.copyWith(
+        branding: value,
+        clearBranding: value.isEmpty,
+      );
+
+  void setEngravingEnabled(bool value) {
+    if (state.branding.isEmpty) return;
+    state = state.copyWith(
+      branding: {
+        ...state.branding,
+        'engraving_enabled': value,
+      },
+    );
+  }
 
   void addOptionCode(String optionCode) {
     final trimmed = optionCode.trim();
