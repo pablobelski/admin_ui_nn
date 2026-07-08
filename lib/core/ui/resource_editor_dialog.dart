@@ -756,12 +756,9 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
       final rawValue = _controllers[field.key]!.text.trim();
       if (rawValue.isEmpty) {
         final existingValue = _valueAtPath(widget.initialData, field.key);
-        if (!field.readOnly && field.type == AdminFieldType.json) {
+        if (!field.readOnly && widget.initialData != null && existingValue != null) {
           _setPayloadValue(payload, field.key, null);
-        } else if (widget.initialData != null &&
-            !field.readOnly &&
-            (field.lookup != null || field.type == AdminFieldType.file) &&
-            existingValue != null) {
+        } else if (!field.readOnly && field.type == AdminFieldType.json) {
           _setPayloadValue(payload, field.key, null);
         }
         continue;

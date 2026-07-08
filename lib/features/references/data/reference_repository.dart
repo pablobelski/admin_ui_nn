@@ -220,6 +220,7 @@ class ReferenceValue {
     this.altLabel,
     this.colorHex,
     this.numericValue,
+    this.textValue,
     this.metadataJson,
     this.createdAt,
     this.updatedAt,
@@ -235,6 +236,7 @@ class ReferenceValue {
       sortOrder: _intOrZero(json['sort_order']),
       colorHex: _stringOrNull(json['color_hex']),
       numericValue: _numOrNull(json['numeric_value']),
+      textValue: _stringOrNull(json['text_value']),
       metadataJson: _mapOrNull(json['metadata_json']),
       isActive: _boolValue(json['is_active']),
       createdAt: _stringOrNull(json['created_at']),
@@ -251,6 +253,7 @@ class ReferenceValue {
   final int sortOrder;
   final String? colorHex;
   final num? numericValue;
+  final String? textValue;
   final Map<String, dynamic>? metadataJson;
   final bool isActive;
   final String? createdAt;

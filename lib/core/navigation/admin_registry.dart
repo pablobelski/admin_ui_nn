@@ -1630,6 +1630,7 @@ const adminNavGroups = <AdminNavGroup>[
         columns: [
           AdminColumn(key: 'code', label: 'Code', isPrimary: true),
           AdminColumn(key: 'label', label: 'Label', flex: 2),
+          AdminColumn(key: 'text_value', label: 'Text value', flex: 2),
           AdminColumn(key: 'domain_id', label: 'Domain'),
           AdminColumn(key: 'sort_order', label: 'Sort'),
           AdminColumn(key: 'is_active', label: 'Active'),
@@ -1643,6 +1644,7 @@ const adminNavGroups = <AdminNavGroup>[
           AdminField(key: 'sort_order', label: 'Sort order', type: AdminFieldType.number),
           AdminField(key: 'color_hex', label: 'Color HEX'),
           AdminField(key: 'numeric_value', label: 'Numeric value', type: AdminFieldType.number),
+          AdminField(key: 'text_value', label: 'Text value'),
           AdminField(key: 'metadata_json', label: 'Metadata JSON', type: AdminFieldType.json),
           AdminField(key: 'is_active', label: 'Active', type: AdminFieldType.boolType),
         ],

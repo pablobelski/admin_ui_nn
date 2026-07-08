@@ -769,7 +769,7 @@ class _ValueTable extends StatelessWidget {
             Expanded(
               child: HorizontalScrollArea(
                 child: SizedBox(
-                  width: adminRowNumberColumnWidth + 880,
+                  width: adminRowNumberColumnWidth + 1060,
                   child: ListView.separated(
                     key: PageStorageKey<String>(
                       'reference-value-list-${values.isEmpty ? "empty" : values.first.domainId}',
@@ -789,6 +789,7 @@ class _ValueTable extends StatelessWidget {
                               AdminTableHeaderCell(width: 180, label: 'Code'),
                               AdminTableHeaderCell(width: 220, label: 'Label'),
                               AdminTableHeaderCell(width: 160, label: 'Alt label'),
+                              AdminTableHeaderCell(width: 180, label: 'Text value'),
                               AdminTableHeaderCell(width: 120, label: 'Color HEX'),
                               AdminTableHeaderCell(width: 90, label: 'Status'),
                             ],
@@ -811,6 +812,7 @@ class _ValueTable extends StatelessWidget {
                               _TableValue(width: 180, value: value.code, strong: true),
                               _TableValue(width: 220, value: value.label),
                               _TableValue(width: 160, value: value.altLabel ?? '—'),
+                              _TableValue(width: 180, value: value.textValue ?? '—'),
                               _TableValue(width: 120, value: value.colorHex ?? '—'),
                               _TableValue(width: 90, value: value.isActive ? 'Active' : 'Inactive'),
                             ],
@@ -865,6 +867,7 @@ class _ValueDetailsCard extends StatelessWidget {
             _DetailRow(label: 'Sort order', value: '${value!.sortOrder}'),
             _DetailRow(label: 'Color HEX', value: value!.colorHex ?? '—'),
             _DetailRow(label: 'Numeric value', value: value!.numericValue?.toString() ?? '—'),
+            _DetailRow(label: 'Text value', value: value!.textValue ?? '—'),
             _DetailRow(label: 'Active', value: value!.isActive ? 'Yes' : 'No'),
             const SizedBox(height: 16),
             JsonViewCard(title: 'Metadata JSON', data: value!.metadataJson ?? const {}),
