@@ -891,7 +891,10 @@ class CalculatorDraft {
         'role': role.isEmpty ? 'main' : role,
         if (width != null) 'width_mm': width,
         if (depth != null) 'depth_mm': depth,
-        if (coveringCode != null && coveringCode!.isNotEmpty) 'covering_code': coveringCode,
+        if (coveringCode != null && coveringCode!.isNotEmpty) ...{
+          'covering_code': coveringCode,
+          'glass_type_code': coveringCode,
+        },
       });
     }
 
@@ -1061,6 +1064,7 @@ class CalculatorResult {
     required this.internalPrice,
     required this.sources,
     required this.bom,
+    required this.glassLines,
     required this.baseBom,
     required this.optionBom,
     required this.setContentBom,
@@ -1081,6 +1085,7 @@ class CalculatorResult {
       internalPrice: _map(json['internalPrice']),
       sources: _map(json['sources']),
       bom: _list(json['bom']),
+      glassLines: _list(json['glassLines'] ?? json['glass_lines']),
       baseBom: _list(json['baseBom'] ?? json['base_bom']),
       optionBom: _list(json['optionBom'] ?? json['option_bom']),
       setContentBom: _list(json['setContentBom'] ?? json['set_content_bom']),
@@ -1100,6 +1105,7 @@ class CalculatorResult {
   final Map<String, dynamic> internalPrice;
   final Map<String, dynamic> sources;
   final List<Map<String, dynamic>> bom;
+  final List<Map<String, dynamic>> glassLines;
   final List<Map<String, dynamic>> baseBom;
   final List<Map<String, dynamic>> optionBom;
   final List<Map<String, dynamic>> setContentBom;

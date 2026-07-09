@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -9,6 +10,7 @@ import '../../../core/auth/auth_session.dart';
 import '../../../core/http/admin_resource_repository.dart';
 import '../../../core/ui/media_file_actions.dart';
 import '../data/calculator_models.dart';
+import '../data/roof_geometry_calculation.dart';
 
 class ModelGeometryPreview extends ConsumerStatefulWidget {
   const ModelGeometryPreview({
@@ -22,6 +24,7 @@ class ModelGeometryPreview extends ConsumerStatefulWidget {
     this.geometryParams = const [],
     this.modules = const [],
     this.moduleRoles = const [],
+    this.calculatedModules = const [],
     this.calculationNumber,
     this.calculationName,
     this.colorCode,
@@ -42,6 +45,7 @@ class ModelGeometryPreview extends ConsumerStatefulWidget {
   final List<RoofGeometryParam> geometryParams;
   final List<CalculatorSetContentTab> modules;
   final List<String> moduleRoles;
+  final List<RoofModuleCalculation> calculatedModules;
   final String? calculationNumber;
   final String? calculationName;
   final String? colorCode;
@@ -161,6 +165,7 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
             roofAngleDeg: widget.roofAngleDeg,
             rearHeightMm: widget.rearHeightMm,
             frontHeightMm: widget.frontHeightMm,
+            calculatedModules: widget.calculatedModules,
           ),
         );
       },
@@ -616,6 +621,7 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     required this.roofAngleDeg,
     required this.rearHeightMm,
     required this.frontHeightMm,
+    required this.calculatedModules,
   });
 
   final String? modelCode;
@@ -636,6 +642,7 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
   final int? roofAngleDeg;
   final int? rearHeightMm;
   final int? frontHeightMm;
+  final List<RoofModuleCalculation> calculatedModules;
 
   static const double _ddx = 0.52;
   static const double _ddy = 0.73;
@@ -1192,7 +1199,7 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     _RoofLayout layout,
     double k,
   ) {
-    for (final x in layout.rafterX) {
+    for (final x in _effectiveRafterX(layout)) {
       final y1 = _yAt(layout.front, x);
       final y2 = _yAt(layout.back, x);
       if ((y2 - y1).abs() < 40) continue;
@@ -1390,7 +1397,7 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
       path.close();
       canvas.drawPath(path, planPaint);
     }
-    for (final x in layout.rafterX) {
+    for (final x in _effectiveRafterX(layout)) {
       final a = p(Offset(x, _yAt(layout.front, x)));
       final b = p(Offset(x, _yAt(layout.back, x)));
       canvas.drawLine(a, b, beamPaint);
@@ -1608,6 +1615,33 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
   }
 
 
+  List<double> _effectiveRafterX(_RoofLayout layout) {
+    if (calculatedModules.isEmpty || layout.moduleAreas.isEmpty) return layout.rafterX;
+    final values = <double>{};
+    for (final area in layout.moduleAreas) {
+      final calculation = calculatedModules
+          .where((entry) => entry.moduleIndex == area.index)
+          .cast<RoofModuleCalculation?>()
+          .firstOrNull;
+      if (calculation == null || calculation.glassCount < 1 || area.corners.isEmpty) continue;
+      final xs = area.corners.map((point) => point.dx).toList(growable: false);
+      final minX = xs.reduce((a, b) => math.min(a, b).toDouble());
+      final maxX = xs.reduce((a, b) => math.max(a, b).toDouble());
+      final span = maxX - minX;
+      if (span <= 0) continue;
+      // A module with N glass fields needs N + 1 delimiting beam lines.
+      // For offset 0/+1 modules some boundary beams belong to neighbouring
+      // modules, so using beamCount here visually under-counted the glass.
+      final dividerCount = calculation.glassCount + 1;
+      for (var i = 0; i < dividerCount; i++) {
+        values.add(minX + span * i / (dividerCount - 1));
+      }
+    }
+    if (values.isEmpty) return layout.rafterX;
+    final result = values.toList()..sort();
+    return result;
+  }
+
   List<double> _rafterPositions(double width, List<double> fixed, {List<double> blocked = const []}) {
     final count = (width / 620).round().clamp(4, 11).toInt();
     final values = <double>{};
@@ -1713,6 +1747,7 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
         oldDelegate.highlightedModuleIndex != highlightedModuleIndex ||
         oldDelegate.roofAngleDeg != roofAngleDeg ||
         oldDelegate.rearHeightMm != rearHeightMm ||
-        oldDelegate.frontHeightMm != frontHeightMm;
+        oldDelegate.frontHeightMm != frontHeightMm ||
+        oldDelegate.calculatedModules != calculatedModules;
   }
 }

@@ -15,6 +15,7 @@ import '../../../core/ui/media_file_actions.dart';
 import '../../../core/ui/media_preview_dialog.dart';
 import '../data/calculator_models.dart';
 import '../data/calculator_repository.dart';
+import '../data/roof_geometry_calculation.dart';
 import 'calculator_providers.dart';
 import 'model_geometry_preview.dart';
 
@@ -815,6 +816,7 @@ class _StepCard extends ConsumerWidget {
           draft: draft,
           notifier: notifier,
           selectedRoofModel: roofModelState.selectedForCode(draft.modelCode),
+          selectedTemplate: selectedTemplate,
           isLoadedCalculation: isLoadedCalculation,
           onModuleFocusChanged: onModuleFocusChanged,
         );
@@ -822,6 +824,7 @@ class _StepCard extends ConsumerWidget {
         return _CoveringStep(
           draft: draft,
           selectedTemplate: selectedTemplate,
+          selectedRoofModel: roofModelState.selectedForCode(draft.modelCode),
           notifier: notifier,
           options: calculatorContext.references['tds_glass_covering'] ?? const [],
         );
@@ -884,7 +887,11 @@ class _StepCard extends ConsumerWidget {
         );
       case 'summary':
       default:
-        return _SummaryStep(draft: draft, selectedTemplate: selectedTemplate);
+        return _SummaryStep(
+          draft: draft,
+          selectedTemplate: selectedTemplate,
+          selectedRoofModel: roofModelState.selectedForCode(draft.modelCode),
+        );
     }
   }
 }
@@ -1399,6 +1406,7 @@ class _DimensionsStep extends StatefulWidget {
     required this.draft,
     required this.notifier,
     required this.selectedRoofModel,
+    required this.selectedTemplate,
     required this.isLoadedCalculation,
     required this.onModuleFocusChanged,
   });
@@ -1406,6 +1414,7 @@ class _DimensionsStep extends StatefulWidget {
   final CalculatorDraft draft;
   final CalculatorDraftNotifier notifier;
   final CalculatorOption? selectedRoofModel;
+  final CalculatorTemplateOption? selectedTemplate;
   final bool isLoadedCalculation;
   final ValueChanged<int?> onModuleFocusChanged;
 
@@ -1561,6 +1570,11 @@ class _DimensionsStepState extends State<_DimensionsStep> {
   @override
   Widget build(BuildContext context) {
     final moduleRoles = _moduleRolesFor(widget.selectedRoofModel);
+    final roofCalculation = calculateRoofGeometryForDraft(
+      draft: widget.draft,
+      template: widget.selectedTemplate,
+      model: widget.selectedRoofModel,
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1594,6 +1608,7 @@ class _DimensionsStepState extends State<_DimensionsStep> {
           onRemoveModule: widget.notifier.removeSetContentTab,
           onModuleGeometryChanged: widget.notifier.updateSetContentModuleGeometry,
           onModuleFocusChanged: widget.onModuleFocusChanged,
+          calculatedModules: roofCalculation.modules,
         ),
         const SizedBox(height: 16),
         _RoofSlopeControls(
@@ -1624,6 +1639,7 @@ class _SetContentModuleDimensionsEditor extends StatelessWidget {
     required this.onRemoveModule,
     required this.onModuleGeometryChanged,
     required this.onModuleFocusChanged,
+    required this.calculatedModules,
   });
 
   final CalculatorDraft draft;
@@ -1634,6 +1650,7 @@ class _SetContentModuleDimensionsEditor extends StatelessWidget {
   final ValueChanged<int> onRemoveModule;
   final void Function(int tabIndex, String key, String value) onModuleGeometryChanged;
   final ValueChanged<int?> onModuleFocusChanged;
+  final List<RoofModuleCalculation> calculatedModules;
 
   @override
   Widget build(BuildContext context) {
@@ -1718,53 +1735,80 @@ class _SetContentModuleDimensionsEditor extends StatelessWidget {
         : (index < moduleRoles.length ? moduleRoles[index] : 'module_${index + 1}');
     final configuredModuleCount = moduleRoles.isEmpty ? 1 : moduleRoles.length;
     final canRemove = index >= configuredModuleCount;
+    final calculated = calculatedModules
+        .where((entry) => entry.role == role || entry.moduleIndex == index + 1)
+        .cast<RoofModuleCalculation?>()
+        .firstOrNull;
     return Focus(
       key: ValueKey('set-content-module-focus-${tab.id}'),
       onFocusChange: (hasFocus) => onModuleFocusChanged(hasFocus ? index + 1 : null),
-      child: Row(
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(
-            width: 118,
-            child: Padding(
-              padding: const EdgeInsets.only(top: 12),
-              child: Text(_moduleDisplayLabel(role, index + 1)),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(
+                width: 118,
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 12),
+                  child: Text(_moduleDisplayLabel(role, index + 1)),
+                ),
+              ),
+              const SizedBox(width: 12),
+              _dimensionField(
+                context,
+                tabId: tab.id,
+                fieldKey: 'width_mm',
+                label: '${_widthCodeFor(role, index)} width',
+                value: tab.moduleWidthMm,
+                maxValue: draft.widthMm,
+                index: index,
+              ),
+              const SizedBox(width: 12),
+              _dimensionField(
+                context,
+                tabId: tab.id,
+                fieldKey: 'depth_mm',
+                label: 'TK${_dimensionNumberForRole(role, index)} depth',
+                value: tab.moduleDepthMm,
+                maxValue: draft.depthMm,
+                index: index,
+              ),
+              const SizedBox(width: 4),
+              SizedBox(
+                width: 44,
+                child: canRemove
+                    ? Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: IconButton(
+                          tooltip: 'Remove manually added module',
+                          onPressed: () => onRemoveModule(index),
+                          icon: const Icon(Icons.delete_outline),
+                        ),
+                      )
+                    : null,
+              ),
+            ],
+          ),
+          if (calculated != null)
+            Padding(
+              padding: const EdgeInsets.only(left: 130, top: 8),
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 6,
+                children: [
+                  _CalculationValueChip(label: 'Beams', value: '${calculated.beamCount}'),
+                  _CalculationValueChip(label: 'Beam length', value: '${calculated.beamLengthMm} mm'),
+                  _CalculationValueChip(
+                    label: 'Glass offset',
+                    value: calculated.glassCountOffset > 0
+                        ? '+${calculated.glassCountOffset}'
+                        : '${calculated.glassCountOffset}',
+                  ),
+                ],
+              ),
             ),
-          ),
-          const SizedBox(width: 12),
-          _dimensionField(
-            context,
-            tabId: tab.id,
-            fieldKey: 'width_mm',
-            label: '${_widthCodeFor(role, index)} width',
-            value: tab.moduleWidthMm,
-            maxValue: draft.widthMm,
-            index: index,
-          ),
-          const SizedBox(width: 12),
-          _dimensionField(
-            context,
-            tabId: tab.id,
-            fieldKey: 'depth_mm',
-            label: 'TK${_dimensionNumberForRole(role, index)} depth',
-            value: tab.moduleDepthMm,
-            maxValue: draft.depthMm,
-            index: index,
-          ),
-          const SizedBox(width: 4),
-          SizedBox(
-            width: 44,
-            child: canRemove
-                ? Padding(
-                    padding: const EdgeInsets.only(top: 4),
-                    child: IconButton(
-                      tooltip: 'Remove manually added module',
-                      onPressed: () => onRemoveModule(index),
-                      icon: const Icon(Icons.delete_outline),
-                    ),
-                  )
-                : null,
-          ),
         ],
       ),
     );
@@ -1843,6 +1887,26 @@ class _SetContentModuleDimensionsEditor extends StatelessWidget {
       }
     }
     return warnings;
+  }
+}
+
+
+class _CalculationValueChip extends StatelessWidget {
+  const _CalculationValueChip({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text('$label: $value', style: Theme.of(context).textTheme.bodySmall),
+    );
   }
 }
 
@@ -2045,23 +2109,7 @@ String _roofParametersConfigurationMessage(CalculatorTemplateOption template) {
       'Fill the tds_glass_params values in Default data JSON.$missingText';
 }
 
-List<String> _moduleRolesFor(CalculatorOption? model) {
-  final metadata = _optionMetadata(model);
-  final segmentOrder = _stringListFromFlexible(metadata['segment_order'] ?? metadata['segmentOrder']);
-  final moduleOrderRaw = metadata['module_order'] ?? metadata['moduleOrder'];
-  final moduleOrderList = _stringListFromFlexible(moduleOrderRaw);
-  final source = segmentOrder.isNotEmpty ? segmentOrder : moduleOrderList;
-  final count = _intFromFlexible(
-        metadata['module_order_numeric_value'] ??
-            metadata['segment_order_numeric_value'] ??
-            moduleOrderRaw,
-      ) ??
-      source.length;
-  if (source.isNotEmpty) return count > 0 ? source.take(count).toList(growable: false) : source;
-  const fallback = ['main', 'small', 'left', 'right', 'middle'];
-  final fallbackCount = count > 0 ? count.clamp(1, fallback.length).toInt() : 1;
-  return fallback.take(fallbackCount).toList(growable: false);
-}
+List<String> _moduleRolesFor(CalculatorOption? model) => roofModuleRolesForModel(model);
 
 Map<String, dynamic> _optionMetadata(CalculatorOption? model) {
   if (model == null) return const {};
@@ -2073,26 +2121,6 @@ Map<String, dynamic> _optionMetadata(CalculatorOption? model) {
 int? _defaultAngleFor(CalculatorOption? model) {
   final metadata = _optionMetadata(model);
   return _intFromFlexible(metadata['default_angle'] ?? metadata['defaultAngle']);
-}
-
-List<String> _stringListFromFlexible(Object? value) {
-  if (value is List) {
-    return value.map((entry) => '$entry'.trim()).where((entry) => entry.isNotEmpty).toList(growable: false);
-  }
-  if (value is String) {
-    final trimmed = value.trim();
-    if (trimmed.isEmpty) return const [];
-    if (trimmed.startsWith('[')) {
-      try {
-        final decoded = jsonDecode(trimmed);
-        return _stringListFromFlexible(decoded);
-      } catch (_) {
-        // Fall through to comma separated parsing.
-      }
-    }
-    return trimmed.split(RegExp(r'[,;|]')).map((entry) => entry.trim()).where((entry) => entry.isNotEmpty).toList(growable: false);
-  }
-  return const [];
 }
 
 int? _intFromFlexible(Object? value) {
@@ -2348,12 +2376,14 @@ class _CoveringStep extends StatefulWidget {
   const _CoveringStep({
     required this.draft,
     required this.selectedTemplate,
+    required this.selectedRoofModel,
     required this.notifier,
     required this.options,
   });
 
   final CalculatorDraft draft;
   final CalculatorTemplateOption? selectedTemplate;
+  final CalculatorOption? selectedRoofModel;
   final CalculatorDraftNotifier notifier;
   final List<CalculatorOption> options;
 
@@ -2398,6 +2428,11 @@ class _CoveringStepState extends State<_CoveringStep> {
 
   @override
   Widget build(BuildContext context) {
+    final roofCalculation = calculateRoofGeometryForDraft(
+      draft: widget.draft,
+      template: widget.selectedTemplate,
+      model: widget.selectedRoofModel,
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -2414,6 +2449,13 @@ class _CoveringStepState extends State<_CoveringStep> {
         _CoveringCalculationParamsCard(
           maxGlassFieldWidthController: _maxGlassFieldWidth,
         ),
+        if (roofCalculation.modules.isNotEmpty) ...[
+          const SizedBox(height: 16),
+          _CalculatedGlassCard(
+            modules: roofCalculation.modules,
+            coveringCode: widget.draft.coveringCode,
+          ),
+        ],
         if (widget.selectedTemplate != null && !widget.selectedTemplate!.hasCompleteRoofParameters) ...[
           const SizedBox(height: 16),
           _ErrorCard(
@@ -2422,6 +2464,62 @@ class _CoveringStepState extends State<_CoveringStep> {
           ),
         ],
       ],
+    );
+  }
+}
+
+
+class _CalculatedGlassCard extends StatelessWidget {
+  const _CalculatedGlassCard({required this.modules, required this.coveringCode});
+
+  final List<RoofModuleCalculation> modules;
+  final String? coveringCode;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Calculated glass', style: Theme.of(context).textTheme.labelLarge),
+            const SizedBox(height: 10),
+            for (final module in modules)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(
+                      width: 110,
+                      child: Text(_moduleDisplayLabel(module.role, module.moduleIndex)),
+                    ),
+                    Expanded(
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 6,
+                        children: [
+                          _CalculationValueChip(label: 'Type', value: coveringCode ?? '—'),
+                          _CalculationValueChip(label: 'Quantity', value: '${module.glassCount}'),
+                          _CalculationValueChip(
+                            label: 'Size',
+                            value: '${module.glassWidthMm} × ${module.glassLengthMm} mm',
+                          ),
+                          _CalculationValueChip(
+                            label: 'Area',
+                            value: '${module.glassAreaM2.toStringAsFixed(1)} m²',
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -5067,13 +5165,20 @@ class _SummaryStep extends StatelessWidget {
   const _SummaryStep({
     required this.draft,
     required this.selectedTemplate,
+    required this.selectedRoofModel,
   });
 
   final CalculatorDraft draft;
   final CalculatorTemplateOption? selectedTemplate;
+  final CalculatorOption? selectedRoofModel;
 
   @override
   Widget build(BuildContext context) {
+    final roofCalculation = calculateRoofGeometryForDraft(
+      draft: draft,
+      template: selectedTemplate,
+      model: selectedRoofModel,
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -5091,6 +5196,18 @@ class _SummaryStep extends StatelessWidget {
         _SummaryRow('Color', draft.colorCode ?? '—'),
         _SummaryRow('Delivery', draft.handoverTypeCode ?? '—'),
         _SummaryRow('Options', draft.options.isEmpty ? '—' : '${draft.options.length} selected'),
+        if (roofCalculation.angleDeg != null)
+          _SummaryRow('Roof angle', '${roofCalculation.angleDeg}°'),
+        for (final module in roofCalculation.modules) ...[
+          _SummaryRow(
+            '${_moduleDisplayLabel(module.role, module.moduleIndex)} beams',
+            '${module.beamCount} × ${module.beamLengthMm} mm · glass offset ${module.glassCountOffset > 0 ? '+' : ''}${module.glassCountOffset}',
+          ),
+          _SummaryRow(
+            '${_moduleDisplayLabel(module.role, module.moduleIndex)} glass',
+            '${module.glassCount} × ${module.glassWidthMm} × ${module.glassLengthMm} mm · ${module.glassAreaM2.toStringAsFixed(1)} m²',
+          ),
+        ],
         const SizedBox(height: 16),
         const _HintCard(
           icon: Icons.play_arrow_outlined,
@@ -5455,6 +5572,15 @@ class _GeometryPreviewTab extends StatelessWidget {
         .where((option) => option.code == draft.modelCode)
         .cast<CalculatorOption?>()
         .firstOrNull;
+    final selectedTemplate = calculatorContext.templates
+        .where((template) => template.id == draft.templateId)
+        .cast<CalculatorTemplateOption?>()
+        .firstOrNull;
+    final roofCalculation = calculateRoofGeometryForDraft(
+      draft: draft,
+      template: selectedTemplate,
+      model: selectedModel,
+    );
     final colorPreview = _colorPreviewDataFor(calculatorContext, draft.colorCode);
     final selectedCovering = (calculatorContext.references['tds_glass_covering'] ?? const [])
         .where((option) => option.code == draft.coveringCode || option.id == draft.coveringCode)
@@ -5496,6 +5622,7 @@ class _GeometryPreviewTab extends StatelessWidget {
               geometryParams: geometryPreviewParamsFromDraft(draft),
               modules: draft.setContents,
               moduleRoles: _moduleRolesFor(selectedModel),
+              calculatedModules: roofCalculation.modules,
               calculationNumber: calculationNumber,
               calculationName: draft.quoteNoExternal,
               colorCode: colorPreview?.displayCode,
@@ -6109,21 +6236,76 @@ class _BomTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final rows = result.bom;
-    if (rows.isEmpty) return const Center(child: Text('No BOM lines yet.'));
+    final bomRows = result.bom;
+    final glassRows = result.glassLines;
+    if (bomRows.isEmpty && glassRows.isEmpty) {
+      return const Center(child: Text('No calculated BOM or glass lines yet.'));
+    }
 
-    return ListView.separated(
+    return ListView(
       padding: const EdgeInsets.all(12),
-      itemCount: rows.length,
-      separatorBuilder: (_, __) => const Divider(height: 1),
-      itemBuilder: (context, index) {
-        final row = rows[index];
-        return ListTile(
-          dense: true,
-          title: Text('${row['name'] ?? row['article_no'] ?? 'BOM line'}'),
-          subtitle: Text('Article: ${row['article_no'] ?? '—'} · Qty: ${row['quantity'] ?? 1} ${row['unit_code'] ?? ''}'),
-        );
-      },
+      children: [
+        if (glassRows.isNotEmpty) ...[
+          Text('Glass lines', style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(height: 6),
+          for (final row in glassRows)
+            ListTile(
+              dense: true,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+              title: Text('${row['module'] ?? 'module'} · ${row['glass_type_code'] ?? 'glass'}'),
+              subtitle: Text(
+                '${row['quantity'] ?? 0} × ${row['width_mm'] ?? 0} × ${row['length_mm'] ?? 0} mm · '
+                '${row['area_m2'] ?? 0} m² · Article ${row['article_no'] ?? '—'} · '
+                'Unit price ${row['unit_price'] == null ? '—' : _moneyFormat.format(_num(row['unit_price']))}',
+              ),
+            ),
+          const Divider(height: 24),
+        ],
+        if (bomRows.isNotEmpty) ...[
+          Text('Calculated profile BOM', style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(height: 6),
+          for (final row in bomRows)
+            _CalculatedBomTile(row: row),
+        ],
+      ],
+    );
+  }
+}
+
+class _CalculatedBomTile extends StatelessWidget {
+  const _CalculatedBomTile({required this.row});
+
+  final Map<String, dynamic> row;
+
+  @override
+  Widget build(BuildContext context) {
+    final segments = (row['segments'] as List? ?? const [])
+        .whereType<Map>()
+        .map((entry) => Map<String, dynamic>.from(entry))
+        .toList(growable: false);
+    return ExpansionTile(
+      tilePadding: const EdgeInsets.symmetric(horizontal: 8),
+      childrenPadding: const EdgeInsets.fromLTRB(24, 0, 8, 8),
+      initiallyExpanded: segments.isNotEmpty,
+      title: Text('${row['name'] ?? row['article_no'] ?? 'BOM line'}'),
+      subtitle: Text(
+        'Article: ${row['article_no'] ?? '—'} · Qty: ${row['quantity'] ?? 1} ${row['unit_code'] ?? ''}',
+      ),
+      children: [
+        for (final segment in segments)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Text(
+                '${segment['module'] ?? 'module'}: ${segment['quantity'] ?? 0} × '
+                '${segment['length_mm'] ?? 0} mm'
+                '${_num(segment['split_count']) > 1 ? ' (split ${segment['split_count']} from ${segment['original_length_mm']} mm)' : ''}',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
+          ),
+      ],
     );
   }
 }
