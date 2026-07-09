@@ -656,7 +656,7 @@ const adminNavGroups = <AdminNavGroup>[
         supportsEdit: false,
         supportsDelete: false,
         columns: [
-          AdminColumn(key: 'quote_date', label: 'Date', flex: 2),
+          AdminColumn(key: 'created_at', label: 'Saved at', flex: 2),
           AdminColumn(key: 'quote_no', label: 'Quote no', isPrimary: true, flex: 2),
           AdminColumn(key: 'quote_no_external', label: 'Kommission name', flex: 2),
           AdminColumn(key: 'status_code', label: 'Status'),

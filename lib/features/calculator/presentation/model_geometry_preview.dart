@@ -2,11 +2,15 @@ import 'dart:async';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/auth/auth_session.dart';
 import '../../../core/http/admin_resource_repository.dart';
+import '../../../core/ui/media_file_actions.dart';
 import '../data/calculator_models.dart';
 
-class ModelGeometryPreview extends StatefulWidget {
+class ModelGeometryPreview extends ConsumerStatefulWidget {
   const ModelGeometryPreview({
     super.key,
     required this.modelCode,
@@ -16,8 +20,17 @@ class ModelGeometryPreview extends StatefulWidget {
     this.depthMm,
     this.heightMm,
     this.geometryParams = const [],
+    this.modules = const [],
+    this.moduleRoles = const [],
+    this.calculationNumber,
+    this.calculationName,
     this.colorCode,
     this.colorSwatchColor,
+    this.coveringName,
+    this.highlightedModuleIndex,
+    this.roofAngleDeg,
+    this.rearHeightMm,
+    this.frontHeightMm,
   });
 
   final String? modelCode;
@@ -27,14 +40,23 @@ class ModelGeometryPreview extends StatefulWidget {
   final int? depthMm;
   final int? heightMm;
   final List<RoofGeometryParam> geometryParams;
+  final List<CalculatorSetContentTab> modules;
+  final List<String> moduleRoles;
+  final String? calculationNumber;
+  final String? calculationName;
   final String? colorCode;
   final Color? colorSwatchColor;
+  final String? coveringName;
+  final int? highlightedModuleIndex;
+  final int? roofAngleDeg;
+  final int? rearHeightMm;
+  final int? frontHeightMm;
 
   @override
-  State<ModelGeometryPreview> createState() => _ModelGeometryPreviewState();
+  ConsumerState<ModelGeometryPreview> createState() => _ModelGeometryPreviewState();
 }
 
-class _ModelGeometryPreviewState extends State<ModelGeometryPreview> {
+class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
   late Future<ui.Image?> _humanImageFuture;
 
   @override
@@ -61,10 +83,10 @@ class _ModelGeometryPreviewState extends State<ModelGeometryPreview> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    final label = (widget.modelLabel?.trim().isNotEmpty ?? false)
-        ? widget.modelLabel!.trim()
-        : ((widget.modelCode?.trim().isNotEmpty ?? false) ? widget.modelCode!.trim() : 'No model selected');
+    final label = _modelDisplayLabel;
     final hasSelection = widget.modelCode?.trim().isNotEmpty ?? false;
+    final authSession = ref.watch(authSessionProvider);
+    final currentUser = _currentUserLabel(authSession);
 
     return Card(
       margin: EdgeInsets.zero,
@@ -76,6 +98,14 @@ class _ModelGeometryPreviewState extends State<ModelGeometryPreview> {
           children: [
             Row(
               children: [
+                IconButton(
+                  tooltip: 'Open large geometry preview',
+                  onPressed: hasSelection ? () => _showExpandedPreview(context, currentUser) : null,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints.tightFor(width: 28, height: 28),
+                  icon: const Icon(Icons.open_in_full_rounded, size: 18),
+                ),
+                const SizedBox(width: 4),
                 Icon(Icons.schema_outlined, size: 18, color: colorScheme.primary),
                 const SizedBox(width: 8),
                 Text('Geometry preview', style: theme.textTheme.titleSmall),
@@ -92,34 +122,353 @@ class _ModelGeometryPreviewState extends State<ModelGeometryPreview> {
             SizedBox(
               height: 250,
               width: double.infinity,
-              child: FutureBuilder<ui.Image?>(
-                future: _humanImageFuture,
-                builder: (context, snapshot) {
-                  return CustomPaint(
-                    painter: _ModelGeometryPreviewPainter(
-                      modelCode: widget.modelCode,
-                      modelLabel: widget.modelLabel,
-                      widthMm: widget.widthMm,
-                      depthMm: widget.depthMm,
-                      heightMm: widget.heightMm,
-                      geometryParams: widget.geometryParams,
-                      colorCode: widget.colorCode,
-                      colorSwatchColor: widget.colorSwatchColor,
-                      humanImage: snapshot.data,
-                      lineColor: colorScheme.onSurface,
-                      mutedLineColor: colorScheme.onSurfaceVariant,
-                      accentColor: colorScheme.primary,
-                      surfaceColor: colorScheme.surface,
-                    ),
-                  );
-                },
-              ),
+              child: _buildGeometryCanvas(colorScheme),
             ),
           ],
         ),
       ),
     );
   }
+
+  String get _modelDisplayLabel {
+    final label = widget.modelLabel?.trim();
+    if (label != null && label.isNotEmpty) return label;
+    final code = widget.modelCode?.trim();
+    return code != null && code.isNotEmpty ? code : 'No model selected';
+  }
+
+  Widget _buildGeometryCanvas(ColorScheme colorScheme) {
+    return FutureBuilder<ui.Image?>(
+      future: _humanImageFuture,
+      builder: (context, snapshot) {
+        return CustomPaint(
+          painter: _ModelGeometryPreviewPainter(
+            modelCode: widget.modelCode,
+            modelLabel: widget.modelLabel,
+            widthMm: widget.widthMm,
+            depthMm: widget.depthMm,
+            heightMm: widget.heightMm,
+            geometryParams: widget.geometryParams,
+            colorCode: widget.colorCode,
+            colorSwatchColor: widget.colorSwatchColor,
+            coveringName: widget.coveringName,
+            humanImage: snapshot.data,
+            lineColor: colorScheme.onSurface,
+            mutedLineColor: colorScheme.onSurfaceVariant,
+            accentColor: colorScheme.primary,
+            surfaceColor: colorScheme.surface,
+            highlightedModuleIndex: widget.highlightedModuleIndex,
+            roofAngleDeg: widget.roofAngleDeg,
+            rearHeightMm: widget.rearHeightMm,
+            frontHeightMm: widget.frontHeightMm,
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _showExpandedPreview(BuildContext context, String currentUser) async {
+    final repaintBoundaryKey = GlobalKey();
+    final colorScheme = Theme.of(context).colorScheme;
+    final exportDate = DateTime.now();
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return Dialog(
+          insetPadding: const EdgeInsets.all(28),
+          clipBehavior: Clip.antiAlias,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 1280, maxHeight: 860),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 14, 12, 12),
+                  child: Row(
+                    children: [
+                      Icon(Icons.schema_outlined, color: colorScheme.primary),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Geometry preview · $_modelDisplayLabel',
+                          style: Theme.of(dialogContext).textTheme.titleLarge,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Download PNG',
+                        onPressed: () => _downloadExpandedPreview(
+                          repaintBoundaryKey,
+                          exportDate,
+                        ),
+                        icon: const Icon(Icons.download_outlined),
+                      ),
+                      IconButton(
+                        tooltip: 'Close',
+                        onPressed: () => Navigator.of(dialogContext).pop(),
+                        icon: const Icon(Icons.close),
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.all(18),
+                    child: RepaintBoundary(
+                      key: repaintBoundaryKey,
+                      child: ColoredBox(
+                        color: colorScheme.surface,
+                        child: Padding(
+                          padding: const EdgeInsets.all(20),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              SizedBox(
+                                width: 320,
+                                child: _ExpandedPreviewInfo(
+                                  date: exportDate,
+                                  modelLabel: _modelDisplayLabel,
+                                  modelCode: widget.modelCode,
+                                  calculationNumber: widget.calculationNumber,
+                                  calculationName: widget.calculationName,
+                                  widthMm: widget.widthMm,
+                                  depthMm: widget.depthMm,
+                                  heightMm: widget.heightMm,
+                                  roofAngleDeg: widget.roofAngleDeg,
+                                  coveringName: widget.coveringName,
+                                  modules: widget.modules,
+                                  moduleRoles: widget.moduleRoles,
+                                  currentUser: currentUser,
+                                ),
+                              ),
+                              const SizedBox(width: 20),
+                              Expanded(child: _buildGeometryCanvas(colorScheme)),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _downloadExpandedPreview(GlobalKey repaintBoundaryKey, DateTime exportDate) async {
+    try {
+      await WidgetsBinding.instance.endOfFrame;
+      final renderObject = repaintBoundaryKey.currentContext?.findRenderObject();
+      if (renderObject is! RenderRepaintBoundary) {
+        throw StateError('Geometry preview is not ready for export.');
+      }
+
+      final image = await renderObject.toImage(pixelRatio: 1.5);
+      final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+      image.dispose();
+      if (byteData == null) throw StateError('PNG encoding failed.');
+
+      final calculation = widget.calculationNumber?.trim();
+      final baseName = calculation == null || calculation.isEmpty ? 'roof_geometry' : calculation;
+      downloadMediaBytes(
+        byteData.buffer.asUint8List(),
+        filename: '${_safeFilename(baseName)}_${_fileDate(exportDate)}.png',
+        contentType: 'image/png',
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Geometry preview download failed: $error')),
+      );
+    }
+  }
+}
+
+class _ExpandedPreviewInfo extends StatelessWidget {
+  const _ExpandedPreviewInfo({
+    required this.date,
+    required this.modelLabel,
+    required this.modelCode,
+    required this.calculationNumber,
+    required this.calculationName,
+    required this.widthMm,
+    required this.depthMm,
+    required this.heightMm,
+    required this.roofAngleDeg,
+    required this.coveringName,
+    required this.modules,
+    required this.moduleRoles,
+    required this.currentUser,
+  });
+
+  final DateTime date;
+  final String modelLabel;
+  final String? modelCode;
+  final String? calculationNumber;
+  final String? calculationName;
+  final int? widthMm;
+  final int? depthMm;
+  final int? heightMm;
+  final int? roofAngleDeg;
+  final String? coveringName;
+  final List<CalculatorSetContentTab> modules;
+  final List<String> moduleRoles;
+  final String currentUser;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final modelCodeValue = modelCode?.trim();
+    final calculationNumberValue = calculationNumber?.trim();
+    final calculationNameValue = calculationName?.trim();
+
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.38),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: colorScheme.outlineVariant),
+      ),
+      child: DefaultTextStyle(
+        style: theme.textTheme.bodyMedium ?? const TextStyle(),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Roof geometry', style: theme.textTheme.titleLarge),
+            const SizedBox(height: 14),
+            _PreviewMetadataRow(label: 'Date', value: _displayDate(date)),
+            _PreviewMetadataRow(
+              label: 'Roof type',
+              value: modelCodeValue == null || modelCodeValue.isEmpty
+                  ? modelLabel
+                  : '$modelLabel ($modelCodeValue)',
+            ),
+            if (coveringName?.trim().isNotEmpty == true)
+              _PreviewMetadataRow(label: 'Covering', value: coveringName!.trim()),
+            _PreviewMetadataRow(
+              label: 'Calculation',
+              value: calculationNumberValue == null || calculationNumberValue.isEmpty
+                  ? 'New calculation'
+                  : calculationNumberValue,
+            ),
+            if (calculationNameValue != null && calculationNameValue.isNotEmpty)
+              _PreviewMetadataRow(label: 'Name', value: calculationNameValue),
+            _PreviewMetadataRow(
+              label: 'Overall dimensions',
+              value: 'B: ${_dimensionValue(widthMm)} mm × T: ${_dimensionValue(depthMm)} mm × H: ${_dimensionValue(heightMm)} mm',
+            ),
+            if (roofAngleDeg != null) _PreviewMetadataRow(label: 'Roof angle', value: '$roofAngleDeg°'),
+            const SizedBox(height: 8),
+            Text('Modules', style: theme.textTheme.labelLarge),
+            const SizedBox(height: 4),
+            if (modules.isEmpty)
+              const Text('—')
+            else
+              for (var index = 0; index < modules.length; index++)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 7),
+                  child: Text(
+                    '${index + 1} · ${_moduleLabel(_effectiveModuleRole(modules[index], index, moduleRoles), index + 1)} · '
+                    'T: ${_dimensionValue(modules[index].moduleDepthMm)} mm × '
+                    'B: ${_dimensionValue(modules[index].moduleWidthMm)} mm',
+                  ),
+                ),
+            const Spacer(),
+            const Divider(),
+            _PreviewMetadataRow(label: 'User', value: currentUser),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PreviewMetadataRow extends StatelessWidget {
+  const _PreviewMetadataRow({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w600,
+                ),
+          ),
+          const SizedBox(height: 2),
+          Text(value, style: Theme.of(context).textTheme.bodyMedium),
+        ],
+      ),
+    );
+  }
+}
+
+String _currentUserLabel(AuthSessionState session) {
+  final fullName = session.fullName?.trim();
+  final email = session.email?.trim();
+  if (fullName != null && fullName.isNotEmpty) {
+    if (email != null && email.isNotEmpty) return '$fullName · $email';
+    return fullName;
+  }
+  if (email != null && email.isNotEmpty) return email;
+  return '—';
+}
+
+
+String _effectiveModuleRole(
+  CalculatorSetContentTab module,
+  int index,
+  List<String> moduleRoles,
+) {
+  final storedRole = module.moduleRole.trim();
+  final normalized = storedRole.toLowerCase();
+  final isGenericRole = storedRole.isEmpty || RegExp(r'^module[_\s-]*\d+$').hasMatch(normalized);
+  if (isGenericRole && index < moduleRoles.length) {
+    final configuredRole = moduleRoles[index].trim();
+    if (configuredRole.isNotEmpty) return configuredRole;
+  }
+  return storedRole;
+}
+
+String _moduleLabel(String role, int index) {
+  final value = role.trim();
+  if (value.isEmpty) return 'Module $index';
+  return value
+      .split(RegExp(r'[_\s-]+'))
+      .where((part) => part.isNotEmpty)
+      .map((part) => part[0].toUpperCase() + part.substring(1))
+      .join(' ');
+}
+
+String _dimensionValue(int? value) => value == null ? '—' : '$value';
+
+String _displayDate(DateTime value) {
+  String two(int item) => item.toString().padLeft(2, '0');
+  return '${two(value.day)}.${two(value.month)}.${value.year} ${two(value.hour)}:${two(value.minute)}';
+}
+
+String _fileDate(DateTime value) {
+  String two(int item) => item.toString().padLeft(2, '0');
+  return '${value.year}${two(value.month)}${two(value.day)}_${two(value.hour)}${two(value.minute)}';
+}
+
+String _safeFilename(String value) {
+  final normalized = value.trim().replaceAll(RegExp(r'[^A-Za-z0-9._-]+'), '_');
+  return normalized.isEmpty ? 'roof_geometry' : normalized;
 }
 
 List<RoofGeometryParam> geometryPreviewParamsFromDraft(CalculatorDraft draft) {
@@ -183,6 +532,7 @@ class _RoofLayout {
     required this.dimensions,
     required this.postPoints,
     required this.rafterX,
+    this.moduleAreas = const [],
     this.widthDimensionsOnFront = false,
   });
 
@@ -194,7 +544,15 @@ class _RoofLayout {
   final List<_RoofDimensionLine> dimensions;
   final List<Offset> postPoints;
   final List<double> rafterX;
+  final List<_RoofModuleArea> moduleAreas;
   final bool widthDimensionsOnFront;
+}
+
+class _RoofModuleArea {
+  const _RoofModuleArea({required this.index, required this.corners});
+
+  final int index;
+  final List<Offset> corners;
 }
 
 class _RoofDimensionLine {
@@ -248,11 +606,16 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     required this.geometryParams,
     required this.colorCode,
     required this.colorSwatchColor,
+    required this.coveringName,
     required this.humanImage,
     required this.lineColor,
     required this.mutedLineColor,
     required this.accentColor,
     required this.surfaceColor,
+    required this.highlightedModuleIndex,
+    required this.roofAngleDeg,
+    required this.rearHeightMm,
+    required this.frontHeightMm,
   });
 
   final String? modelCode;
@@ -263,11 +626,16 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
   final List<RoofGeometryParam> geometryParams;
   final String? colorCode;
   final Color? colorSwatchColor;
+  final String? coveringName;
   final ui.Image? humanImage;
   final Color lineColor;
   final Color mutedLineColor;
   final Color accentColor;
   final Color surfaceColor;
+  final int? highlightedModuleIndex;
+  final int? roofAngleDeg;
+  final int? rearHeightMm;
+  final int? frontHeightMm;
 
   static const double _ddx = 0.52;
   static const double _ddy = 0.73;
@@ -336,7 +704,7 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
       ..strokeWidth = 1.0
       ..strokeCap = StrokeCap.round;
     final roofFillPaint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.26)
+      ..color = _roofCoveringFillColor()
       ..style = PaintingStyle.fill;
     final shadowPaint = Paint()
       ..color = Colors.black.withValues(alpha: 0.055)
@@ -347,6 +715,7 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
 
     _drawGroundShadow(canvas, s, layout, shadowPaint);
     _drawRoofFill(canvas, s, layout, roofFillPaint);
+    _drawHighlightedModule(canvas, s, layout);
 
     _drawWallGuides(canvas, s, layout, guidePaint);
 
@@ -473,6 +842,9 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
       depthMm: depth,
       heightMm: height,
       postPoints: _uniquePoints([front.first, front.last]),
+      moduleAreas: [
+        _RoofModuleArea(index: 1, corners: [front.first, front.last, back.last, back.first]),
+      ],
       rafterX: _rafterPositions(width, const []),
       widthDimensionsOnFront: false,
       dimensions: [
@@ -535,6 +907,15 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
         if (point.dx > 1 && point.dx < width - 1) point.dx,
     ];
 
+    final leftModuleIndex = profile.mirrorView ? 2 : 1;
+    final rightModuleIndex = profile.mirrorView ? 1 : 2;
+    final leftModuleCorners = splitAtFront
+        ? [leftWidthStart, leftWidthEnd, Offset(splitX, leftY), Offset(0, leftY)]
+        : [Offset(0, 0), Offset(splitX, 0), leftWidthEnd, leftWidthStart];
+    final rightModuleCorners = splitAtFront
+        ? [rightWidthStart, rightWidthEnd, Offset(width, rightY), Offset(splitX, rightY)]
+        : [Offset(splitX, 0), Offset(width, 0), rightWidthEnd, rightWidthStart];
+
     return _RoofLayout(
       front: front,
       back: back,
@@ -542,6 +923,16 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
       depthMm: d,
       heightMm: height,
       postPoints: postPoints,
+      moduleAreas: [
+        _RoofModuleArea(
+          index: leftModuleIndex,
+          corners: leftModuleCorners,
+        ),
+        _RoofModuleArea(
+          index: rightModuleIndex,
+          corners: rightModuleCorners,
+        ),
+      ],
       rafterX: _rafterPositions(width, [splitX], blocked: blockedRafterX),
       widthDimensionsOnFront: splitAtFront,
       dimensions: [
@@ -581,6 +972,9 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
       depthMm: d,
       heightMm: height,
       postPoints: _uniquePoints([front.first, front.last]),
+      moduleAreas: [
+        _RoofModuleArea(index: 1, corners: [front.first, front.last, back.last, back.first]),
+      ],
       rafterX: _rafterPositions(width, const []),
       widthDimensionsOnFront: false,
       dimensions: [
@@ -599,9 +993,12 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     required double height,
     required bool centerIsDeep,
   }) {
-    final leftW = params.value(const ['BW1'], width * 0.34).clamp(width * 0.18, width * 0.55).toDouble();
-    final rightW = params.value(const ['BW2'], width * 0.30).clamp(width * 0.18, width * 0.55).toDouble();
-    final centerW = params.value(const ['BW3'], width - leftW - rightW).clamp(width * 0.16, width * 0.48).toDouble();
+    final leftWidthCode = centerIsDeep ? 'BW2' : 'BW1';
+    final centerWidthCode = centerIsDeep ? 'BW1' : 'BW3';
+    final rightWidthCode = centerIsDeep ? 'BW3' : 'BW2';
+    final leftW = params.value([leftWidthCode], width * 0.34).clamp(width * 0.18, width * 0.55).toDouble();
+    final rightW = params.value([rightWidthCode], width * 0.30).clamp(width * 0.18, width * 0.55).toDouble();
+    final centerW = params.value([centerWidthCode], width - leftW - rightW).clamp(width * 0.16, width * 0.48).toDouble();
     final total = leftW + centerW + rightW;
     final x1 = leftW / total * width;
     final x2 = (leftW + centerW) / total * width;
@@ -633,18 +1030,43 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
       depthMm: d,
       heightMm: height,
       postPoints: _uniquePoints([front.first, front.last]),
+      moduleAreas: [
+        _RoofModuleArea(
+          index: centerIsDeep ? 2 : 1,
+          corners: [Offset(0, 0), Offset(x1, 0), Offset(x1, leftDepth), Offset(0, leftDepth)],
+        ),
+        _RoofModuleArea(
+          index: centerIsDeep ? 1 : 3,
+          corners: [Offset(x1, 0), Offset(x2, 0), Offset(x2, centerDepth), Offset(x1, centerDepth)],
+        ),
+        _RoofModuleArea(
+          index: centerIsDeep ? 3 : 2,
+          corners: [Offset(x2, 0), Offset(width, 0), Offset(width, rightDepth), Offset(x2, rightDepth)],
+        ),
+      ],
       rafterX: _rafterPositions(width, [x1, x2]),
       widthDimensionsOnFront: false,
       dimensions: [
-        _RoofDimensionLine(code: 'BW1', start: Offset(0, leftDepth), end: Offset(x1, leftDepth), offset: const Offset(0, 15)),
-        _RoofDimensionLine(code: 'BW3', start: Offset(x1, centerDepth), end: Offset(x2, centerDepth), offset: const Offset(0, 15)),
-        _RoofDimensionLine(code: 'BW2', start: Offset(x2, rightDepth), end: Offset(width, rightDepth), offset: const Offset(0, 15)),
+        _RoofDimensionLine(code: leftWidthCode, start: Offset(0, leftDepth), end: Offset(x1, leftDepth), offset: const Offset(0, 15)),
+        _RoofDimensionLine(code: centerWidthCode, start: Offset(x1, centerDepth), end: Offset(x2, centerDepth), offset: const Offset(0, 15)),
+        _RoofDimensionLine(code: rightWidthCode, start: Offset(x2, rightDepth), end: Offset(width, rightDepth), offset: const Offset(0, 15)),
         _RoofDimensionLine(code: leftDepthCode, start: Offset(0, 0), end: Offset(0, leftDepth), offset: const Offset(-18, 0), hAlign: 1),
         _RoofDimensionLine(code: centerDepthCode, start: Offset((x1 + x2) / 2, 0), end: Offset((x1 + x2) / 2, centerDepth), offset: const Offset(12, 0), hAlign: 0),
         _RoofDimensionLine(code: rightDepthCode, start: Offset(width, 0), end: Offset(width, rightDepth), offset: const Offset(18, 0), hAlign: 0),
         _RoofDimensionLine(code: 'H', start: front.first, end: front.first, offset: const Offset(-18, 0), hAlign: 1),
       ],
     );
+  }
+
+  Color _roofCoveringFillColor() {
+    final value = coveringName?.trim().toLowerCase() ?? '';
+    if (value.contains('matt')) {
+      return const Color(0xFFD9DDE1).withValues(alpha: 0.78);
+    }
+    if (value.contains('klar')) {
+      return const Color(0xFFCFEAF7).withValues(alpha: 0.74);
+    }
+    return Colors.white.withValues(alpha: 0.26);
   }
 
   void _drawGroundShadow(
@@ -686,6 +1108,47 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     }
     roof.close();
     canvas.drawPath(roof, paint);
+  }
+
+
+  void _drawHighlightedModule(
+    Canvas canvas,
+    Offset Function(double, double, double) s,
+    _RoofLayout layout,
+  ) {
+    final index = highlightedModuleIndex;
+    if (index == null || index <= 0) return;
+    _RoofModuleArea? area;
+    for (final candidate in layout.moduleAreas) {
+      if (candidate.index == index) {
+        area = candidate;
+        break;
+      }
+    }
+    if (area == null || area.corners.length < 3) return;
+
+    final path = Path();
+    final first = s(area.corners.first.dx, area.corners.first.dy, layout.heightMm);
+    path.moveTo(first.dx, first.dy);
+    for (final point in area.corners.skip(1)) {
+      final projected = s(point.dx, point.dy, layout.heightMm);
+      path.lineTo(projected.dx, projected.dy);
+    }
+    path.close();
+
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = const Color(0xFFB7F3C6).withValues(alpha: 0.36)
+        ..style = PaintingStyle.fill,
+    );
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = const Color(0xFF7FCF8E).withValues(alpha: 0.58)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.2,
+    );
   }
 
   void _drawRoofFrame(
@@ -893,14 +1356,14 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
       insetHeight,
     );
     final planPaint = Paint()
-      ..color = lineColor.withValues(alpha: 0.20)
+      ..color = lineColor.withValues(alpha: 0.72)
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 0.8
+      ..strokeWidth = 1.0
       ..strokeCap = StrokeCap.square;
     final beamPaint = Paint()
-      ..color = lineColor.withValues(alpha: 0.14)
+      ..color = lineColor.withValues(alpha: 0.46)
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 0.7
+      ..strokeWidth = 0.8
       ..strokeCap = StrokeCap.square;
     final scale = _min(rect.width / layout.widthMm, rect.height / layout.depthMm) * 0.82;
     final usedW = layout.widthMm * scale;
@@ -943,18 +1406,20 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
       isBold: true,
       hAlign: 0.5,
     );
-    _drawColorInset(canvas, rect, hCenter.dy + insetTextGap);
+    final colorBottom = _drawColorInset(canvas, rect, hCenter.dy + insetTextGap);
+    _drawSlopeInset(canvas, sideRect, colorBottom + 6);
   }
 
-  void _drawColorInset(Canvas canvas, Rect planRect, double top) {
+  double _drawColorInset(Canvas canvas, Rect planRect, double top) {
     final code = colorCode?.trim();
-    if (code == null || code.isEmpty) return;
+    if (code == null || code.isEmpty) return top;
 
-    const tileHeight = 24.0;
+    const tileHeight = 30.0;
+    final tileWidth = planRect.width + 12;
     final tileRect = Rect.fromLTWH(
-      planRect.left,
+      planRect.center.dx - tileWidth / 2,
       top,
-      planRect.width,
+      tileWidth,
       tileHeight,
     );
     final background = colorSwatchColor ?? const Color(0xFFE1E3E4);
@@ -975,7 +1440,101 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
         ..strokeWidth = 0.8,
     );
 
-    _drawText(canvas, code, tileRect.center, foreground, 9.0, isBold: true, hAlign: 0.5);
+    _drawText(canvas, code, tileRect.center, foreground, 11.0, isBold: true, hAlign: 0.5);
+    return tileRect.bottom;
+  }
+
+  void _drawSlopeInset(Canvas canvas, Rect sideRect, double top) {
+    final depth = depthMm;
+    final angle = roofAngleDeg;
+    final rearHeight = rearHeightMm;
+    final frontHeight = frontHeightMm;
+    if (depth == null ||
+        depth <= 0 ||
+        angle == null ||
+        angle < 0 ||
+        rearHeight == null ||
+        rearHeight <= 0 ||
+        frontHeight == null ||
+        frontHeight <= 0 ||
+        frontHeight > rearHeight) {
+      return;
+    }
+
+    final heightDifference = rearHeight - frontHeight;
+    final availableWidth = _max(36, sideRect.width - 24);
+    final availableHeight = sideRect.bottom - top - 24;
+    if (availableHeight < 28) return;
+
+    final maxRiseHeight = _min(54, _max(12, availableHeight - 24));
+    final geometryScale = _min(
+      availableWidth / depth,
+      heightDifference > 0 ? maxRiseHeight / heightDifference : availableWidth / depth,
+    );
+    final baseLength = depth * geometryScale;
+    final rise = heightDifference * geometryScale;
+    final triangleTop = top + 16;
+    final bottom = triangleTop + _max(rise, 3);
+    final left = sideRect.center.dx - baseLength / 2;
+    final leftBottom = Offset(left, bottom);
+    final rightBottom = Offset(left + baseLength, bottom);
+    final rightTop = Offset(rightBottom.dx, bottom - rise);
+
+    final linePaint = Paint()
+      ..color = lineColor.withValues(alpha: 0.78)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.1
+      ..strokeCap = StrokeCap.round;
+    final fillPaint = Paint()
+      ..color = accentColor.withValues(alpha: 0.07)
+      ..style = PaintingStyle.fill;
+
+    if (rise > 0.5) {
+      final triangle = Path()
+        ..moveTo(leftBottom.dx, leftBottom.dy)
+        ..lineTo(rightBottom.dx, rightBottom.dy)
+        ..lineTo(rightTop.dx, rightTop.dy)
+        ..close();
+      canvas.drawPath(triangle, fillPaint);
+      canvas.drawPath(triangle, linePaint);
+    } else {
+      canvas.drawLine(leftBottom, rightBottom, linePaint);
+    }
+
+    const markerSize = 6.0;
+    final markerTop = Offset(rightBottom.dx, rightBottom.dy - markerSize);
+    final markerInner = Offset(rightBottom.dx - markerSize, rightBottom.dy - markerSize);
+    final markerLeft = Offset(rightBottom.dx - markerSize, rightBottom.dy);
+    canvas.drawLine(markerTop, markerInner, linePaint);
+    canvas.drawLine(markerInner, markerLeft, linePaint);
+
+    _drawText(
+      canvas,
+      '$angle°',
+      leftBottom + const Offset(7, -9),
+      accentColor,
+      9.5,
+      isBold: true,
+      hAlign: 0,
+    );
+    _drawText(
+      canvas,
+      'T: $depth mm',
+      Offset((leftBottom.dx + rightBottom.dx) / 2, bottom + 9),
+      lineColor,
+      8.5,
+      isBold: true,
+      hAlign: 0.5,
+    );
+    _drawText(
+      canvas,
+      'ΔH: $heightDifference mm',
+      Offset(rightBottom.dx - 2, rightTop.dy - 8),
+      lineColor,
+      8.0,
+      isBold: true,
+      hAlign: 1,
+    );
   }
 
   String _paramText(_GeometryParamBag params, String code, int? fallback) {
@@ -985,7 +1544,7 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
 
   String _paramEqualsText(_GeometryParamBag params, String code, int? fallback) {
     final value = params.intValue(code) ?? fallback;
-    return value == null || value <= 0 ? code : '$code = $value';
+    return value == null || value <= 0 ? code : '$code: $value mm';
   }
 
   bool _isWidthDimensionCode(String code) {
@@ -1145,10 +1704,15 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
         !_sameGeometryParams(oldDelegate.geometryParams, geometryParams) ||
         oldDelegate.colorCode != colorCode ||
         oldDelegate.colorSwatchColor != colorSwatchColor ||
+        oldDelegate.coveringName != coveringName ||
         oldDelegate.humanImage != humanImage ||
         oldDelegate.lineColor != lineColor ||
         oldDelegate.mutedLineColor != mutedLineColor ||
         oldDelegate.accentColor != accentColor ||
-        oldDelegate.surfaceColor != surfaceColor;
+        oldDelegate.surfaceColor != surfaceColor ||
+        oldDelegate.highlightedModuleIndex != highlightedModuleIndex ||
+        oldDelegate.roofAngleDeg != roofAngleDeg ||
+        oldDelegate.rearHeightMm != rearHeightMm ||
+        oldDelegate.frontHeightMm != frontHeightMm;
   }
 }

@@ -705,7 +705,7 @@ double _compactColumnWidth(String resourceKey, AdminColumn column) {
 
   if (resourceKey == 'quotes') {
     return switch (key) {
-      'quote_date' => 128,
+      'created_at' => 138,
       'quote_no' => 128,
       'quote_no_external' => 170,
       'status_code' => 96,
@@ -781,6 +781,21 @@ String _displayListValue({
 
   if (resource.key == 'quotes' && column.key == 'calculated_amount_eur') {
     return _quoteAmountEurDisplay(row);
+  }
+
+  if (resource.key == 'quote_events' && column.key == 'quote_id') {
+    final quoteNo = row['quote_no']?.toString().trim();
+    if (quoteNo != null && quoteNo.isNotEmpty) {
+      final parts = <String>[quoteNo];
+      final status = row['quote_status_code']?.toString().trim();
+      if (status != null && status.isNotEmpty) parts.add(status);
+
+      final createdAt = row['quote_created_at'];
+      final createdAtText = createdAt == null ? null : _displayValue(createdAt);
+      if (createdAtText != null && createdAtText != '—') parts.add(createdAtText);
+
+      return parts.join(' · ');
+    }
   }
 
   return _displayValue(
@@ -1527,8 +1542,17 @@ class _SavedQuoteGeometryPreviewTab extends StatelessWidget {
       data: (contextData) => _quoteColorPreviewDataFor(contextData, draft.colorCode),
       orElse: () => _fallbackQuoteColorPreviewData(draft.colorCode),
     ) ?? _fallbackQuoteColorPreviewData(draft.colorCode);
+    final coveringName = calculatorContext?.maybeWhen(
+      data: (contextData) => _quoteCoveringNameFor(contextData, draft.coveringCode),
+      orElse: () => draft.coveringCode,
+    ) ?? draft.coveringCode;
+    final slope = _savedQuoteSlopePreviewData(data, draft);
+    final quoteNo = _quoteTextField(data, 'quote_no', 'quoteNo');
     final quoteNoExternal = _quoteTextField(data, 'quote_no_external', 'quoteNoExternal');
     final externalNotes = _quoteTextField(data, 'external_notes', 'externalNotes');
+    final moduleRoles = draft.setContents
+        .map((module) => module.moduleRole)
+        .toList(growable: false);
 
     return ListView(
       children: [
@@ -1568,13 +1592,94 @@ class _SavedQuoteGeometryPreviewTab extends StatelessWidget {
             depthMm: draft.depthMm,
             heightMm: draft.heightMm,
             geometryParams: geometryPreviewParamsFromDraft(draft),
+            modules: draft.setContents,
+            moduleRoles: moduleRoles,
+            calculationNumber: quoteNo,
+            calculationName: quoteNoExternal,
             colorCode: colorPreview?.displayCode,
             colorSwatchColor: colorPreview?.color,
+            coveringName: coveringName,
+            roofAngleDeg: slope.angleDeg,
+            rearHeightMm: slope.rearHeightMm,
+            frontHeightMm: slope.frontHeightMm,
           ),
         ],
       ],
     );
   }
+}
+
+
+String? _quoteCoveringNameFor(CalculatorContext contextData, String? rawCode) {
+  final code = rawCode?.trim();
+  if (code == null || code.isEmpty) return null;
+  final options = contextData.references['tds_glass_covering'] ?? const <CalculatorOption>[];
+  for (final option in options) {
+    if (option.code == code || option.id == code) return option.label;
+  }
+  return code;
+}
+
+_SavedQuoteSlopePreviewData _savedQuoteSlopePreviewData(
+  Map<String, dynamic> data,
+  CalculatorDraft draft,
+) {
+  final input = _mapFromJsonLike(data['input_json'] ?? data['inputJson']);
+  final roof = _mapFromJsonLike(input['roof']);
+  final roofSlope = _mapFromJsonLike(input['roof_slope'] ?? input['roofSlope']);
+
+  int? readInt(Object? value) {
+    if (value is int) return value;
+    if (value is num) return value.round();
+    return int.tryParse(value?.toString().trim() ?? '');
+  }
+
+  var angle = draft.roofAngleDeg ??
+      readInt(roof['angle_deg'] ?? roof['angleDeg']) ??
+      readInt(roofSlope['angle_deg'] ?? roofSlope['angleDeg']) ??
+      readInt(input['roof_angle_deg'] ?? input['roofAngleDeg'] ?? input['angle_deg']);
+  var rear = draft.roofRearHeightMm ??
+      readInt(roof['rear_height_mm'] ?? roof['rearHeightMm']) ??
+      readInt(roofSlope['rear_height_mm'] ?? roofSlope['rearHeightMm']) ??
+      readInt(input['rear_height_mm'] ?? input['rearHeightMm']) ??
+      draft.heightMm;
+  var front = draft.roofFrontHeightMm ??
+      readInt(roof['front_height_mm'] ?? roof['frontHeightMm']) ??
+      readInt(roofSlope['front_height_mm'] ?? roofSlope['frontHeightMm']) ??
+      readInt(input['front_height_mm'] ?? input['frontHeightMm']);
+  final depth = draft.depthMm;
+
+  if (angle == null && rear != null && front != null && depth != null && depth > 0 && rear >= front) {
+    angle = (math.atan((rear - front) / depth) * 180 / math.pi).round();
+  }
+  if (front == null && angle != null && rear != null && depth != null && depth > 0) {
+    front = (rear - math.tan(angle * math.pi / 180) * depth).round();
+  }
+  if (rear == null && angle != null && front != null && depth != null && depth > 0) {
+    rear = (front + math.tan(angle * math.pi / 180) * depth).round();
+  }
+
+  if (rear != null && front != null && front > rear) {
+    front = rear;
+  }
+
+  return _SavedQuoteSlopePreviewData(
+    angleDeg: angle,
+    rearHeightMm: rear,
+    frontHeightMm: front,
+  );
+}
+
+class _SavedQuoteSlopePreviewData {
+  const _SavedQuoteSlopePreviewData({
+    required this.angleDeg,
+    required this.rearHeightMm,
+    required this.frontHeightMm,
+  });
+
+  final int? angleDeg;
+  final int? rearHeightMm;
+  final int? frontHeightMm;
 }
 
 

@@ -95,32 +95,49 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
         clearRelatedCustomer: true,
       );
 
-  void setProductFamily(String? value) => state = state.copyWith(
-        productFamilyId: value,
-        templateId: null,
-        clearProductFamily: value == null || value.isEmpty,
-        clearTemplate: true,
-        clearModel: true,
-        setContents: const [],
-      );
+  void setProductFamily(String? value) {
+    final normalized = value?.trim();
+    final nextValue = normalized == null || normalized.isEmpty ? null : normalized;
+    if (nextValue == state.productFamilyId) return;
+    state = state.copyWith(
+      productFamilyId: nextValue,
+      templateId: null,
+      clearProductFamily: nextValue == null,
+      clearTemplate: true,
+      clearModel: true,
+      clearMaxGlassFieldWidth: true,
+      setContents: const [],
+    );
+  }
 
-  void setTemplate(String? value) => state = state.copyWith(
-        templateId: value,
-        clearTemplate: value == null || value.isEmpty,
-        clearModel: true,
-        setContents: const [],
-      );
+  void setTemplate(String? value) {
+    final normalized = value?.trim();
+    final nextValue = normalized == null || normalized.isEmpty ? null : normalized;
+    if (nextValue == state.templateId) return;
+    state = state.copyWith(
+      templateId: nextValue,
+      clearTemplate: nextValue == null,
+      clearModel: true,
+      clearMaxGlassFieldWidth: true,
+      setContents: const [],
+    );
+  }
 
   void setPriceMode(String? value) {
     if (value == null || value.isEmpty) return;
     state = state.copyWith(priceMode: value);
   }
 
-  void setModel(String? value) => state = state.copyWith(
-        modelCode: value,
-        clearModel: value == null || value.isEmpty,
-        setContents: const [],
-      );
+  void setModel(String? value) {
+    final normalized = value?.trim();
+    final nextValue = normalized == null || normalized.isEmpty ? null : normalized;
+    if (nextValue == state.modelCode) return;
+    state = state.copyWith(
+      modelCode: nextValue,
+      clearModel: nextValue == null,
+      setContents: const [],
+    );
+  }
 
   void setWidth(String value) => state = state.copyWith(
         widthMm: int.tryParse(value),
@@ -132,16 +149,56 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
         clearDepth: value.trim().isEmpty,
       );
 
-  void setHeight(String value) => state = state.copyWith(
-        heightMm: int.tryParse(value),
-        clearHeight: value.trim().isEmpty,
+  void setHeight(String value) {
+    final parsed = int.tryParse(value);
+    state = state.copyWith(
+      heightMm: parsed,
+      clearHeight: value.trim().isEmpty,
+      roofRearHeightMm: parsed,
+      clearRoofRearHeight: value.trim().isEmpty,
+    );
+  }
+
+  void setRoofAngle(String value) => state = state.copyWith(
+        roofAngleDeg: int.tryParse(value),
+        clearRoofAngle: value.trim().isEmpty,
       );
 
-  void setCovering(String? value) => state = state.copyWith(
-        coveringCode: value,
-        clearCovering: value == null || value.isEmpty,
-        setContents: const [],
+  void setRoofAngleValue(int? value) => state = state.copyWith(
+        roofAngleDeg: value,
+        clearRoofAngle: value == null,
       );
+
+  void setRoofFrontHeight(String value) => state = state.copyWith(
+        roofFrontHeightMm: int.tryParse(value),
+        clearRoofFrontHeight: value.trim().isEmpty,
+      );
+
+  void setRoofFrontHeightValue(int? value) => state = state.copyWith(
+        roofFrontHeightMm: value,
+        clearRoofFrontHeight: value == null,
+      );
+
+  void setForceOddBeams(bool value) => state = state.copyWith(forceOddBeams: value);
+
+  void setMaxGlassFieldWidthValue(int? value) => state = state.copyWith(
+        maxGlassFieldWidthMm: value,
+        clearMaxGlassFieldWidth: value == null,
+      );
+
+  void setCovering(String? value) {
+    final normalized = value?.trim();
+    final nextValue = normalized == null || normalized.isEmpty ? null : normalized;
+    if (nextValue == state.coveringCode) return;
+
+    state = state.copyWith(
+      coveringCode: nextValue,
+      clearCovering: nextValue == null,
+      setContents: [
+        for (final tab in state.setContents) tab.copyWith(items: const []),
+      ],
+    );
+  }
 
   void setColor(String? value) => state = state.copyWith(
         colorCode: value,
@@ -242,8 +299,13 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
     state = state.copyWith(setContents: _materializeSetContentDefaults(defaults, state.setContents));
   }
 
-  void setSetContentBlockCount(int count) {
-    final normalizedCount = count.clamp(1, 20).toInt();
+  void setSetContentModuleRoles(List<String> roles) {
+    final normalizedRoles = roles
+        .map((role) => role.trim())
+        .where((role) => role.isNotEmpty)
+        .take(20)
+        .toList(growable: false);
+    final effectiveRoles = normalizedRoles.isEmpty ? const ['main'] : normalizedRoles;
     final current = state.setContents;
     CalculatorSetContentTab? sourceWithItems;
     for (final tab in current) {
@@ -252,32 +314,108 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
         break;
       }
     }
+
     final next = <CalculatorSetContentTab>[];
-    for (var i = 0; i < normalizedCount; i++) {
+    for (var i = 0; i < effectiveRoles.length; i++) {
+      final role = effectiveRoles[i];
+      final label = _moduleLabel(role, i + 1);
       if (i < current.length) {
-        next.add(current[i].copyWith(id: 'part-${i + 1}', label: 'Block ${i + 1}'));
+        next.add(
+          current[i].copyWith(
+            id: 'part-${i + 1}',
+            label: label,
+            geometryKey: {
+              ...current[i].geometryKey,
+              'role': role,
+            },
+          ),
+        );
       } else if (sourceWithItems != null) {
-        next.add(sourceWithItems.duplicateAs(i + 1).copyWith(geometryKey: const {}));
+        next.add(
+          sourceWithItems.duplicateAs(i + 1).copyWith(
+                label: label,
+                geometryKey: {'role': role},
+              ),
+        );
       } else {
-        next.add(CalculatorSetContentTab(id: 'part-${i + 1}', label: 'Block ${i + 1}', items: const []));
+        next.add(
+          CalculatorSetContentTab(
+            id: 'part-${i + 1}',
+            label: label,
+            geometryKey: {'role': role},
+            items: const [],
+          ),
+        );
       }
     }
     state = state.copyWith(setContents: next);
   }
 
-  void incrementSetContentBlockCount() {
-    final currentCount = state.setContents.isEmpty ? 1 : state.setContents.length;
-    setSetContentBlockCount(currentCount + 1);
+  void setSetContentModuleCount(int count) {
+    final normalizedCount = count.clamp(1, 20).toInt();
+    final roles = <String>[
+      for (var i = 0; i < normalizedCount; i++) i < state.setContents.length ? state.setContents[i].moduleRole : '',
+    ];
+    for (var i = 0; i < roles.length; i++) {
+      if (roles[i].trim().isEmpty) roles[i] = _fallbackModuleRole(i);
+    }
+    setSetContentModuleRoles(roles);
   }
 
-  void updateSetContentBlockGeometry(int tabIndex, String key, String value) {
+  void incrementSetContentModuleCount() {
+    final currentCount = state.setContents.isEmpty ? 1 : state.setContents.length;
+    final roles = [
+      for (var i = 0; i < currentCount; i++)
+        i < state.setContents.length && state.setContents[i].moduleRole.isNotEmpty
+            ? state.setContents[i].moduleRole
+            : _fallbackModuleRole(i),
+      'module_${currentCount + 1}',
+    ];
+    setSetContentModuleRoles(roles);
+  }
+
+  void updateSetContentModuleGeometry(int tabIndex, String key, String value) {
     final normalizedKey = key.trim();
     if (normalizedKey.isEmpty) return;
-    _ensureSetContentBlockCount(tabIndex + 1);
+    _ensureSetContentModuleCount(tabIndex + 1);
     if (tabIndex < 0 || tabIndex >= state.setContents.length) return;
     final parsed = int.tryParse(value.trim());
+    if (normalizedKey == 'width_mm') {
+      _updateBalancedSetContentModuleWidth(tabIndex, parsed);
+      return;
+    }
     final tabs = [...state.setContents];
     tabs[tabIndex] = tabs[tabIndex].withGeometryValue(normalizedKey, parsed);
+    state = state.copyWith(setContents: tabs);
+  }
+
+  void _updateBalancedSetContentModuleWidth(int tabIndex, int? value) {
+    final tabs = [...state.setContents];
+    final totalWidth = state.widthMm;
+    if (value == null || totalWidth == null || totalWidth <= 0) {
+      tabs[tabIndex] = tabs[tabIndex].withGeometryValue('width_mm', value);
+      state = state.copyWith(setContents: tabs);
+      return;
+    }
+
+    if (tabs.length == 1) {
+      tabs[tabIndex] = tabs[tabIndex].withGeometryValue('width_mm', totalWidth);
+      state = state.copyWith(setContents: tabs);
+      return;
+    }
+
+    final neighborIndex = tabIndex < tabs.length - 1 ? tabIndex + 1 : tabIndex - 1;
+    var fixedWidth = 0;
+    for (var i = 0; i < tabs.length; i++) {
+      if (i == tabIndex || i == neighborIndex) continue;
+      fixedWidth += tabs[i].moduleWidthMm ?? 0;
+    }
+
+    final availableForPair = totalWidth - fixedWidth;
+    final currentWidth = value.clamp(0, availableForPair < 0 ? 0 : availableForPair).toInt();
+    final neighborWidth = availableForPair > 0 ? availableForPair - currentWidth : 0;
+    tabs[tabIndex] = tabs[tabIndex].withGeometryValue('width_mm', currentWidth);
+    tabs[neighborIndex] = tabs[neighborIndex].withGeometryValue('width_mm', neighborWidth);
     state = state.copyWith(setContents: tabs);
   }
 
@@ -298,9 +436,9 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
     if (changed) state = state.copyWith(setContents: tabs);
   }
 
-  void _ensureSetContentBlockCount(int minCount) {
+  void _ensureSetContentModuleCount(int minCount) {
     if (state.setContents.length >= minCount) return;
-    setSetContentBlockCount(minCount);
+    setSetContentModuleCount(minCount);
   }
 
   List<CalculatorSetContentTab> _materializeSetContentDefaults(
@@ -316,7 +454,7 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
       result.add(
         defaultForIndex.copyWith(
           id: 'part-${i + 1}',
-          label: 'Block ${i + 1}',
+          label: _moduleLabel(currentTab?.moduleRole ?? defaultForIndex.moduleRole, i + 1),
           geometryKey: {
             ...defaultForIndex.geometryKey,
             if (currentTab != null) ...currentTab.geometryKey,
@@ -349,9 +487,25 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
     final next = [...state.setContents]..removeAt(tabIndex);
     state = state.copyWith(
       setContents: [
-        for (var i = 0; i < next.length; i++) next[i].copyWith(id: 'part-${i + 1}', label: 'Block ${i + 1}'),
+        for (var i = 0; i < next.length; i++) next[i].copyWith(id: 'part-${i + 1}', label: _moduleLabel(next[i].moduleRole, i + 1)),
       ],
     );
+  }
+
+
+  String _fallbackModuleRole(int zeroBasedIndex) {
+    const roles = ['main', 'small', 'left', 'right', 'middle'];
+    return zeroBasedIndex >= 0 && zeroBasedIndex < roles.length ? roles[zeroBasedIndex] : 'module_${zeroBasedIndex + 1}';
+  }
+
+  String _moduleLabel(String? role, int index) {
+    final value = role?.trim() ?? '';
+    if (value.isEmpty) return 'Module $index';
+    return value
+        .split(RegExp(r'[_\s-]+'))
+        .where((part) => part.isNotEmpty)
+        .map((part) => part[0].toUpperCase() + part.substring(1))
+        .join(' ');
   }
 
   void updateSetContentItemQuantity(int tabIndex, int itemIndex, num quantity) {

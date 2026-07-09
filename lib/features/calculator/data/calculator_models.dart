@@ -167,6 +167,9 @@ class CalculatorTemplateOption {
     required this.productFamilyName,
     this.defaultValues = const {},
     this.uiSchema = const {},
+    this.parametersModuleId,
+    this.roofParameters = const {},
+    this.roofParameterMissingKeys = const [],
   });
 
   factory CalculatorTemplateOption.fromJson(Map<String, dynamic> json) {
@@ -179,6 +182,12 @@ class CalculatorTemplateOption {
       productFamilyName: _string(json['product_family_name']),
       defaultValues: _map(json['default_values_json']),
       uiSchema: _map(json['ui_schema_json']),
+      parametersModuleId: _nullableString(json['parameters_module_id']),
+      roofParameters: _map(json['roof_parameters_json']),
+      roofParameterMissingKeys: (json['roof_parameter_missing_keys'] as List? ?? const [])
+          .map((entry) => '$entry')
+          .where((entry) => entry.trim().isNotEmpty)
+          .toList(growable: false),
     );
   }
 
@@ -190,6 +199,15 @@ class CalculatorTemplateOption {
   final String productFamilyName;
   final Map<String, dynamic> defaultValues;
   final Map<String, dynamic> uiSchema;
+  final String? parametersModuleId;
+  final Map<String, dynamic> roofParameters;
+  final List<String> roofParameterMissingKeys;
+
+  bool get hasCompleteRoofParameters => parametersModuleId != null && roofParameterMissingKeys.isEmpty && roofParameters.isNotEmpty;
+
+  int? get defaultMaxGlassFieldWidthMm => _intOrNull(
+        roofParameters['defaultMaxGlassFieldWidthMm'] ?? roofParameters['default_max_glass_field_width_mm'],
+      );
 }
 
 class CalculatorCatalogItemOption {
@@ -472,7 +490,7 @@ class CalculatorSetContentTab {
   factory CalculatorSetContentTab.fromJson(Map<String, dynamic> json) {
     return CalculatorSetContentTab(
       id: _string(json['id']).isEmpty ? 'part-1' : _string(json['id']),
-      label: _string(json['label']).isEmpty ? 'Block 1' : _string(json['label']),
+      label: _string(json['label']).isEmpty ? 'Module 1' : _string(json['label']),
       geometryKey: _map(json['geometry_key']),
       items: _list(json['items']).map(CalculatorSetContentItem.fromJson).toList(),
     );
@@ -499,14 +517,19 @@ class CalculatorSetContentTab {
 
   int? geometryInt(String key) => _intOrNull(geometryKey[key]);
 
-  int? get blockWidthMm => geometryInt('width_mm');
-  int? get blockDepthMm => geometryInt('depth_mm');
+  String get moduleRole => _nullableString(geometryKey['role']) ?? '';
+  int? get moduleWidthMm => geometryInt('width_mm');
+  int? get moduleDepthMm => geometryInt('depth_mm');
+
+  // Backward-compatible getters kept for Set contents and older saved quotes.
+  int? get blockWidthMm => moduleWidthMm;
+  int? get blockDepthMm => moduleDepthMm;
   int? get blockHeightMm => geometryInt('height_mm');
 
   CalculatorSetContentTab duplicateAs(int index) {
     return CalculatorSetContentTab(
       id: 'part-$index',
-      label: 'Block $index',
+      label: 'Module $index',
       geometryKey: geometryKey,
       items: items.map((entry) => entry.copyWith()).toList(),
     );
@@ -518,6 +541,18 @@ class CalculatorSetContentTab {
       nextGeometry.remove(key);
     } else {
       nextGeometry[key] = value;
+    }
+    return copyWith(geometryKey: nextGeometry);
+  }
+
+
+  CalculatorSetContentTab withGeometryRole(String role) {
+    final normalizedRole = role.trim();
+    final nextGeometry = <String, dynamic>{...geometryKey};
+    if (normalizedRole.isEmpty) {
+      nextGeometry.remove('role');
+    } else {
+      nextGeometry['role'] = normalizedRole;
     }
     return copyWith(geometryKey: nextGeometry);
   }
@@ -693,6 +728,11 @@ class CalculatorDraft {
     this.widthMm,
     this.depthMm,
     this.heightMm,
+    this.roofAngleDeg,
+    this.roofRearHeightMm,
+    this.roofFrontHeightMm,
+    this.forceOddBeams = true,
+    this.maxGlassFieldWidthMm,
     this.coveringCode,
     this.colorCode,
     this.handoverTypeCode,
@@ -706,18 +746,21 @@ class CalculatorDraft {
 
   factory CalculatorDraft.fromCalculationJson(Map<String, dynamic> json, {String? productFamilyId}) {
     final dimensions = _map(json['dimensions']);
+    final roof = _map(json['roof']);
     final options = json['options'] is List
         ? (json['options'] as List)
             .whereType<Map>()
             .map((entry) => CalculatorSelectedOption.fromJson(Map<String, dynamic>.from(entry)))
             .toList()
         : <CalculatorSelectedOption>[];
-    final setContents = json['set_contents'] is List
+    final savedSetContents = json['set_contents'] is List
         ? (json['set_contents'] as List)
             .whereType<Map>()
             .map((entry) => CalculatorSetContentTab.fromJson(Map<String, dynamic>.from(entry)))
             .toList()
         : <CalculatorSetContentTab>[];
+    final roofModules = _list(roof['modules']);
+    final setContents = _restoreRoofModuleGeometry(savedSetContents, roofModules);
 
     return CalculatorDraft(
       organizationId: _nullableString(json['organization_id']),
@@ -728,6 +771,11 @@ class CalculatorDraft {
       widthMm: _intOrNull(dimensions['width_mm']),
       depthMm: _intOrNull(dimensions['depth_mm']),
       heightMm: _intOrNull(dimensions['height_mm']),
+      roofAngleDeg: _intOrNull(roof['angle_deg']),
+      roofRearHeightMm: _intOrNull(roof['rear_height_mm']),
+      roofFrontHeightMm: _intOrNull(roof['front_height_mm']),
+      forceOddBeams: roof['force_odd_beams'] is bool ? roof['force_odd_beams'] as bool : true,
+      maxGlassFieldWidthMm: _intOrNull(roof['max_glass_field_width_mm']),
       coveringCode: _nullableString(json['covering_code']),
       colorCode: _nullableString(json['color_code']),
       handoverTypeCode: _nullableString(json['handover_type_code']),
@@ -748,6 +796,11 @@ class CalculatorDraft {
   final int? widthMm;
   final int? depthMm;
   final int? heightMm;
+  final int? roofAngleDeg;
+  final int? roofRearHeightMm;
+  final int? roofFrontHeightMm;
+  final bool forceOddBeams;
+  final int? maxGlassFieldWidthMm;
   final String? coveringCode;
   final String? colorCode;
   final String? handoverTypeCode;
@@ -774,6 +827,15 @@ class CalculatorDraft {
     bool clearDepth = false,
     int? heightMm,
     bool clearHeight = false,
+    int? roofAngleDeg,
+    bool clearRoofAngle = false,
+    int? roofRearHeightMm,
+    bool clearRoofRearHeight = false,
+    int? roofFrontHeightMm,
+    bool clearRoofFrontHeight = false,
+    bool? forceOddBeams,
+    int? maxGlassFieldWidthMm,
+    bool clearMaxGlassFieldWidth = false,
     String? coveringCode,
     bool clearCovering = false,
     String? colorCode,
@@ -800,6 +862,11 @@ class CalculatorDraft {
       widthMm: clearWidth ? null : widthMm ?? this.widthMm,
       depthMm: clearDepth ? null : depthMm ?? this.depthMm,
       heightMm: clearHeight ? null : heightMm ?? this.heightMm,
+      roofAngleDeg: clearRoofAngle ? null : roofAngleDeg ?? this.roofAngleDeg,
+      roofRearHeightMm: clearRoofRearHeight ? null : roofRearHeightMm ?? this.roofRearHeightMm,
+      roofFrontHeightMm: clearRoofFrontHeight ? null : roofFrontHeightMm ?? this.roofFrontHeightMm,
+      forceOddBeams: forceOddBeams ?? this.forceOddBeams,
+      maxGlassFieldWidthMm: clearMaxGlassFieldWidth ? null : maxGlassFieldWidthMm ?? this.maxGlassFieldWidthMm,
       coveringCode: clearCovering ? null : coveringCode ?? this.coveringCode,
       colorCode: clearColor ? null : colorCode ?? this.colorCode,
       handoverTypeCode: clearHandover ? null : handoverTypeCode ?? this.handoverTypeCode,
@@ -810,6 +877,40 @@ class CalculatorDraft {
       options: options ?? this.options,
       setContents: setContents ?? this.setContents,
     );
+  }
+
+
+  Map<String, dynamic> _roofJson() {
+    final moduleJson = <Map<String, dynamic>>[];
+    for (final tab in setContents) {
+      final role = tab.moduleRole.trim();
+      final width = tab.moduleWidthMm;
+      final depth = tab.moduleDepthMm;
+      if (role.isEmpty && width == null && depth == null) continue;
+      moduleJson.add({
+        'role': role.isEmpty ? 'main' : role,
+        if (width != null) 'width_mm': width,
+        if (depth != null) 'depth_mm': depth,
+        if (coveringCode != null && coveringCode!.isNotEmpty) 'covering_code': coveringCode,
+      });
+    }
+
+    final hasRoofData = (modelCode != null && modelCode!.isNotEmpty) ||
+        roofAngleDeg != null ||
+        roofRearHeightMm != null ||
+        roofFrontHeightMm != null ||
+        moduleJson.isNotEmpty;
+    if (!hasRoofData) return const {};
+
+    return {
+      if (modelCode != null && modelCode!.isNotEmpty) 'model_code': modelCode,
+      if (roofAngleDeg != null) 'angle_deg': roofAngleDeg,
+      if (roofRearHeightMm != null) 'rear_height_mm': roofRearHeightMm,
+      if (roofFrontHeightMm != null) 'front_height_mm': roofFrontHeightMm,
+      'force_odd_beams': forceOddBeams,
+      if (maxGlassFieldWidthMm != null) 'max_glass_field_width_mm': maxGlassFieldWidthMm,
+      if (moduleJson.isNotEmpty) 'modules': moduleJson,
+    };
   }
 
   Map<String, dynamic> _baseJson({required List<Map<String, dynamic>> setContentsJson}) {
@@ -823,6 +924,7 @@ class CalculatorDraft {
         if (depthMm != null) 'depth_mm': depthMm,
         if (heightMm != null) 'height_mm': heightMm,
       },
+      if (_roofJson().isNotEmpty) 'roof': _roofJson(),
       if (coveringCode != null && coveringCode!.isNotEmpty) 'covering_code': coveringCode,
       if (colorCode != null && colorCode!.isNotEmpty) 'color_code': colorCode,
       if (handoverTypeCode != null && handoverTypeCode!.isNotEmpty) 'handover_type_code': handoverTypeCode,
@@ -1108,6 +1210,49 @@ enum SaveQuoteMode {
         return 'As Option';
     }
   }
+}
+
+List<CalculatorSetContentTab> _restoreRoofModuleGeometry(
+  List<CalculatorSetContentTab> savedTabs,
+  List<Map<String, dynamic>> roofModules,
+) {
+  if (roofModules.isEmpty) return savedTabs;
+
+  if (savedTabs.isEmpty) {
+    return [
+      for (var index = 0; index < roofModules.length; index++)
+        CalculatorSetContentTab(
+          id: 'part-${index + 1}',
+          label: 'Module ${index + 1}',
+          geometryKey: _roofModuleGeometry(roofModules[index]),
+          items: const [],
+        ),
+    ];
+  }
+
+  return [
+    for (var index = 0; index < savedTabs.length; index++)
+      if (index < roofModules.length)
+        savedTabs[index].copyWith(
+          geometryKey: {
+            ..._roofModuleGeometry(roofModules[index]),
+            ...savedTabs[index].geometryKey,
+          },
+        )
+      else
+        savedTabs[index],
+  ];
+}
+
+Map<String, dynamic> _roofModuleGeometry(Map<String, dynamic> module) {
+  final role = _nullableString(module['role']);
+  final width = _intOrNull(module['width_mm']);
+  final depth = _intOrNull(module['depth_mm']);
+  return {
+    if (role != null) 'role': role,
+    if (width != null && width > 0) 'width_mm': width,
+    if (depth != null && depth > 0) 'depth_mm': depth,
+  };
 }
 
 List<Map<String, dynamic>> _list(dynamic value) {
