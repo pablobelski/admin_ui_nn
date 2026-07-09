@@ -1617,29 +1617,37 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
 
   List<double> _effectiveRafterX(_RoofLayout layout) {
     if (calculatedModules.isEmpty || layout.moduleAreas.isEmpty) return layout.rafterX;
-    final values = <double>{};
+    final values = <double>[];
     for (final area in layout.moduleAreas) {
       final calculation = calculatedModules
           .where((entry) => entry.moduleIndex == area.index)
           .cast<RoofModuleCalculation?>()
           .firstOrNull;
-      if (calculation == null || calculation.glassCount < 1 || area.corners.isEmpty) continue;
+      if (calculation == null || calculation.beamCount < 2 || area.corners.isEmpty) continue;
       final xs = area.corners.map((point) => point.dx).toList(growable: false);
       final minX = xs.reduce((a, b) => math.min(a, b).toDouble());
       final maxX = xs.reduce((a, b) => math.max(a, b).toDouble());
       final span = maxX - minX;
-      if (span <= 0) continue;
-      // A module with N glass fields needs N + 1 delimiting beam lines.
-      // For offset 0/+1 modules some boundary beams belong to neighbouring
-      // modules, so using beamCount here visually under-counted the glass.
-      final dividerCount = calculation.glassCount + 1;
-      for (var i = 0; i < dividerCount; i++) {
-        values.add(minX + span * i / (dividerCount - 1));
+      if (span <= 0 || calculation.widthMm <= 0) continue;
+
+      // Draw the module's own Träger count, exactly as calculated by Konfig.
+      // The profile centres are inset by half a beam width. At a shared module
+      // boundary each module therefore keeps its own edge beam, so neighbouring
+      // beams remain visible as a close double pair instead of being merged.
+      final beamWidthMm = (
+        calculation.widthMm -
+        (calculation.beamCount - 1) * calculation.beamStepMm
+      ) / calculation.beamCount;
+      final edgeInsetFraction = (beamWidthMm / 2 / calculation.widthMm).clamp(0.0, 0.49);
+      final usableFraction = 1 - edgeInsetFraction * 2;
+      for (var i = 0; i < calculation.beamCount; i++) {
+        final fraction = edgeInsetFraction + usableFraction * i / (calculation.beamCount - 1);
+        values.add(minX + span * fraction);
       }
     }
     if (values.isEmpty) return layout.rafterX;
-    final result = values.toList()..sort();
-    return result;
+    values.sort();
+    return values;
   }
 
   List<double> _rafterPositions(double width, List<double> fixed, {List<double> blocked = const []}) {
