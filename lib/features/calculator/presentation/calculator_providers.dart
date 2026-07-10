@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/navigation/admin_providers.dart';
@@ -27,38 +29,46 @@ final calculatorSetContentsRefreshTickProvider =
 );
 
 final calculatorSetContentsProvider = FutureProvider.autoDispose<CalculatorSetContentsPreview>((ref) async {
-  final key = ref.watch(
-    calculatorDraftProvider.select(
-      (draft) => (
-        templateId: draft.templateId,
-        priceMode: draft.priceMode,
-        modelCode: draft.modelCode,
-        widthMm: draft.widthMm,
-        depthMm: draft.depthMm,
-        heightMm: draft.heightMm,
-        coveringCode: draft.coveringCode,
-        colorCode: draft.colorCode,
-      ),
-    ),
-  );
+  ref.watch(calculatorDraftProvider.select(_setContentsRequestSignature));
   ref.watch(calculatorSetContentsRefreshTickProvider);
+  final draft = ref.read(calculatorDraftProvider);
 
-  if (key.templateId == null || key.templateId!.isEmpty) {
+  if (draft.templateId == null || draft.templateId!.isEmpty) {
     return const CalculatorSetContentsPreview(tabs: [], source: {}, trace: [], warnings: [], raw: {});
   }
 
-  final requestDraft = CalculatorDraft(
-    templateId: key.templateId,
-    priceMode: key.priceMode,
-    modelCode: key.modelCode,
-    widthMm: key.widthMm,
-    depthMm: key.depthMm,
-    heightMm: key.heightMm,
-    coveringCode: key.coveringCode,
-    colorCode: key.colorCode,
-  );
-  return ref.watch(calculatorRepositoryProvider).fetchSetContents(requestDraft);
+  return ref.watch(calculatorRepositoryProvider).fetchSetContents(draft);
 });
+
+String _setContentsRequestSignature(CalculatorDraft draft) {
+  return jsonEncode({
+    'organization_id': draft.organizationId,
+    'related_customer_id': draft.relatedCustomerId,
+    'product_family_id': draft.productFamilyId,
+    'template_id': draft.templateId,
+    'price_mode': draft.priceMode,
+    'model_code': draft.modelCode,
+    'width_mm': draft.widthMm,
+    'depth_mm': draft.depthMm,
+    'height_mm': draft.heightMm,
+    'covering_code': draft.coveringCode,
+    'color_code': draft.colorCode,
+    'roof_angle_deg': draft.roofAngleDeg,
+    'roof_rear_height_mm': draft.roofRearHeightMm,
+    'roof_front_height_mm': draft.roofFrontHeightMm,
+    'force_odd_beams': draft.forceOddBeams,
+    'max_glass_field_width_mm': draft.maxGlassFieldWidthMm,
+    'modules': [
+      for (final tab in draft.setContents)
+        {
+          'id': tab.id,
+          'role': tab.moduleRole,
+          'width_mm': tab.moduleWidthMm,
+          'depth_mm': tab.moduleDepthMm,
+        },
+    ],
+  });
+}
 
 class LoadedQuoteNotifier extends Notifier<LoadedQuote?> {
   @override
@@ -508,12 +518,165 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
         .join(' ');
   }
 
+  CalculatorSetContentItem _withOverrideState(CalculatorSetContentItem item, String stateCode) {
+    final source = <String, dynamic>{
+      ...((item.raw['source_component'] is Map)
+          ? Map<String, dynamic>.from(item.raw['source_component'] as Map)
+          : const <String, dynamic>{}),
+      'override_state': stateCode,
+    };
+    return item.copyWith(raw: {...item.raw, 'source_component': source});
+  }
+
+  void setSetContentItemOverride(int tabIndex, int itemIndex, bool enabled) {
+    if (tabIndex < 0 || tabIndex >= state.setContents.length) return;
+    final tab = state.setContents[tabIndex];
+    if (itemIndex < 0 || itemIndex >= tab.items.length) return;
+    final items = [...tab.items];
+    final item = items[itemIndex];
+    if (!item.isCalculated) return;
+    items[itemIndex] = _withOverrideState(item, enabled ? 'overridden' : 'automatic');
+    final tabs = [...state.setContents];
+    tabs[tabIndex] = tab.copyWith(items: items);
+    state = state.copyWith(setContents: tabs);
+  }
+
+  void resetSetContentItemOverride(int tabIndex, int itemIndex) {
+    if (tabIndex < 0 || tabIndex >= state.setContents.length) return;
+    final tab = state.setContents[tabIndex];
+    if (itemIndex < 0 || itemIndex >= tab.items.length) return;
+    final items = [...tab.items];
+    final item = items[itemIndex];
+    if (!item.isCalculated) return;
+    items[itemIndex] = _withOverrideState(
+      item.copyWith(
+        quantity: item.calculatedQuantity ?? item.quantity,
+        lengthMm: item.calculatedLengthMm,
+        clearLength: item.calculatedLengthMm == null,
+        enabled: true,
+      ),
+      'automatic',
+    );
+    final tabs = [...state.setContents];
+    tabs[tabIndex] = tab.copyWith(items: items);
+    state = state.copyWith(setContents: tabs);
+  }
+
+  void addManualSetContentItem(
+    int tabIndex,
+    CalculatorCatalogItemOption catalogItem, {
+    CalculatorCatalogVariantOption? variant,
+    num quantity = 1,
+    String? salesUnitCode,
+    int? lengthMm,
+  }) {
+    if (state.setContents.isEmpty) return;
+    final normalizedTab = tabIndex < 0 || tabIndex >= state.setContents.length ? 0 : tabIndex;
+    final tab = state.setContents[normalizedTab];
+    final unit = salesUnitCode ??
+        variant?.defaultSalesUnitCode ??
+        catalogItem.defaultSalesUnitCode ??
+        catalogItem.measureTypeCode ??
+        'piece';
+    final effectiveLength = lengthMm ?? variant?.lengthMm ?? catalogItem.defaultLengthMm;
+    final articleNo = variant?.articleNo ?? variant?.profileNo ?? catalogItem.profileNo ?? catalogItem.baseCode;
+    final item = CalculatorSetContentItem(
+      catalogItemId: catalogItem.id,
+      catalogVariantId: variant?.id,
+      quantity: quantity <= 0 ? 1 : quantity,
+      salesUnitCode: unit,
+      lengthMm: effectiveLength,
+      name: catalogItem.name,
+      itemTypeCode: catalogItem.itemTypeCode,
+      baseCode: catalogItem.baseCode,
+      profileNo: variant?.profileNo ?? catalogItem.profileNo,
+      articleNo: articleNo,
+      variantSku: variant?.variantSku,
+      unitCode: unit,
+      editableLength: catalogItem.itemTypeCode.toLowerCase().contains('profile'),
+      raw: {
+        'source_component': {
+          'source_type': 'manual',
+          'segment_id': 'manual:${tab.id}:${catalogItem.id}:${DateTime.now().microsecondsSinceEpoch}',
+          'name': catalogItem.name,
+          'item_type_code': catalogItem.itemTypeCode,
+          'base_code': catalogItem.baseCode,
+          if (variant?.variantSku != null) 'variant_sku': variant!.variantSku,
+          if ((variant?.profileNo ?? catalogItem.profileNo) != null)
+            'profile_no': variant?.profileNo ?? catalogItem.profileNo,
+          'article_no': articleNo,
+          'unit_code': unit,
+        },
+      },
+    );
+    final tabs = [...state.setContents];
+    tabs[normalizedTab] = tab.copyWith(items: [...tab.items, item]);
+    state = state.copyWith(setContents: tabs);
+  }
+
+  void upsertDerivedAccessoryOverride(Map<String, dynamic> accessory, num quantity, bool enabled) {
+    final source = accessory['source'] is Map
+        ? Map<String, dynamic>.from(accessory['source'] as Map)
+        : <String, dynamic>{};
+    final segments = accessory['segments'] is List ? accessory['segments'] as List : const [];
+    final firstSegment = segments.isNotEmpty && segments.first is Map
+        ? Map<String, dynamic>.from(segments.first as Map)
+        : <String, dynamic>{};
+    final segmentId = '${firstSegment['segment_id'] ?? source['segment_id'] ?? ''}'.trim();
+    final catalogItemId = '${accessory['catalog_item_id'] ?? source['catalog_item_id'] ?? ''}'.trim();
+    if (segmentId.isEmpty || catalogItemId.isEmpty || state.setContents.isEmpty) return;
+
+    final tabs = [...state.setContents];
+    for (var tabIndex = 0; tabIndex < tabs.length; tabIndex++) {
+      final tab = tabs[tabIndex];
+      final itemIndex = tab.items.indexWhere((item) => item.segmentId == segmentId && item.isDerivedOverride);
+      if (itemIndex < 0) continue;
+      final items = [...tab.items];
+      items[itemIndex] = items[itemIndex].copyWith(quantity: quantity, enabled: enabled);
+      tabs[tabIndex] = tab.copyWith(items: items);
+      state = state.copyWith(setContents: tabs);
+      return;
+    }
+
+    final tab = tabs.first;
+    final unit = '${accessory['unit_code'] ?? 'piece'}';
+    final item = CalculatorSetContentItem(
+      catalogItemId: catalogItemId,
+      catalogVariantId: accessory['catalog_variant_id']?.toString(),
+      quantity: quantity,
+      salesUnitCode: unit,
+      name: accessory['name']?.toString(),
+      itemTypeCode: 'accessory',
+      baseCode: accessory['article_no']?.toString(),
+      profileNo: accessory['profile_no']?.toString(),
+      articleNo: accessory['article_no']?.toString(),
+      unitCode: unit,
+      enabled: enabled,
+      raw: {
+        'source_component': {
+          ...source,
+          'source_type': 'derived_accessory_override',
+          'segment_id': segmentId,
+          'name': accessory['name'],
+          'article_no': accessory['article_no'],
+          'profile_no': accessory['profile_no'],
+          'unit_code': unit,
+        },
+      },
+    );
+    tabs[0] = tab.copyWith(items: [...tab.items, item]);
+    state = state.copyWith(setContents: tabs);
+  }
+
   void updateSetContentItemQuantity(int tabIndex, int itemIndex, num quantity) {
     if (tabIndex < 0 || tabIndex >= state.setContents.length) return;
     final tab = state.setContents[tabIndex];
     if (itemIndex < 0 || itemIndex >= tab.items.length) return;
     final items = [...tab.items];
-    items[itemIndex] = items[itemIndex].copyWith(quantity: quantity <= 0 ? 1 : quantity);
+    items[itemIndex] = _withOverrideState(
+      items[itemIndex].copyWith(quantity: quantity <= 0 ? 1 : quantity),
+      items[itemIndex].isCalculated ? 'overridden' : items[itemIndex].overrideState,
+    );
     final tabs = [...state.setContents];
     tabs[tabIndex] = tab.copyWith(items: items);
     state = state.copyWith(setContents: tabs);
@@ -554,9 +717,12 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
     final tab = state.setContents[tabIndex];
     if (itemIndex < 0 || itemIndex >= tab.items.length) return;
     final items = [...tab.items];
-    items[itemIndex] = items[itemIndex].copyWith(
-      lengthMm: lengthMm,
-      clearLength: lengthMm == null,
+    items[itemIndex] = _withOverrideState(
+      items[itemIndex].copyWith(
+        lengthMm: lengthMm,
+        clearLength: lengthMm == null,
+      ),
+      items[itemIndex].isCalculated ? 'overridden' : items[itemIndex].overrideState,
     );
     final tabs = [...state.setContents];
     tabs[tabIndex] = tab.copyWith(items: items);
@@ -569,7 +735,11 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
     final tab = state.setContents[tabIndex];
     if (itemIndex < 0 || itemIndex >= tab.items.length) return;
     final items = [...tab.items];
-    items[itemIndex] = items[itemIndex].copyWith(enabled: !items[itemIndex].enabled);
+    final currentItem = items[itemIndex];
+    final nextEnabled = !currentItem.enabled;
+    items[itemIndex] = currentItem.isCalculated
+        ? _withOverrideState(currentItem.copyWith(enabled: nextEnabled), nextEnabled ? 'overridden' : 'excluded')
+        : currentItem.copyWith(enabled: nextEnabled);
     final tabs = [...state.setContents];
     tabs[tabIndex] = tab.copyWith(items: items);
     state = state.copyWith(setContents: tabs);

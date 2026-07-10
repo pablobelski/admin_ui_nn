@@ -477,6 +477,13 @@ class CalculatorSetContentsPreview {
   final List<Map<String, dynamic>> trace;
   final List<Map<String, dynamic>> warnings;
   final Map<String, dynamic> raw;
+
+  List<Map<String, dynamic>> get standardBom => _list(raw['standard_bom'] ?? raw['standardBom']);
+  List<Map<String, dynamic>> get calculatedBom => _list(raw['calculated_bom'] ?? raw['calculatedBom']);
+  List<Map<String, dynamic>> get effectiveBom => _list(raw['effective_bom'] ?? raw['effectiveBom']);
+  List<Map<String, dynamic>> get manualBom => _list(raw['manual_bom'] ?? raw['manualBom']);
+  List<Map<String, dynamic>> get derivedAccessories => _list(raw['derived_accessories'] ?? raw['derivedAccessories']);
+  List<Map<String, dynamic>> get setDeltaBom => _list(raw['set_delta_bom'] ?? raw['setDeltaBom']);
 }
 
 class CalculatorSetContentTab {
@@ -562,7 +569,7 @@ class CalculatorSetContentTab {
       'id': id,
       'label': label,
       if (geometryKey.isNotEmpty) 'geometry_key': geometryKey,
-      'items': items.where((entry) => entry.enabled).map((entry) => entry.toCalculationJson()).toList(),
+      'items': items.map((entry) => entry.toCalculationJson()).toList(),
     };
   }
 
@@ -647,6 +654,19 @@ class CalculatorSetContentItem {
 
   bool get isAccessory => (itemTypeCode ?? '').toLowerCase().contains('accessory');
 
+  Map<String, dynamic> get sourceComponent => _map(raw['source_component']);
+  String get sourceType => _nullableString(sourceComponent['source_type'] ?? sourceComponent['sourceType']) ?? 'manual';
+  String? get segmentId => _nullableString(sourceComponent['segment_id'] ?? sourceComponent['segmentId']);
+  String get overrideState => _nullableString(sourceComponent['override_state'] ?? sourceComponent['overrideState']) ?? 'automatic';
+  num? get calculatedQuantity => _numOrNull(sourceComponent['calculated_quantity'] ?? sourceComponent['calculatedQuantity']);
+  int? get calculatedLengthMm => _intOrNull(sourceComponent['calculated_length_mm'] ?? sourceComponent['calculatedLengthMm']);
+  bool get isCalculated => sourceType == 'calculated';
+  bool get isManual => sourceType == 'manual' || sourceType == 'legacy';
+  bool get isDerivedOverride => sourceType == 'derived_accessory_override' || sourceType == 'derived';
+  bool get isOverridden => ['overridden', 'excluded'].contains(overrideState) ||
+      (calculatedQuantity != null && calculatedQuantity != quantity) ||
+      (calculatedLengthMm != null && calculatedLengthMm != lengthMm);
+
   CalculatorSetContentItem copyWith({
     String? catalogItemId,
     bool clearCatalogItem = false,
@@ -706,6 +726,7 @@ class CalculatorSetContentItem {
       'quantity': quantity,
       if (salesUnitCode != null && salesUnitCode!.isNotEmpty) 'sales_unit_code': salesUnitCode,
       if (lengthMm != null && lengthMm! > 0) 'length_mm': lengthMm,
+      'enabled': enabled,
       if (sourceComponent.isNotEmpty) 'source_component': sourceComponent,
     };
   }
@@ -1068,6 +1089,14 @@ class CalculatorResult {
     required this.baseBom,
     required this.optionBom,
     required this.setContentBom,
+    required this.calculatedBom,
+    required this.effectiveSetBom,
+    required this.manualBom,
+    required this.derivedAccessories,
+    required this.setDeltaBom,
+    required this.derivedAccessoryDiagnostics,
+    required this.manualComponentDiagnostics,
+    required this.setDeltaDiagnostics,
     required this.optionDiagnostics,
     required this.setContentDiagnostics,
     required this.trace,
@@ -1089,6 +1118,14 @@ class CalculatorResult {
       baseBom: _list(json['baseBom'] ?? json['base_bom']),
       optionBom: _list(json['optionBom'] ?? json['option_bom']),
       setContentBom: _list(json['setContentBom'] ?? json['set_content_bom']),
+      calculatedBom: _list(json['calculatedBom'] ?? json['calculated_bom']),
+      effectiveSetBom: _list(json['effectiveSetBom'] ?? json['effective_set_bom']),
+      manualBom: _list(json['manualBom'] ?? json['manual_bom']),
+      derivedAccessories: _list(json['derivedAccessories'] ?? json['derived_accessories']),
+      setDeltaBom: _list(json['setDeltaBom'] ?? json['set_delta_bom']),
+      derivedAccessoryDiagnostics: _list(json['derivedAccessoryDiagnostics'] ?? json['derived_accessory_diagnostics']),
+      manualComponentDiagnostics: _list(json['manualComponentDiagnostics'] ?? json['manual_component_diagnostics']),
+      setDeltaDiagnostics: _list(json['setDeltaDiagnostics'] ?? json['set_delta_diagnostics']),
       optionDiagnostics: _list(json['optionDiagnostics'] ?? json['option_diagnostics']),
       setContentDiagnostics: _list(json['setContentDiagnostics'] ?? json['set_content_diagnostics']),
       trace: _list(json['trace']),
@@ -1109,6 +1146,14 @@ class CalculatorResult {
   final List<Map<String, dynamic>> baseBom;
   final List<Map<String, dynamic>> optionBom;
   final List<Map<String, dynamic>> setContentBom;
+  final List<Map<String, dynamic>> calculatedBom;
+  final List<Map<String, dynamic>> effectiveSetBom;
+  final List<Map<String, dynamic>> manualBom;
+  final List<Map<String, dynamic>> derivedAccessories;
+  final List<Map<String, dynamic>> setDeltaBom;
+  final List<Map<String, dynamic>> derivedAccessoryDiagnostics;
+  final List<Map<String, dynamic>> manualComponentDiagnostics;
+  final List<Map<String, dynamic>> setDeltaDiagnostics;
   final List<Map<String, dynamic>> optionDiagnostics;
   final List<Map<String, dynamic>> setContentDiagnostics;
   final List<Map<String, dynamic>> trace;

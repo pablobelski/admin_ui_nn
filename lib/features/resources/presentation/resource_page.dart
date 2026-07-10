@@ -21,6 +21,7 @@ import '../../../core/ui/scrollable_areas.dart';
 import '../../../core/ui/resource_editor_dialog.dart';
 import '../../../core/ui/searchable_select_form_field.dart';
 import '../../calculator/data/calculator_models.dart';
+import '../../calculator/data/roof_geometry_calculation.dart';
 import '../../calculator/presentation/calculator_providers.dart';
 import '../../calculator/presentation/model_geometry_preview.dart';
 import 'catalog_item_dependency_tree.dart';
@@ -1538,6 +1539,23 @@ class _SavedQuoteGeometryPreviewTab extends StatelessWidget {
     final modelCode = draft.modelCode?.trim() ?? '';
     final hasModel = modelCode.isNotEmpty;
     final modelLabel = roofModelLabelsByCode[modelCode] ?? modelCode;
+    final contextData = calculatorContext?.asData?.value;
+    final selectedTemplate = contextData?.templates
+        .where((template) => template.id == draft.templateId)
+        .cast<CalculatorTemplateOption?>()
+        .firstOrNull;
+    final resultJson = _mapFromJsonLike(data['result_json'] ?? data['resultJson']);
+    final resultSources = _mapFromJsonLike(resultJson['sources']);
+    final savedRoofCalculation = roofGeometryCalculationFromSources(resultSources);
+    final roofCalculation = savedRoofCalculation ?? (
+      contextData == null
+          ? null
+          : calculateRoofGeometryForDraft(
+              draft: draft,
+              template: selectedTemplate,
+              model: null,
+            )
+    );
     final colorPreview = calculatorContext?.maybeWhen(
       data: (contextData) => _quoteColorPreviewDataFor(contextData, draft.colorCode),
       orElse: () => _fallbackQuoteColorPreviewData(draft.colorCode),
@@ -1550,9 +1568,9 @@ class _SavedQuoteGeometryPreviewTab extends StatelessWidget {
     final quoteNo = _quoteTextField(data, 'quote_no', 'quoteNo');
     final quoteNoExternal = _quoteTextField(data, 'quote_no_external', 'quoteNoExternal');
     final externalNotes = _quoteTextField(data, 'external_notes', 'externalNotes');
-    final moduleRoles = draft.setContents
-        .map((module) => module.moduleRole)
-        .toList(growable: false);
+    final moduleRoles = roofCalculation?.modules.isNotEmpty == true
+        ? roofCalculation!.modules.map((module) => module.role).toList(growable: false)
+        : draft.setContents.map((module) => module.moduleRole).toList(growable: false);
 
     return ListView(
       children: [
@@ -1594,14 +1612,15 @@ class _SavedQuoteGeometryPreviewTab extends StatelessWidget {
             geometryParams: geometryPreviewParamsFromDraft(draft),
             modules: draft.setContents,
             moduleRoles: moduleRoles,
+            calculatedModules: roofCalculation?.modules ?? const [],
             calculationNumber: quoteNo,
             calculationName: quoteNoExternal,
             colorCode: colorPreview?.displayCode,
             colorSwatchColor: colorPreview?.color,
             coveringName: coveringName,
-            roofAngleDeg: slope.angleDeg,
+            roofAngleDeg: roofCalculation?.angleDeg ?? slope.angleDeg,
             rearHeightMm: slope.rearHeightMm,
-            frontHeightMm: slope.frontHeightMm,
+            frontHeightMm: roofCalculation?.frontHeightMm ?? slope.frontHeightMm,
           ),
         ],
       ],

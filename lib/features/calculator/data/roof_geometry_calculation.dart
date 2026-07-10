@@ -83,6 +83,72 @@ List<String> roofModuleRolesForModel(CalculatorOption? model) {
   return _fallbackModuleOrderByModel[code] ?? const ['main'];
 }
 
+
+RoofGeometryCalculation? roofGeometryCalculationFromSources(
+  Map<String, dynamic> sources,
+) {
+  final rawGeometry = sources['roof_geometry'] ?? sources['roofGeometry'];
+  final geometry = _mapValue(rawGeometry);
+  if (geometry.isEmpty) return null;
+
+  final rawModules = geometry['modules'];
+  if (rawModules is! List) return null;
+  final modules = <RoofModuleCalculation>[];
+  for (final raw in rawModules) {
+    final module = _mapValue(raw);
+    if (module.isEmpty) continue;
+    final moduleIndex = _asInt(module['module_index'] ?? module['moduleIndex']);
+    final role = '${module['role'] ?? ''}'.trim();
+    final widthMm = _asInt(module['width_mm'] ?? module['widthMm']);
+    final depthMm = _asInt(module['depth_mm'] ?? module['depthMm']);
+    final beamCount = _asInt(module['beam_count'] ?? module['beamCount']);
+    final beamLengthMm = _asInt(module['beam_length_mm'] ?? module['beamLengthMm']);
+    final beamStepMm = _asDouble(module['beam_step_mm'] ?? module['beamStepMm']);
+    final glassCountOffset = _asInt(module['glass_count_offset'] ?? module['glassCountOffset']);
+    final glassCount = _asInt(module['glass_count'] ?? module['glassCount']);
+    final glassWidthMm = _asInt(module['glass_width_mm'] ?? module['glassWidthMm']);
+    final glassLengthMm = _asInt(module['glass_length_mm'] ?? module['glassLengthMm']);
+    final glassAreaM2 = _asDouble(module['glass_area_m2'] ?? module['glassAreaM2']);
+    if (moduleIndex == null ||
+        role.isEmpty ||
+        widthMm == null ||
+        depthMm == null ||
+        beamCount == null ||
+        beamLengthMm == null ||
+        beamStepMm == null ||
+        glassCountOffset == null ||
+        glassCount == null ||
+        glassWidthMm == null ||
+        glassLengthMm == null ||
+        glassAreaM2 == null) {
+      continue;
+    }
+    modules.add(
+      RoofModuleCalculation(
+        moduleIndex: moduleIndex,
+        role: role,
+        widthMm: widthMm,
+        depthMm: depthMm,
+        beamCount: beamCount,
+        beamLengthMm: beamLengthMm,
+        beamStepMm: beamStepMm,
+        glassCountOffset: glassCountOffset,
+        glassCount: glassCount,
+        glassWidthMm: glassWidthMm,
+        glassLengthMm: glassLengthMm,
+        glassAreaM2: glassAreaM2,
+      ),
+    );
+  }
+  if (modules.isEmpty) return null;
+  modules.sort((a, b) => a.moduleIndex.compareTo(b.moduleIndex));
+  return RoofGeometryCalculation(
+    angleDeg: _asInt(geometry['angle_deg'] ?? geometry['angleDeg']),
+    frontHeightMm: _asInt(geometry['front_height_mm'] ?? geometry['frontHeightMm']),
+    modules: modules,
+  );
+}
+
 RoofGeometryCalculation calculateRoofGeometryForDraft({
   required CalculatorDraft draft,
   required CalculatorTemplateOption? template,
@@ -290,6 +356,25 @@ double? _number(Map<String, dynamic> source, String camel, String snake) {
   final raw = source[camel] ?? source[snake];
   if (raw is num) return raw.toDouble();
   return double.tryParse('$raw');
+}
+
+
+Map<String, dynamic> _mapValue(Object? value) {
+  if (value is Map) return Map<String, dynamic>.from(value);
+  if (value is String && value.trim().isNotEmpty) {
+    try {
+      final decoded = jsonDecode(value);
+      if (decoded is Map) return Map<String, dynamic>.from(decoded);
+    } catch (_) {
+      return const {};
+    }
+  }
+  return const {};
+}
+
+double? _asDouble(Object? value) {
+  if (value is num) return value.toDouble();
+  return double.tryParse('$value');
 }
 
 int? _asInt(Object? value) {

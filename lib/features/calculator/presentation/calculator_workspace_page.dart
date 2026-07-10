@@ -35,6 +35,17 @@ const _steps = <_StepDefinition>[
 
 final _moneyFormat = NumberFormat.currency(locale: 'de_DE', symbol: '€');
 const _customRalOptionCode = '__custom_ral__';
+final _catalogMediaFutureCache = <String, Future<ApiBinaryResponse>>{};
+
+Future<ApiBinaryResponse> _catalogMediaFuture(
+  AdminResourceRepository repository,
+  String fileId,
+) {
+  return _catalogMediaFutureCache.putIfAbsent(
+    fileId,
+    () => repository.viewMediaFile(fileId),
+  );
+}
 
 class CalculatorWorkspacePage extends ConsumerStatefulWidget {
   const CalculatorWorkspacePage({super.key});
@@ -731,7 +742,7 @@ class _StepCard extends ConsumerWidget {
       builder: (dialogContext) => AlertDialog(
         title: const Text('Update set contents?'),
         content: const Text(
-          'The component set will be loaded again from the linked rule-set row. Current row quantities and profile lengths will be replaced by the initial component defaults.',
+          'Calculated segments will be rebuilt from the current roof geometry. Existing overrides, excluded segments, manual components and derived-accessory overrides are reapplied by their stable segment IDs.',
         ),
         actions: [
           TextButton(
@@ -749,14 +760,12 @@ class _StepCard extends ConsumerWidget {
     if (confirmed != true) return;
 
     try {
-      final preview = await ref.read(calculatorRepositoryProvider).fetchSetContents(
-            draft.copyWith(setContents: const []),
-          );
-      notifier.setSetContentsFromDefaults(preview.tabs);
       ref.read(calculatorSetContentsRefreshTickProvider.notifier).bump();
+      final preview = await ref.read(calculatorSetContentsProvider.future);
+      notifier.setSetContents(preview.tabs);
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Set contents updated from defaults.')),
+        const SnackBar(content: Text('Calculated segments updated; saved overrides were reapplied.')),
       );
     } catch (error) {
       if (!context.mounted) return;
@@ -767,7 +776,7 @@ class _StepCard extends ConsumerWidget {
   }
 
   Widget _buildStepFrame(BuildContext context, WidgetRef ref, String key) {
-    if (key == 'set_contents') {
+    if (key == 'set_contents' || key == 'accessory') {
       return Padding(
         padding: const EdgeInsets.all(20),
         child: _buildStep(context, ref, key),
@@ -845,7 +854,8 @@ class _StepCard extends ConsumerWidget {
           draft: draft,
           notifier: notifier,
           preview: preview,
-          diagnostics: result?.setContentDiagnostics ?? const [],
+          diagnostics: result?.manualComponentDiagnostics ?? const [],
+          mediaRepository: ref.read(resourceRepositoryProvider),
           onUpdateFromDefaults: () => _confirmAndReloadSetContents(context, ref, notifier),
         );
       case 'accessory':
@@ -853,11 +863,15 @@ class _StepCard extends ConsumerWidget {
               data: (value) => value,
               orElse: () => null,
             );
+        final accessoryPreview = ref.watch(calculatorSetContentsProvider).asData?.value;
         return _AccessoryStep(
           contextData: calculatorContext,
           draft: draft,
           notifier: notifier,
-          diagnostics: result?.setContentDiagnostics ?? const [],
+          derivedAccessories: result?.derivedAccessories ?? accessoryPreview?.derivedAccessories ?? const [],
+          derivedDiagnostics: result?.derivedAccessoryDiagnostics ?? const [],
+          manualDiagnostics: result?.manualComponentDiagnostics ?? const [],
+          mediaRepository: ref.read(resourceRepositoryProvider),
           onFastenersPressed: () {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('Fasteners import will be connected in the next iteration.')),
@@ -2291,14 +2305,14 @@ class _RoofModelMediaFrameState extends State<_RoofModelMediaFrame> {
   @override
   void initState() {
     super.initState();
-    _imageFuture = widget.repository.viewMediaFile(widget.mediaRef.fileId);
+    _imageFuture = _catalogMediaFuture(widget.repository, widget.mediaRef.fileId);
   }
 
   @override
   void didUpdateWidget(covariant _RoofModelMediaFrame oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.mediaRef.fileId != widget.mediaRef.fileId) {
-      _imageFuture = widget.repository.viewMediaFile(widget.mediaRef.fileId);
+      _imageFuture = _catalogMediaFuture(widget.repository, widget.mediaRef.fileId);
     }
   }
 
@@ -2868,6 +2882,7 @@ class _SetContentsStep extends StatefulWidget {
     required this.notifier,
     required this.preview,
     required this.diagnostics,
+    required this.mediaRepository,
     required this.onUpdateFromDefaults,
   });
 
@@ -2876,6 +2891,7 @@ class _SetContentsStep extends StatefulWidget {
   final CalculatorDraftNotifier notifier;
   final AsyncValue<CalculatorSetContentsPreview> preview;
   final List<Map<String, dynamic>> diagnostics;
+  final AdminResourceRepository mediaRepository;
   final Future<void> Function() onUpdateFromDefaults;
 
   @override
@@ -2897,32 +2913,39 @@ class _SetContentsStepState extends State<_SetContentsStep> {
     });
 
     final preview = widget.preview.asData?.value;
-    final tabs = widget.draft.setContents.isNotEmpty ? widget.draft.setContents : preview?.tabs ?? const <CalculatorSetContentTab>[];
+    final tabs = widget.draft.setContents.isNotEmpty
+        ? widget.draft.setContents
+        : preview?.tabs ?? const <CalculatorSetContentTab>[];
     final isLoading = widget.preview.isLoading && widget.draft.setContents.isEmpty;
     final source = preview?.source ?? const <String, dynamic>{};
+    final standardBom = preview?.standardBom ?? const <Map<String, dynamic>>[];
+    final setDeltaBom = preview?.setDeltaBom ?? const <Map<String, dynamic>>[];
 
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Row(
           children: [
             Expanded(
-              child: Text('Set contents / Stückliste je Module', style: Theme.of(context).textTheme.titleMedium),
+              child: Text('Set contents / Calculated segments', style: Theme.of(context).textTheme.titleMedium),
             ),
             const SizedBox(width: 12),
             FilledButton.tonalIcon(
               onPressed: widget.draft.templateId == null ? null : widget.onUpdateFromDefaults,
               icon: const Icon(Icons.refresh),
-              label: const Text('Update'),
+              label: const Text('Recalculate'),
             ),
           ],
         ),
         const SizedBox(height: 8),
         const Text(
-          'The default composition is loaded from the linked rule set row. Each tab represents one geometry module of the roof. Use + to add another module with the same default contents, then adjust quantities and profile lengths per module.',
+          'The module structure is fixed by the selected roof model. Calculated profile segments describe the physical construction and are not added to the price as ordinary options. Use Override only for a deliberate production correction; add separate manual components when required.',
         ),
-        const SizedBox(height: 12),
-        if (isLoading) const LinearProgressIndicator(),
+        const SizedBox(height: 10),
+        if (isLoading) ...[
+          const LinearProgressIndicator(),
+          const SizedBox(height: 8),
+        ],
         if (source.isNotEmpty) ...[
           Wrap(
             spacing: 8,
@@ -2931,71 +2954,104 @@ class _SetContentsStepState extends State<_SetContentsStep> {
               _InfoChip(label: 'Rule set', value: '${source['rule_set_id'] ?? '—'}'),
               _InfoChip(label: 'Matrix', value: '${source['matrix_code'] ?? source['matrix_name'] ?? '—'}'),
               _InfoChip(label: 'Row', value: '${source['row_no'] ?? '—'}'),
+              _InfoChip(label: 'Standard lines', value: '${standardBom.length}'),
+              _InfoChip(label: 'Delta lines', value: '${setDeltaBom.length}'),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 8),
         ],
         widget.preview.maybeWhen(
-          error: (error, _) => _HintCard(
-            icon: Icons.warning_amber_outlined,
-            title: 'Set contents could not be loaded',
-            text: '$error',
+          error: (error, _) => Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: _HintCard(
+              icon: Icons.warning_amber_outlined,
+              title: 'Set contents could not be calculated',
+              text: '$error',
+            ),
           ),
           orElse: () => const SizedBox.shrink(),
         ),
-        if (tabs.isEmpty && !isLoading)
-          const _HintCard(
-            icon: Icons.view_list_outlined,
-            title: 'No set contents found',
-            text: 'No linked published rule set row with result_json.components was found for this template/dimensions. Apply the SQL link script below and re-open this step.',
-          )
-        else if (tabs.isNotEmpty)
-          Expanded(child: _setContentTabs(context, tabs, preview?.tabs ?? const [])),
+        Expanded(
+          child: DefaultTabController(
+            key: ValueKey('set-content-main-tabs-${tabs.map((tab) => tab.moduleRole).join('-')}'),
+            length: 3,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const TabBar(
+                  isScrollable: true,
+                  tabs: [
+                    Tab(text: 'Modules set'),
+                    Tab(text: 'Standard set'),
+                    Tab(text: 'Current set delta'),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Expanded(
+                  child: TabBarView(
+                    children: [
+                      tabs.isEmpty
+                          ? const _HintCard(
+                              icon: Icons.view_list_outlined,
+                              title: 'No calculated segments',
+                              text: 'Complete the model, dimensions and roof Parameters module first. A missing standard rule row does not prevent geometry BOM calculation, but it prevents set-delta pricing.',
+                            )
+                          : _setContentTabs(context, tabs),
+                      _BomSummaryList(
+                        contextData: widget.contextData,
+                        mediaRepository: widget.mediaRepository,
+                        title: 'Standard set from price grid',
+                        subtitle: 'Used only as the comparison basis for Zusatzgröße / Abzug.',
+                        emptyText: 'No standard-set components were returned by the matched price-grid row.',
+                        lines: standardBom,
+                      ),
+                      _BomSummaryList(
+                        contextData: widget.contextData,
+                        mediaRepository: widget.mediaRepository,
+                        title: 'Current set delta',
+                        subtitle: 'Only these differences are price-relevant; the calculated BOM itself is not.',
+                        emptyText: 'The current calculated set has no price-relevant differences from the standard set.',
+                        lines: setDeltaBom,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ],
     );
   }
 
-  Widget _setContentTabs(
-    BuildContext context,
-    List<CalculatorSetContentTab> tabs,
-    List<CalculatorSetContentTab> defaults,
-  ) {
+  Widget _setContentTabs(BuildContext context, List<CalculatorSetContentTab> tabs) {
     return DefaultTabController(
-      key: ValueKey('set-content-tabs-${tabs.length}'),
+      key: ValueKey('set-content-tabs-${tabs.map((tab) => tab.moduleRole).join('-')}'),
       length: tabs.length,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: TabBar(
-                  isScrollable: true,
-                  tabs: [for (final tab in tabs) Tab(text: tab.label)],
-                ),
-              ),
-              const SizedBox(width: 8),
-              FilledButton.tonalIcon(
-                onPressed: () => widget.notifier.addSetContentTabFromDefault(defaults),
-                icon: const Icon(Icons.add),
-                label: const Text('Add block'),
-              ),
-            ],
+          TabBar(
+            isScrollable: true,
+            tabs: [for (final tab in tabs) Tab(text: tab.label)],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
           Expanded(
             child: TabBarView(
               children: [
                 for (var tabIndex = 0; tabIndex < tabs.length; tabIndex++)
                   _SetContentTabTable(
                     contextData: widget.contextData,
+                    mediaRepository: widget.mediaRepository,
                     tab: tabs[tabIndex],
                     tabIndex: tabIndex,
                     diagnostics: _diagnosticsForTab(tabs, tabIndex),
-                    onRemoveTab: tabs.length <= 1 ? null : () => widget.notifier.removeSetContentTab(tabIndex),
                     onToggleItem: (itemIndex) => widget.notifier.toggleSetContentItemEnabled(tabIndex, itemIndex),
                     onQuantityChanged: (itemIndex, quantity) => widget.notifier.updateSetContentItemQuantity(tabIndex, itemIndex, quantity),
                     onLengthChanged: (itemIndex, lengthMm) => widget.notifier.updateSetContentItemLength(tabIndex, itemIndex, lengthMm),
+                    onOverrideChanged: (itemIndex, enabled) => widget.notifier.setSetContentItemOverride(tabIndex, itemIndex, enabled),
+                    onResetItem: (itemIndex) => widget.notifier.resetSetContentItemOverride(tabIndex, itemIndex),
+                    onAddManual: () => _showAddManualComponent(tabIndex),
                   ),
               ],
             ),
@@ -3005,10 +3061,497 @@ class _SetContentsStepState extends State<_SetContentsStep> {
     );
   }
 
+  Future<void> _showAddManualComponent(int tabIndex) async {
+    final standardBom = widget.preview.asData?.value.standardBom ?? const <Map<String, dynamic>>[];
+    final candidates = _catalogItemsForBomLines(widget.contextData, standardBom);
+    if (candidates.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No Catalog Items from the matched Standard set are available for manual selection.'),
+        ),
+      );
+      return;
+    }
+
+    final selection = await showDialog<_ManualComponentSelection>(
+      context: context,
+      builder: (_) => _ManualComponentDialog(
+        contextData: widget.contextData,
+        candidates: candidates,
+        mediaRepository: widget.mediaRepository,
+      ),
+    );
+    if (selection == null) return;
+    widget.notifier.addManualSetContentItem(
+      tabIndex,
+      selection.item,
+      variant: selection.variant,
+      quantity: selection.quantity,
+      salesUnitCode: selection.salesUnitCode,
+      lengthMm: selection.lengthMm,
+    );
+  }
+
   List<Map<String, dynamic>> _diagnosticsForTab(List<CalculatorSetContentTab> tabs, int tabIndex) {
-    final offset = tabs.take(tabIndex).fold<int>(0, (sum, tab) => sum + tab.items.where((entry) => entry.enabled).length);
-    final activeCount = tabs[tabIndex].items.where((entry) => entry.enabled).length;
-    return widget.diagnostics.skip(offset).take(activeCount).toList(growable: false);
+    final manualBefore = tabs.take(tabIndex).fold<int>(
+      0,
+      (sum, tab) => sum + tab.items.where((entry) => entry.enabled && entry.isManual).length,
+    );
+    final manualCount = tabs[tabIndex].items.where((entry) => entry.enabled && entry.isManual).length;
+    return widget.diagnostics.skip(manualBefore).take(manualCount).toList(growable: false);
+  }
+}
+
+
+class _ManualComponentSelection {
+  const _ManualComponentSelection({
+    required this.item,
+    required this.quantity,
+    required this.salesUnitCode,
+    this.variant,
+    this.lengthMm,
+  });
+
+  final CalculatorCatalogItemOption item;
+  final CalculatorCatalogVariantOption? variant;
+  final num quantity;
+  final String salesUnitCode;
+  final int? lengthMm;
+}
+
+class _ManualComponentDialog extends StatefulWidget {
+  const _ManualComponentDialog({
+    required this.contextData,
+    required this.candidates,
+    required this.mediaRepository,
+  });
+
+  final CalculatorContext contextData;
+  final List<CalculatorCatalogItemOption> candidates;
+  final AdminResourceRepository mediaRepository;
+
+  @override
+  State<_ManualComponentDialog> createState() => _ManualComponentDialogState();
+}
+
+class _ManualComponentDialogState extends State<_ManualComponentDialog> {
+  final _itemController = TextEditingController();
+  final _variantController = TextEditingController();
+  final _quantityController = TextEditingController(text: '1');
+  final _lengthController = TextEditingController();
+  final _itemFocusNode = FocusNode();
+  final _variantFocusNode = FocusNode();
+
+  String? _itemId;
+  String? _variantId;
+  String? _salesUnitCode;
+
+  @override
+  void dispose() {
+    _itemController.dispose();
+    _variantController.dispose();
+    _quantityController.dispose();
+    _lengthController.dispose();
+    _itemFocusNode.dispose();
+    _variantFocusNode.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final item = _selectedItem;
+    final variants = item == null ? const <CalculatorCatalogVariantOption>[] : _variantsFor(item.id);
+    final variant = _selectedVariant;
+    final requiresVariant = item != null && variants.isNotEmpty;
+    final units = _salesUnitOptions(item, variant);
+    final selectedUnit = units.contains(_salesUnitCode) ? _salesUnitCode! : units.first;
+    final canAdd = item != null && (!requiresVariant || variant != null);
+
+    return AlertDialog(
+      title: const Text('Add manual component from Standard set'),
+      content: SizedBox(
+        width: 780,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 560),
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text(
+                  'Only Catalog Items contained in the matched Standard set are available. Additional handling is intentionally not available here.',
+                ),
+                const SizedBox(height: 14),
+                _SearchableOptionField<CalculatorCatalogItemOption>(
+                  label: 'Catalog item from Standard set',
+                  hintText: 'Type article number or name',
+                  controller: _itemController,
+                  focusNode: _itemFocusNode,
+                  options: widget.candidates,
+                  displayStringForOption: _itemLabel,
+                  searchStringForOption: _itemSearchText,
+                  leadingBuilder: (candidate) => _CatalogNomenclatureMedia(
+                    item: candidate,
+                    repository: widget.mediaRepository,
+                    size: 36,
+                  ),
+                  onSelected: _selectItem,
+                ),
+                if (item != null) ...[
+                  const SizedBox(height: 14),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _CatalogOptionMediaPreview(
+                        item: item,
+                        variant: variant,
+                        repository: widget.mediaRepository,
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Text(item.displayName, style: Theme.of(context).textTheme.titleSmall),
+                            const SizedBox(height: 10),
+                            _SearchableOptionField<CalculatorCatalogVariantOption>(
+                              label: variants.isEmpty ? 'Catalog variant / SKU (none available)' : 'Catalog variant / SKU',
+                              hintText: variants.isEmpty ? 'This Catalog Item has no variants' : 'Type SKU, article, color or length',
+                              controller: _variantController,
+                              focusNode: _variantFocusNode,
+                              enabled: variants.isNotEmpty,
+                              options: variants,
+                              displayStringForOption: _variantLabel,
+                              searchStringForOption: _variantSearchText,
+                              leadingBuilder: (candidate) => _CatalogNomenclatureMedia(
+                                item: item,
+                                variant: candidate,
+                                repository: widget.mediaRepository,
+                                size: 36,
+                              ),
+                              onSelected: _selectVariant,
+                            ),
+                            const SizedBox(height: 12),
+                            Wrap(
+                              spacing: 12,
+                              runSpacing: 12,
+                              crossAxisAlignment: WrapCrossAlignment.center,
+                              children: [
+                                SizedBox(
+                                  width: 110,
+                                  child: TextField(
+                                    controller: _quantityController,
+                                    keyboardType: TextInputType.number,
+                                    decoration: const InputDecoration(labelText: 'Quantity'),
+                                  ),
+                                ),
+                                SizedBox(
+                                  width: 150,
+                                  child: DropdownButtonFormField<String>(
+                                    key: ValueKey('manual-unit-${item.id}-${variant?.id ?? ''}-$selectedUnit'),
+                                    initialValue: selectedUnit,
+                                    isExpanded: true,
+                                    decoration: const InputDecoration(labelText: 'Sales unit'),
+                                    items: [
+                                      for (final unit in units)
+                                        DropdownMenuItem(value: unit, child: Text(_formatUnitLabel(unit))),
+                                    ],
+                                    onChanged: (value) => setState(() => _salesUnitCode = value),
+                                  ),
+                                ),
+                                if (_isProfile(item))
+                                  SizedBox(
+                                    width: 160,
+                                    child: TextField(
+                                      controller: _lengthController,
+                                      keyboardType: TextInputType.number,
+                                      decoration: const InputDecoration(labelText: 'Length', suffixText: 'mm'),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
+        FilledButton(
+          onPressed: canAdd ? () => _submit(item, variant, selectedUnit) : null,
+          child: const Text('Add'),
+        ),
+      ],
+    );
+  }
+
+  CalculatorCatalogItemOption? get _selectedItem => widget.candidates
+      .where((entry) => entry.id == _itemId)
+      .cast<CalculatorCatalogItemOption?>()
+      .firstOrNull;
+
+  CalculatorCatalogVariantOption? get _selectedVariant => widget.contextData.optionCatalogVariants
+      .where((entry) => entry.id == _variantId)
+      .cast<CalculatorCatalogVariantOption?>()
+      .firstOrNull;
+
+  List<CalculatorCatalogVariantOption> _variantsFor(String itemId) => widget.contextData.optionCatalogVariants
+      .where((entry) => entry.catalogItemId == itemId)
+      .toList(growable: false);
+
+  void _selectItem(CalculatorCatalogItemOption item) {
+    final variants = _variantsFor(item.id);
+    final onlyVariant = variants.length == 1 ? variants.first : null;
+    setState(() {
+      _itemId = item.id;
+      _variantId = onlyVariant?.id;
+      _itemController.text = _itemLabel(item);
+      _variantController.text = onlyVariant == null ? '' : _variantLabel(onlyVariant);
+      _salesUnitCode = _defaultSalesUnit(item, onlyVariant);
+      _lengthController.text = '${onlyVariant?.lengthMm ?? item.defaultLengthMm ?? ''}';
+    });
+    if (onlyVariant == null && variants.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _variantFocusNode.requestFocus();
+      });
+    }
+  }
+
+  void _selectVariant(CalculatorCatalogVariantOption variant) {
+    final item = _selectedItem;
+    setState(() {
+      _variantId = variant.id;
+      _variantController.text = _variantLabel(variant);
+      _salesUnitCode = _defaultSalesUnit(item, variant);
+      _lengthController.text = '${variant.lengthMm ?? item?.defaultLengthMm ?? ''}';
+    });
+  }
+
+  void _submit(
+    CalculatorCatalogItemOption item,
+    CalculatorCatalogVariantOption? variant,
+    String salesUnitCode,
+  ) {
+    final quantity = num.tryParse(_quantityController.text.replaceAll(',', '.')) ?? 1;
+    final lengthMm = _isProfile(item) ? int.tryParse(_lengthController.text.trim()) : null;
+    Navigator.of(context).pop(
+      _ManualComponentSelection(
+        item: item,
+        variant: variant,
+        quantity: quantity <= 0 ? 1 : quantity,
+        salesUnitCode: salesUnitCode,
+        lengthMm: lengthMm,
+      ),
+    );
+  }
+
+  bool _isProfile(CalculatorCatalogItemOption item) => item.itemTypeCode.toLowerCase().contains('profile');
+
+  String _itemLabel(CalculatorCatalogItemOption item) =>
+      _joinDistinctTextParts([item.profileNo, item.baseCode, item.name]);
+
+  String _itemSearchText(CalculatorCatalogItemOption item) =>
+      _joinDistinctTextParts([item.profileNo, item.baseCode, item.name, item.shortName, item.itemTypeCode]);
+
+  String _variantLabel(CalculatorCatalogVariantOption variant) => _joinDistinctTextParts([
+        variant.variantSku,
+        variant.articleNo,
+        variant.profileNo,
+        variant.colorName,
+        variant.colorCode,
+        _formatLengthMm(variant.lengthMm),
+      ]);
+
+  String _variantSearchText(CalculatorCatalogVariantOption variant) => _joinDistinctTextParts([
+        _variantLabel(variant),
+        variant.systemCode,
+        variant.systemName,
+        variant.glassTypeCode,
+        variant.coatingTypeCode,
+      ]);
+
+  List<String> _salesUnitOptions(
+    CalculatorCatalogItemOption? item,
+    CalculatorCatalogVariantOption? variant,
+  ) {
+    final values = <String?>[
+      ...?variant?.allowedSalesUnitCodes,
+      ...?item?.allowedSalesUnitCodes,
+      variant?.defaultSalesUnitCode,
+      item?.defaultSalesUnitCode,
+      item?.measureTypeCode,
+      variant?.packageUnitCode,
+      item?.packageUnitCode,
+      variant?.packageContentUnitCode,
+      item?.packageContentUnitCode,
+      'piece',
+    ];
+    final result = <String>[];
+    for (final value in values) {
+      final normalized = _normalizeUnitCode(value);
+      if (normalized == null || result.contains(normalized)) continue;
+      result.add(normalized);
+    }
+    return result.isEmpty ? const ['piece'] : result;
+  }
+
+  String _defaultSalesUnit(
+    CalculatorCatalogItemOption? item,
+    CalculatorCatalogVariantOption? variant,
+  ) {
+    final units = _salesUnitOptions(item, variant);
+    for (final value in [
+      variant?.defaultSalesUnitCode,
+      item?.defaultSalesUnitCode,
+      item?.measureTypeCode,
+    ]) {
+      final normalized = _normalizeUnitCode(value);
+      if (normalized != null && units.contains(normalized)) return normalized;
+    }
+    return units.first;
+  }
+
+  String? _normalizeUnitCode(String? value) {
+    final text = value?.trim().toLowerCase().replaceAll(RegExp(r'\s+'), '_');
+    if (text == null || text.isEmpty) return null;
+    switch (text) {
+      case 'm':
+      case 'meter':
+      case 'meters':
+      case 'metre':
+      case 'metres':
+        return 'meter';
+      case 'karton':
+      case 'carton':
+      case 'box':
+      case 'package':
+        return 'carton';
+      case 'rolle':
+      case 'roll':
+        return 'roll';
+      case 'stk':
+      case 'stk.':
+      case 'st':
+      case 'pc':
+      case 'pcs':
+      case 'piece':
+      case 'pieces':
+        return 'piece';
+      case 'm2':
+      case 'sqm':
+      case 'square_meter':
+      case 'square_meters':
+        return 'sqm';
+      case 'prozent':
+      case 'percent':
+      case '%':
+        return 'percent';
+      default:
+        return text;
+    }
+  }
+}
+
+class _BomSummaryList extends StatefulWidget {
+  const _BomSummaryList({
+    required this.contextData,
+    required this.mediaRepository,
+    required this.title,
+    required this.subtitle,
+    required this.emptyText,
+    required this.lines,
+  });
+
+  final CalculatorContext contextData;
+  final AdminResourceRepository mediaRepository;
+  final String title;
+  final String subtitle;
+  final String emptyText;
+  final List<Map<String, dynamic>> lines;
+
+  @override
+  State<_BomSummaryList> createState() => _BomSummaryListState();
+}
+
+class _BomSummaryListState extends State<_BomSummaryList> {
+  final _scrollController = ScrollController();
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(widget.title, style: Theme.of(context).textTheme.titleSmall),
+                const SizedBox(height: 3),
+                Text(widget.subtitle, style: Theme.of(context).textTheme.bodySmall),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          if (widget.lines.isEmpty)
+            Expanded(child: Center(child: Padding(padding: const EdgeInsets.all(16), child: Text(widget.emptyText))))
+          else
+            Expanded(
+              child: Scrollbar(
+                controller: _scrollController,
+                thumbVisibility: true,
+                trackVisibility: true,
+                child: ListView.separated(
+                  controller: _scrollController,
+                  padding: const EdgeInsets.only(right: 8, bottom: 4),
+                  itemCount: widget.lines.length,
+                  separatorBuilder: (_, __) => const Divider(height: 1),
+                  itemBuilder: (context, index) {
+                    final line = widget.lines[index];
+                    return ListTile(
+                      dense: true,
+                      leading: _CatalogNomenclatureMedia(
+                        item: _catalogItemForBomLine(widget.contextData, line),
+                        repository: widget.mediaRepository,
+                      ),
+                      title: Text('${line['article_no'] ?? line['profile_no'] ?? '—'} · ${line['name'] ?? 'Component'}'),
+                      subtitle: Text(_bomLineDescription(line)),
+                      trailing: Text('${_num(line['quantity'])} ${_formatUnitLabel('${line['unit_code'] ?? 'piece'}')}'),
+                    );
+                  },
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  String _bomLineDescription(Map<String, dynamic> line) {
+    final source = line['source'] is Map ? Map<String, dynamic>.from(line['source'] as Map) : const <String, dynamic>{};
+    final kind = source['delta_kind']?.toString();
+    if (kind != null) {
+      return 'Standard ${source['standard_quantity'] ?? '—'} · calculated ${source['calculated_quantity'] ?? '—'} · $kind';
+    }
+    final segments = line['segments'] is List ? line['segments'] as List : const [];
+    if (segments.isEmpty) return '${source['source_type'] ?? 'standard_set'}';
+    return segments.whereType<Map>().map((raw) {
+      final segment = Map<String, dynamic>.from(raw);
+      return '${segment['module'] ?? 'main'}: ${segment['quantity'] ?? 0} × ${segment['length_mm'] ?? 0} mm';
+    }).join(' · ');
   }
 }
 
@@ -3027,9 +3570,134 @@ class _InfoChip extends StatelessWidget {
   }
 }
 
+
+List<CalculatorCatalogItemOption> _catalogItemsForBomLines(
+  CalculatorContext contextData,
+  List<Map<String, dynamic>> lines,
+) {
+  final result = <CalculatorCatalogItemOption>[];
+  final seen = <String>{};
+  for (final line in lines) {
+    final item = _catalogItemForBomLine(contextData, line);
+    if (item == null || !seen.add(item.id)) continue;
+    result.add(item);
+  }
+  result.sort((a, b) => '${a.profileNo ?? a.baseCode} ${a.name}'.compareTo('${b.profileNo ?? b.baseCode} ${b.name}'));
+  return result;
+}
+
+CalculatorCatalogItemOption? _catalogItemForBomLine(
+  CalculatorContext contextData,
+  Map<String, dynamic> line,
+) {
+  final source = line['source'] is Map
+      ? Map<String, dynamic>.from(line['source'] as Map)
+      : line['source_component'] is Map
+          ? Map<String, dynamic>.from(line['source_component'] as Map)
+          : const <String, dynamic>{};
+  return _findCatalogItem(
+    contextData,
+    id: _stringFromRaw(line['catalog_item_id'] ?? source['catalog_item_id']),
+    codes: [
+      _stringFromRaw(line['article_no']),
+      _stringFromRaw(line['profile_no']),
+      _stringFromRaw(line['base_code']),
+      _stringFromRaw(source['article_no']),
+      _stringFromRaw(source['profile_no']),
+      _stringFromRaw(source['base_code']),
+      _stringFromRaw(source['target_code']),
+    ],
+  );
+}
+
+CalculatorCatalogItemOption? _catalogItemForSetContent(
+  CalculatorContext contextData,
+  CalculatorSetContentItem item,
+) {
+  return _findCatalogItem(
+    contextData,
+    id: item.catalogItemId,
+    codes: [item.articleNo, item.profileNo, item.baseCode],
+  );
+}
+
+CalculatorCatalogItemOption? _findCatalogItem(
+  CalculatorContext contextData, {
+  String? id,
+  Iterable<String?> codes = const [],
+}) {
+  final normalizedId = id?.trim();
+  if (normalizedId != null && normalizedId.isNotEmpty) {
+    final byId = contextData.optionCatalogItems
+        .where((entry) => entry.id == normalizedId)
+        .cast<CalculatorCatalogItemOption?>()
+        .firstOrNull;
+    if (byId != null) return byId;
+  }
+
+  final wanted = <String>{};
+  for (final code in codes) {
+    wanted.addAll(_catalogCodeKeys(code));
+  }
+  if (wanted.isEmpty) return null;
+
+  CalculatorCatalogItemOption? prefixedMatch;
+  for (final item in contextData.optionCatalogItems) {
+    final itemKeys = <String>{
+      ..._catalogCodeKeys(item.profileNo),
+      ..._catalogCodeKeys(item.baseCode),
+      ..._catalogCodeKeys(_stringFromRaw(item.raw['article_no'])),
+    };
+    if (itemKeys.intersection(wanted).isEmpty) continue;
+    final baseCode = item.baseCode.trim();
+    if (!baseCode.contains(':')) return item;
+    prefixedMatch ??= item;
+  }
+  return prefixedMatch;
+}
+
+Set<String> _catalogCodeKeys(String? raw) {
+  final value = raw?.trim().toLowerCase();
+  if (value == null || value.isEmpty) return const <String>{};
+  final compact = value.replaceAll(RegExp(r'\s+'), '');
+  final result = <String>{compact};
+  final separator = compact.lastIndexOf(':');
+  if (separator >= 0 && separator < compact.length - 1) {
+    result.add(compact.substring(separator + 1));
+  }
+  return result;
+}
+
+class _CatalogNomenclatureMedia extends StatelessWidget {
+  const _CatalogNomenclatureMedia({
+    required this.item,
+    required this.repository,
+    this.variant,
+    this.size = 40,
+  });
+
+  final CalculatorCatalogItemOption? item;
+  final CalculatorCatalogVariantOption? variant;
+  final AdminResourceRepository repository;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final catalogItem = item;
+    if (catalogItem == null) {
+      return _SectionPreviewPlaceholder(size: size);
+    }
+    return _CatalogOptionMediaPreview(
+      item: catalogItem,
+      variant: variant,
+      repository: repository,
+      size: size,
+    );
+  }
+}
+
 class _SetContentVisibleRow {
   const _SetContentVisibleRow({required this.itemIndex, required this.item});
-
   final int itemIndex;
   final CalculatorSetContentItem item;
 }
@@ -3038,7 +3706,7 @@ List<_SetContentVisibleRow> _visibleSetContentRows(CalculatorContext contextData
   final rows = <_SetContentVisibleRow>[];
   for (var i = 0; i < tab.items.length; i++) {
     final item = tab.items[i];
-    if (_isAccessorySetContentItem(contextData, item)) continue;
+    if (item.isDerivedOverride || _isAccessorySetContentItem(contextData, item)) continue;
     rows.add(_SetContentVisibleRow(itemIndex: i, item: item));
   }
   return rows;
@@ -3047,60 +3715,45 @@ List<_SetContentVisibleRow> _visibleSetContentRows(CalculatorContext contextData
 class _SetContentTabTable extends StatefulWidget {
   const _SetContentTabTable({
     required this.contextData,
+    required this.mediaRepository,
     required this.tab,
     required this.tabIndex,
     required this.diagnostics,
     required this.onQuantityChanged,
     required this.onLengthChanged,
     required this.onToggleItem,
-    this.onRemoveTab,
+    required this.onOverrideChanged,
+    required this.onResetItem,
+    required this.onAddManual,
   });
 
-  static const _profileWidth = 72.0;
-  static const _qtyWidth = 92.0;
+  static const _mediaWidth = 48.0;
+  static const _profileWidth = 76.0;
+  static const _qtyWidth = 88.0;
   static const _unitWidth = 58.0;
-  static const _lengthWidth = 118.0;
-  static const _priceWidth = 96.0;
-  static const _toggleWidth = 44.0;
-  static const _columnGap = 16.0;
+  static const _lengthWidth = 116.0;
+  static const _stateWidth = 112.0;
+  static const _actionsWidth = 88.0;
+  static const _columnGap = 12.0;
 
   final CalculatorContext contextData;
+  final AdminResourceRepository mediaRepository;
   final CalculatorSetContentTab tab;
   final int tabIndex;
   final List<Map<String, dynamic>> diagnostics;
   final void Function(int itemIndex, num quantity) onQuantityChanged;
   final void Function(int itemIndex, int? lengthMm) onLengthChanged;
   final void Function(int itemIndex) onToggleItem;
-  final VoidCallback? onRemoveTab;
+  final void Function(int itemIndex, bool enabled) onOverrideChanged;
+  final void Function(int itemIndex) onResetItem;
+  final VoidCallback onAddManual;
 
   @override
   State<_SetContentTabTable> createState() => _SetContentTabTableState();
 }
 
 class _SetContentTabTableState extends State<_SetContentTabTable> {
-  static const _profileWidth = _SetContentTabTable._profileWidth;
-  static const _qtyWidth = _SetContentTabTable._qtyWidth;
-  static const _unitWidth = _SetContentTabTable._unitWidth;
-  static const _lengthWidth = _SetContentTabTable._lengthWidth;
-  static const _priceWidth = _SetContentTabTable._priceWidth;
-  static const _toggleWidth = _SetContentTabTable._toggleWidth;
-  static const _columnGap = _SetContentTabTable._columnGap;
-  static const _rowExtent = 60.0;
-  static const _titleHeight = 48.0;
-  static const _headerHeight = 32.0;
-  static const _verticalPadding = 12.0;
-  static const _dividerHeight = 1.0;
-
   final _scrollController = ScrollController();
-
-  CalculatorContext get contextData => widget.contextData;
-  CalculatorSetContentTab get tab => widget.tab;
-  int get tabIndex => widget.tabIndex;
-  List<Map<String, dynamic>> get diagnostics => widget.diagnostics;
-  void Function(int itemIndex, num quantity) get onQuantityChanged => widget.onQuantityChanged;
-  void Function(int itemIndex, int? lengthMm) get onLengthChanged => widget.onLengthChanged;
-  void Function(int itemIndex) get onToggleItem => widget.onToggleItem;
-  VoidCallback? get onRemoveTab => widget.onRemoveTab;
 
   @override
   void dispose() {
@@ -3110,222 +3763,184 @@ class _SetContentTabTableState extends State<_SetContentTabTable> {
 
   @override
   Widget build(BuildContext context) {
-    final visibleRows = _visibleSetContentRows(contextData, tab);
-    final activeCount = visibleRows.where((entry) => entry.item.enabled).length;
-    final hiddenAccessoryCount = tab.items.length - visibleRows.length;
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final maxHeight = constraints.maxHeight.isFinite ? constraints.maxHeight : 440.0;
-        const fixedHeight = _verticalPadding +
-            _titleHeight +
-            _headerHeight +
-            _dividerHeight +
-            _dividerHeight;
-        final listViewportHeight = maxHeight - fixedHeight;
-        final hasHiddenRows = visibleRows.isNotEmpty &&
-            visibleRows.length * _rowExtent > listViewportHeight + 0.5;
-
-        return SizedBox(
-          height: maxHeight,
-          child: Card(
-            margin: EdgeInsets.zero,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 6),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  SizedBox(
-                    height: _titleHeight,
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(12, 0, 12, 0),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              '${tab.label} · $activeCount/${visibleRows.length} active set items${hiddenAccessoryCount > 0 ? ' · $hiddenAccessoryCount accessory moved' : ''}',
-                              style: Theme.of(context).textTheme.titleSmall,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          IconButton(
-                            tooltip: 'Remove block',
-                            onPressed: onRemoveTab,
-                            icon: const Icon(Icons.delete_outline),
-                          ),
-                        ],
-                      ),
-                    ),
+    final rows = _visibleSetContentRows(widget.contextData, widget.tab);
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '${widget.tab.label} · ${rows.where((row) => row.item.isCalculated).length} calculated · ${rows.where((row) => row.item.isManual).length} manual',
+                    style: Theme.of(context).textTheme.titleSmall,
                   ),
-                  const Divider(height: 1),
-                  SizedBox(height: _headerHeight, child: _header(context)),
-                  const Divider(height: 1),
-                  if (visibleRows.isEmpty)
-                    const Expanded(
-                      child: Center(
-                        child: Padding(
-                          padding: EdgeInsets.all(16),
-                          child: Text('Only accessory components were found in this block. They are shown in the Accessory step.'),
-                        ),
-                      ),
-                    )
-                  else
-                    Expanded(
-                      child: Scrollbar(
-                        controller: _scrollController,
-                        thumbVisibility: hasHiddenRows,
-                        child: ListView.builder(
-                          controller: _scrollController,
-                          padding: EdgeInsets.zero,
-                          itemExtent: _rowExtent,
-                          itemCount: visibleRows.length,
-                          itemBuilder: (context, index) => DecoratedBox(
-                            decoration: BoxDecoration(
-                              border: index == visibleRows.length - 1
-                                  ? null
-                                  : Border(
-                                      bottom: BorderSide(color: Theme.of(context).dividerColor, width: 1),
-                                    ),
-                            ),
-                            child: _row(context, visibleRows[index]),
-                          ),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
+                ),
+                FilledButton.tonalIcon(
+                  onPressed: widget.onAddManual,
+                  icon: const Icon(Icons.add, size: 18),
+                  label: const Text('Manual component'),
+                ),
+              ],
             ),
           ),
-        );
-      },
-    );
-  }
-
-  Widget _header(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-      child: Row(
-        children: [
-          _fixedCell(context, const Text('Profile'), width: _profileWidth, header: true),
-          _gap(),
-          _expandedCell(context, const Text('Name'), flex: 5, header: true),
-          _gap(),
-          _fixedCell(context, const Text('Qty'), width: _qtyWidth, header: true),
-          _gap(),
-          _fixedCell(context, const Text('Unit'), width: _unitWidth, header: true),
-          _gap(),
-          _fixedCell(context, const Text('Length'), width: _lengthWidth, header: true),
-          _gap(),
-          _fixedCell(context, const Text('Price'), width: _priceWidth, header: true),
-          _gap(),
-          const SizedBox(width: _toggleWidth),
+          const Divider(height: 1),
+          SizedBox(height: 34, child: _header(context)),
+          const Divider(height: 1),
+          if (rows.isEmpty)
+            const Expanded(child: Center(child: Text('No calculated or manual profile segments in this module.')))
+          else
+            Expanded(
+              child: Scrollbar(
+                controller: _scrollController,
+                thumbVisibility: true,
+                trackVisibility: true,
+                child: ListView.separated(
+                  controller: _scrollController,
+                  itemCount: rows.length,
+                  separatorBuilder: (_, __) => const Divider(height: 1),
+                  itemBuilder: (context, index) => _row(context, rows[index]),
+                ),
+              ),
+            ),
         ],
       ),
     );
   }
 
-  Widget _row(BuildContext context, _SetContentVisibleRow row) {
-    final index = row.itemIndex;
-    final item = row.item;
-    final catalogItem = _findItem(item.catalogItemId);
-    final variant = _findVariant(item.catalogVariantId);
-    final enabled = item.enabled;
-    final activeIndex = tab.items.take(index).where((entry) => entry.enabled).length;
-    final diagnostic = enabled && activeIndex < diagnostics.length ? diagnostics[activeIndex] : null;
-    final profileNo = item.profileNo ?? variant?.profileNo ?? catalogItem?.profileNo ?? diagnostic?['profile_no']?.toString();
-    final name = item.name ?? _selectedName(catalogItem, variant, item);
-    final unit = item.salesUnitCode ?? item.unitCode ?? catalogItem?.defaultSalesUnitCode ?? catalogItem?.measureTypeCode ?? diagnostic?['unit_code']?.toString() ?? 'piece';
-    final priceAmount = _num(diagnostic?['amount']);
-    final colorScheme = Theme.of(context).colorScheme;
+  Widget _header(BuildContext context) => Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        child: Row(
+          children: [
+            _fixed(context, const Text('Media'), _SetContentTabTable._mediaWidth, true),
+            _gap(),
+            _fixed(context, const Text('Profile'), _SetContentTabTable._profileWidth, true),
+            _gap(),
+            _expanded(context, const Text('Name / source'), true),
+            _gap(),
+            _fixed(context, const Text('Qty'), _SetContentTabTable._qtyWidth, true),
+            _gap(),
+            _fixed(context, const Text('Unit'), _SetContentTabTable._unitWidth, true),
+            _gap(),
+            _fixed(context, const Text('Length'), _SetContentTabTable._lengthWidth, true),
+            _gap(),
+            _fixed(context, const Text('State / price'), _SetContentTabTable._stateWidth, true),
+            _gap(),
+            const SizedBox(width: _SetContentTabTable._actionsWidth),
+          ],
+        ),
+      );
 
-    final rowContent = Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _fixedCell(context, Text(profileNo ?? '—'), width: _profileWidth),
-        _gap(),
-        _expandedCell(
-          context,
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(name, maxLines: 2, overflow: TextOverflow.ellipsis),
-              Text(
-                [item.articleNo, item.variantSku, variant?.colorName, _formatLengthMm(variant?.lengthMm)]
-                    .whereType<String>()
-                    .where((entry) => entry.isNotEmpty)
-                    .join(' · '),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: colorScheme.onSurfaceVariant,
-                    ),
-              ),
-            ],
-          ),
-          flex: 5,
-        ),
-        _gap(),
-        _fixedCell(
-          context,
-          TextFormField(
-            key: ValueKey('set-content-qty-$tabIndex-$index-${item.catalogItemId}-${item.catalogVariantId ?? ''}-$enabled'),
-            initialValue: _formatInputQuantity(item.quantity),
-            enabled: enabled,
-            keyboardType: TextInputType.number,
-            decoration: const InputDecoration(isDense: true),
-            onChanged: (value) => onQuantityChanged(index, num.tryParse(value.replaceAll(',', '.')) ?? item.quantity),
-          ),
-          width: _qtyWidth,
-        ),
-        _gap(),
-        _fixedCell(context, Text(_formatUnitLabel(unit)), width: _unitWidth),
-        _gap(),
-        _fixedCell(
-          context,
-          item.isProfile
-              ? TextFormField(
-                  key: ValueKey('set-content-length-$tabIndex-$index-${item.catalogItemId}-${item.catalogVariantId ?? ''}-$enabled'),
-                  initialValue: item.lengthMm == null ? '' : '${item.lengthMm}',
-                  enabled: enabled,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(isDense: true, suffixText: 'mm'),
-                  onChanged: (value) => onLengthChanged(index, int.tryParse(value.trim())),
-                )
-              : Text(_formatLengthMm(item.lengthMm) ?? '—'),
-          width: _lengthWidth,
-        ),
-        _gap(),
-        _fixedCell(
-          context,
-          Text(priceAmount > 0 ? _moneyFormat.format(priceAmount) : '—'),
-          width: _priceWidth,
-        ),
-      ],
-    );
+  Widget _row(BuildContext context, _SetContentVisibleRow visible) {
+    final item = visible.item;
+    final index = visible.itemIndex;
+    final editable = item.isManual || item.isOverridden;
+    final manualIndex = widget.tab.items.take(index).where((entry) => entry.enabled && entry.isManual).length;
+    final diagnostic = item.isManual && manualIndex < widget.diagnostics.length ? widget.diagnostics[manualIndex] : null;
+    final amount = _num(diagnostic?['amount']);
+    final colorScheme = Theme.of(context).colorScheme;
+    final sourceLabel = item.isCalculated
+        ? (item.overrideState == 'excluded'
+            ? 'Calculated · excluded'
+            : item.isOverridden
+                ? 'Calculated · overridden'
+                : 'Calculated · automatic')
+        : 'Manual component';
 
     return AnimatedContainer(
-      duration: const Duration(milliseconds: 160),
-      color: enabled ? Colors.transparent : colorScheme.surfaceContainerHighest.withValues(alpha: 0.55),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      duration: const Duration(milliseconds: 140),
+      color: item.enabled ? Colors.transparent : colorScheme.surfaceContainerHighest.withValues(alpha: 0.55),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: AnimatedOpacity(
-              duration: const Duration(milliseconds: 160),
-              opacity: enabled ? 1 : 0.46,
-              child: rowContent,
+          _fixed(
+            context,
+            _CatalogNomenclatureMedia(
+              item: _catalogItemForSetContent(widget.contextData, item),
+              repository: widget.mediaRepository,
             ),
+            _SetContentTabTable._mediaWidth,
+          ),
+          _gap(),
+          _fixed(context, Text(item.profileNo ?? item.articleNo ?? item.baseCode ?? '—'), _SetContentTabTable._profileWidth),
+          _gap(),
+          _expanded(
+            context,
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(item.name ?? 'Component', maxLines: 1, overflow: TextOverflow.ellipsis),
+                Text(
+                  [sourceLabel, if (item.segmentId != null) item.segmentId!].join(' · '),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(color: colorScheme.onSurfaceVariant),
+                ),
+              ],
+            ),
+          ),
+          _gap(),
+          _fixed(
+            context,
+            TextFormField(
+              key: ValueKey('set-qty-${widget.tabIndex}-$index-${item.quantity}-${item.overrideState}'),
+              initialValue: _formatInputQuantity(item.quantity),
+              enabled: item.enabled && editable,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(isDense: true),
+              onChanged: (value) => widget.onQuantityChanged(index, num.tryParse(value.replaceAll(',', '.')) ?? item.quantity),
+            ),
+            _SetContentTabTable._qtyWidth,
+          ),
+          _gap(),
+          _fixed(context, Text(_formatUnitLabel(item.salesUnitCode ?? item.unitCode ?? 'piece')), _SetContentTabTable._unitWidth),
+          _gap(),
+          _fixed(
+            context,
+            item.isProfile
+                ? TextFormField(
+                    key: ValueKey('set-length-${widget.tabIndex}-$index-${item.lengthMm}-${item.overrideState}'),
+                    initialValue: item.lengthMm?.toString() ?? '',
+                    enabled: item.enabled && editable,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(isDense: true, suffixText: 'mm'),
+                    onChanged: (value) => widget.onLengthChanged(index, int.tryParse(value.trim())),
+                  )
+                : Text(_formatLengthMm(item.lengthMm) ?? '—'),
+            _SetContentTabTable._lengthWidth,
+          ),
+          _gap(),
+          _fixed(
+            context,
+            Text(item.isCalculated ? 'Base / delta' : (amount != 0 ? _moneyFormat.format(amount) : 'Manual')),
+            _SetContentTabTable._stateWidth,
           ),
           _gap(),
           SizedBox(
-            width: _toggleWidth,
-            child: IconButton(
-              tooltip: enabled ? 'Exclude from calculation' : 'Include in calculation',
-              onPressed: () => onToggleItem(index),
-              icon: Icon(enabled ? Icons.check_circle_outline : Icons.remove_circle_outline),
-              color: enabled ? colorScheme.primary : colorScheme.onSurfaceVariant,
+            width: _SetContentTabTable._actionsWidth,
+            child: Row(
+              children: [
+                if (item.isCalculated)
+                  IconButton(
+                    tooltip: item.isOverridden ? 'Reset to calculated values' : 'Override calculated values',
+                    onPressed: item.isOverridden
+                        ? () => widget.onResetItem(index)
+                        : () => widget.onOverrideChanged(index, true),
+                    icon: Icon(item.isOverridden ? Icons.restart_alt : Icons.edit_outlined, size: 20),
+                  )
+                else
+                  const SizedBox(width: 40),
+                IconButton(
+                  tooltip: item.enabled ? 'Exclude segment' : 'Include segment',
+                  onPressed: () => widget.onToggleItem(index),
+                  icon: Icon(item.enabled ? Icons.check_circle_outline : Icons.remove_circle_outline, size: 20),
+                  color: item.enabled ? colorScheme.primary : colorScheme.onSurfaceVariant,
+                ),
+              ],
             ),
           ),
         ],
@@ -3333,57 +3948,24 @@ class _SetContentTabTableState extends State<_SetContentTabTable> {
     );
   }
 
-  Widget _gap() => const SizedBox(width: _columnGap);
+  Widget _gap() => const SizedBox(width: _SetContentTabTable._columnGap);
 
-  Widget _fixedCell(
-    BuildContext context,
-    Widget child, {
-    required double width,
-    bool header = false,
-  }) {
-    final style = header
-        ? Theme.of(context).textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w700)
-        : Theme.of(context).textTheme.bodyMedium;
-    return SizedBox(
-      width: width,
-      child: DefaultTextStyle.merge(style: style, child: child),
-    );
-  }
+  Widget _fixed(BuildContext context, Widget child, double width, [bool header = false]) => SizedBox(
+        width: width,
+        child: DefaultTextStyle.merge(
+          style: header ? Theme.of(context).textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w700) : Theme.of(context).textTheme.bodySmall,
+          child: child,
+        ),
+      );
 
-  Widget _expandedCell(
-    BuildContext context,
-    Widget child, {
-    int flex = 1,
-    bool header = false,
-  }) {
-    final style = header
-        ? Theme.of(context).textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w700)
-        : Theme.of(context).textTheme.bodyMedium;
-    return Expanded(
-      flex: flex,
-      child: DefaultTextStyle.merge(style: style, child: child),
-    );
-  }
-
-  CalculatorCatalogItemOption? _findItem(String? id) {
-    if (id == null) return null;
-    return contextData.optionCatalogItems.where((entry) => entry.id == id).cast<CalculatorCatalogItemOption?>().firstOrNull;
-  }
-
-  CalculatorCatalogVariantOption? _findVariant(String? id) {
-    if (id == null) return null;
-    return contextData.optionCatalogVariants.where((entry) => entry.id == id).cast<CalculatorCatalogVariantOption?>().firstOrNull;
-  }
-
-  String _selectedName(CalculatorCatalogItemOption? item, CalculatorCatalogVariantOption? variant, CalculatorSetContentItem selected) {
-    return _joinDistinctTextParts([
-      selected.itemTypeCode ?? item?.itemTypeCode,
-      item?.name ?? selected.name,
-      variant?.variantSku ?? selected.variantSku,
-    ]);
-  }
+  Widget _expanded(BuildContext context, Widget child, [bool header = false]) => Expanded(
+        flex: 5,
+        child: DefaultTextStyle.merge(
+          style: header ? Theme.of(context).textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w700) : Theme.of(context).textTheme.bodySmall,
+          child: child,
+        ),
+      );
 }
-
 
 bool _isAccessorySetContentItem(CalculatorContext contextData, CalculatorSetContentItem item) {
   final catalogItem = contextData.optionCatalogItems
@@ -3399,75 +3981,117 @@ class _AccessoryStep extends StatelessWidget {
     required this.contextData,
     required this.draft,
     required this.notifier,
-    required this.diagnostics,
+    required this.derivedAccessories,
+    required this.derivedDiagnostics,
+    required this.manualDiagnostics,
+    required this.mediaRepository,
     required this.onFastenersPressed,
   });
 
   final CalculatorContext contextData;
   final CalculatorDraft draft;
   final CalculatorDraftNotifier notifier;
-  final List<Map<String, dynamic>> diagnostics;
+  final List<Map<String, dynamic>> derivedAccessories;
+  final List<Map<String, dynamic>> derivedDiagnostics;
+  final List<Map<String, dynamic>> manualDiagnostics;
+  final AdminResourceRepository mediaRepository;
   final VoidCallback onFastenersPressed;
 
   @override
   Widget build(BuildContext context) {
-    final lines = _accessoryAggregateLines(contextData, draft, diagnostics);
-    final totalQuantity = lines.fold<num>(0, (sum, line) => sum + line.quantity);
-    final activeQuantity = lines.fold<num>(0, (sum, line) => sum + (line.enabled ? line.quantity : 0));
+    final lines = _accessoryDisplayLines(
+      contextData,
+      draft,
+      derivedAccessories,
+      derivedDiagnostics,
+      manualDiagnostics,
+    );
     final totalAmount = lines.fold<num>(0, (sum, line) => sum + line.amount);
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           children: [
-            Expanded(
-              child: Text('Accessory / Zubehör', style: Theme.of(context).textTheme.titleMedium),
-            ),
+            Expanded(child: Text('Accessory / Derived Zubehör', style: Theme.of(context).textTheme.titleMedium)),
             const SizedBox(width: 12),
-            FilledButton.tonal(
-              onPressed: onFastenersPressed,
-              child: const Text('+ Fasteners'),
-            ),
+            FilledButton.tonal(onPressed: onFastenersPressed, child: const Text('+ Fasteners')),
           ],
         ),
         const SizedBox(height: 8),
         const Text(
-          'Accessory components are moved out of Set contents and collected here from all blocks. Equal catalog item/SKU/unit/length lines are summed; disabling a line excludes all its source components from calculation.',
+          'Required accessories are recalculated from the effective profile BOM after segment overrides: PVC fittings from PVC pipes, stopplates from beams, wall seal from wall-profile metres and glass seal from twice the effective beam-profile metres. Manual accessory items remain separate.',
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 12),
         if (lines.isEmpty)
           const _HintCard(
             icon: Icons.build_outlined,
-            title: 'No accessories in Set contents',
-            text: 'Add or update Set contents first. All catalog items with item type accessory will be shown here automatically instead of inside Set contents.',
+            title: 'No derived accessories',
+            text: 'Complete Dimensions and Set contents first. Derived accessories appear as soon as the effective BOM contains their source profiles.',
           )
         else ...[
           Wrap(
             spacing: 8,
             runSpacing: 8,
             children: [
-              _InfoChip(label: 'Accessory lines', value: '${lines.length}'),
-              _InfoChip(label: 'Active qty', value: _formatInputQuantity(activeQuantity)),
-              _InfoChip(label: 'Total qty', value: _formatInputQuantity(totalQuantity)),
-              _InfoChip(label: 'Cost', value: totalAmount > 0 ? _moneyFormat.format(totalAmount) : '—'),
+              _InfoChip(label: 'Derived', value: '${lines.where((line) => line.isDerived).length}'),
+              _InfoChip(label: 'Manual', value: '${lines.where((line) => !line.isDerived).length}'),
+              _InfoChip(label: 'Priced', value: '${lines.where((line) => line.hasAmount).length}'),
+              _InfoChip(label: 'Cost', value: totalAmount == 0 ? '—' : _moneyFormat.format(totalAmount)),
             ],
           ),
           const SizedBox(height: 12),
-          _AccessoryTable(
-            lines: lines,
-            onQuantityChanged: (line, quantity) {
-              notifier.updateSetContentAggregateLineQuantity(
-                line.sourceRefs.map((ref) => (tabIndex: ref.tabIndex, itemIndex: ref.itemIndex)).toList(growable: false),
-                quantity,
-              );
-            },
-            onToggleLine: (line) {
-              notifier.setSetContentItemsEnabled(
-                line.sourceRefs.map((ref) => (tabIndex: ref.tabIndex, itemIndex: ref.itemIndex)).toList(growable: false),
-                !line.enabled,
-              );
-            },
+          Expanded(
+            child: Card(
+              margin: EdgeInsets.zero,
+              child: Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                    child: Row(
+                      children: [
+                        const SizedBox(width: 48, child: Text('Media')),
+                        const SizedBox(width: 10),
+                        const SizedBox(width: 84, child: Text('Article')),
+                        const Expanded(child: Text('Name / source')),
+                        const SizedBox(width: 90, child: Text('Qty')),
+                        const SizedBox(width: 12),
+                        const SizedBox(width: 70, child: Text('Unit')),
+                        const SizedBox(width: 100, child: Text('Price')),
+                        const SizedBox(width: 40),
+                      ],
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  Expanded(
+                    child: ListView.separated(
+                      itemCount: lines.length,
+                      separatorBuilder: (_, __) => const Divider(height: 1),
+                      itemBuilder: (context, index) => _AccessoryDisplayRow(
+                        contextData: contextData,
+                        mediaRepository: mediaRepository,
+                        line: lines[index],
+                        onQuantityChanged: (quantity) {
+                          final line = lines[index];
+                          if (line.isDerived) {
+                            notifier.upsertDerivedAccessoryOverride(line.raw, quantity, line.enabled);
+                          } else if (line.tabIndex != null && line.itemIndex != null) {
+                            notifier.updateSetContentItemQuantity(line.tabIndex!, line.itemIndex!, quantity);
+                          }
+                        },
+                        onToggle: () {
+                          final line = lines[index];
+                          if (line.isDerived) {
+                            notifier.upsertDerivedAccessoryOverride(line.raw, line.quantity, !line.enabled);
+                          } else if (line.tabIndex != null && line.itemIndex != null) {
+                            notifier.toggleSetContentItemEnabled(line.tabIndex!, line.itemIndex!);
+                          }
+                        },
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
         ],
       ],
@@ -3475,290 +4099,176 @@ class _AccessoryStep extends StatelessWidget {
   }
 }
 
-class _AccessoryTable extends StatelessWidget {
-  const _AccessoryTable({required this.lines, required this.onQuantityChanged, required this.onToggleLine});
+class _AccessoryDisplayLine {
+  const _AccessoryDisplayLine({
+    required this.raw,
+    required this.name,
+    required this.articleNo,
+    required this.quantity,
+    required this.unitCode,
+    required this.sourceText,
+    required this.isDerived,
+    required this.enabled,
+    required this.amount,
+    required this.hasAmount,
+    this.tabIndex,
+    this.itemIndex,
+  });
 
-  static const _toggleWidth = _SetContentTabTable._toggleWidth;
+  final Map<String, dynamic> raw;
+  final String name;
+  final String articleNo;
+  final num quantity;
+  final String unitCode;
+  final String sourceText;
+  final bool isDerived;
+  final bool enabled;
+  final num amount;
+  final bool hasAmount;
+  final int? tabIndex;
+  final int? itemIndex;
+}
 
-  final List<_AccessoryAggregateLine> lines;
-  final void Function(_AccessoryAggregateLine line, num quantity) onQuantityChanged;
-  final ValueChanged<_AccessoryAggregateLine> onToggleLine;
+List<_AccessoryDisplayLine> _accessoryDisplayLines(
+  CalculatorContext contextData,
+  CalculatorDraft draft,
+  List<Map<String, dynamic>> derived,
+  List<Map<String, dynamic>> derivedDiagnostics,
+  List<Map<String, dynamic>> manualDiagnostics,
+) {
+  final overrideBySegment = <String, CalculatorSetContentItem>{};
+  final manual = <_AccessoryDisplayLine>[];
+  var manualDiagnosticIndex = 0;
+  for (var tabIndex = 0; tabIndex < draft.setContents.length; tabIndex++) {
+    final tab = draft.setContents[tabIndex];
+    for (var itemIndex = 0; itemIndex < tab.items.length; itemIndex++) {
+      final item = tab.items[itemIndex];
+      if (item.isDerivedOverride && item.segmentId != null) {
+        overrideBySegment[item.segmentId!] = item;
+        continue;
+      }
+      if (!item.isManual) continue;
+      final diagnostic = item.enabled && manualDiagnosticIndex < manualDiagnostics.length
+          ? manualDiagnostics[manualDiagnosticIndex]
+          : null;
+      if (item.enabled) manualDiagnosticIndex += 1;
+      if (!_isAccessorySetContentItem(contextData, item)) continue;
+      manual.add(_AccessoryDisplayLine(
+        raw: item.raw,
+        name: item.name ?? 'Manual accessory',
+        articleNo: item.articleNo ?? item.profileNo ?? item.baseCode ?? '—',
+        quantity: item.quantity,
+        unitCode: item.salesUnitCode ?? item.unitCode ?? 'piece',
+        sourceText: '${tab.label} · manual',
+        isDerived: false,
+        enabled: item.enabled,
+        amount: _num(diagnostic?['amount']),
+        hasAmount: diagnostic != null && diagnostic.containsKey('amount'),
+        tabIndex: tabIndex,
+        itemIndex: itemIndex,
+      ));
+    }
+  }
+
+  final result = <_AccessoryDisplayLine>[];
+  for (var i = 0; i < derived.length; i++) {
+    final line = derived[i];
+    final source = line['source'] is Map ? Map<String, dynamic>.from(line['source'] as Map) : const <String, dynamic>{};
+    final segments = line['segments'] is List ? line['segments'] as List : const [];
+    final segment = segments.isNotEmpty && segments.first is Map
+        ? Map<String, dynamic>.from(segments.first as Map)
+        : const <String, dynamic>{};
+    final segmentId = '${segment['segment_id'] ?? ''}';
+    final override = overrideBySegment[segmentId];
+    final diagnostic = i < derivedDiagnostics.length ? derivedDiagnostics[i] : null;
+    final derivedFrom = source['derived_from'] is List
+        ? (source['derived_from'] as List).map((entry) => '$entry').join(', ')
+        : '${source['derived_from'] ?? 'calculated BOM'}';
+    result.add(_AccessoryDisplayLine(
+      raw: line,
+      name: '${line['name'] ?? 'Accessory'}',
+      articleNo: '${line['article_no'] ?? line['profile_no'] ?? '—'}',
+      quantity: override?.quantity ?? _num(line['quantity']),
+      unitCode: '${line['unit_code'] ?? 'piece'}',
+      sourceText: 'Derived from $derivedFrom',
+      isDerived: true,
+      enabled: override?.enabled ?? true,
+      amount: _num(diagnostic?['amount']),
+      hasAmount: diagnostic != null && diagnostic.containsKey('amount'),
+    ));
+  }
+  result.addAll(manual);
+  return result;
+}
+
+class _AccessoryDisplayRow extends StatelessWidget {
+  const _AccessoryDisplayRow({
+    required this.contextData,
+    required this.mediaRepository,
+    required this.line,
+    required this.onQuantityChanged,
+    required this.onToggle,
+  });
+
+  final CalculatorContext contextData;
+  final AdminResourceRepository mediaRepository;
+  final _AccessoryDisplayLine line;
+  final ValueChanged<num> onQuantityChanged;
+  final VoidCallback onToggle;
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      margin: EdgeInsets.zero,
+    final colorScheme = Theme.of(context).colorScheme;
+    return AnimatedOpacity(
+      opacity: line.enabled ? 1 : 0.48,
+      duration: const Duration(milliseconds: 140),
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Row(
           children: [
-            _header(context),
-            const Divider(height: 1),
-            for (var i = 0; i < lines.length; i++) ...[
-              _row(context, lines[i]),
-              if (i < lines.length - 1) const Divider(height: 1),
-            ],
+            SizedBox(
+              width: 48,
+              child: _CatalogNomenclatureMedia(
+                item: _catalogItemForBomLine(contextData, line.raw),
+                repository: mediaRepository,
+              ),
+            ),
+            const SizedBox(width: 10),
+            SizedBox(width: 84, child: Text(line.articleNo)),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(line.name),
+                  Text(line.sourceText, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: colorScheme.onSurfaceVariant)),
+                ],
+              ),
+            ),
+            SizedBox(
+              width: 90,
+              child: TextFormField(
+                key: ValueKey('derived-accessory-${line.articleNo}-${line.quantity}-${line.enabled}'),
+                initialValue: _formatInputQuantity(line.quantity),
+                enabled: line.enabled,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(isDense: true),
+                onChanged: (value) => onQuantityChanged(num.tryParse(value.replaceAll(',', '.')) ?? line.quantity),
+              ),
+            ),
+            const SizedBox(width: 12),
+            SizedBox(width: 70, child: Text(_formatUnitLabel(line.unitCode))),
+            SizedBox(width: 100, child: Text(line.hasAmount ? _moneyFormat.format(line.amount) : '—')),
+            IconButton(
+              tooltip: line.enabled ? 'Exclude accessory' : 'Include accessory',
+              onPressed: onToggle,
+              icon: Icon(line.enabled ? Icons.check_circle_outline : Icons.remove_circle_outline),
+              color: line.enabled ? colorScheme.primary : colorScheme.onSurfaceVariant,
+            ),
           ],
         ),
       ),
     );
   }
-
-  Widget _header(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _cell(context, const Text('Pr. Nr.'), width: 82, header: true),
-          _cell(context, const Text('Accessory name'), flex: 5, header: true),
-          _cell(context, const Text('Qty'), width: 72, header: true),
-          _cell(context, const Text('Unit'), width: 64, header: true),
-          _cell(context, const Text('Cost'), width: 104, header: true),
-          const SizedBox(width: _toggleWidth),
-        ],
-      ),
-    );
-  }
-
-  Widget _row(BuildContext context, _AccessoryAggregateLine line) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final enabled = line.enabled;
-    final rowContent = Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _cell(context, Text(line.primaryCode ?? '—'), width: 82),
-        _cell(
-          context,
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(line.name, maxLines: 3, overflow: TextOverflow.ellipsis),
-              if (line.secondaryInfo.isNotEmpty) ...[
-                const SizedBox(height: 2),
-                Text(
-                  line.secondaryInfo,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
-                ),
-              ],
-            ],
-          ),
-          flex: 5,
-        ),
-        _cell(
-          context,
-          TextFormField(
-            key: ValueKey('accessory-qty-${line.key}-${line.sourceRefs.length}'),
-            initialValue: _formatInputQuantity(line.quantity),
-            enabled: enabled,
-            keyboardType: TextInputType.number,
-            decoration: const InputDecoration(isDense: true),
-            onChanged: (value) => onQuantityChanged(line, num.tryParse(value.replaceAll(',', '.')) ?? line.quantity),
-          ),
-          width: 72,
-        ),
-        _cell(context, Text(_formatUnitLabel(line.unitCode)), width: 64),
-        _cell(context, Text(line.hasAmount ? _moneyFormat.format(line.amount) : '—'), width: 104),
-      ],
-    );
-
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 160),
-      color: enabled ? Colors.transparent : colorScheme.surfaceContainerHighest.withValues(alpha: 0.55),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: AnimatedOpacity(
-              duration: const Duration(milliseconds: 160),
-              opacity: enabled ? 1 : 0.46,
-              child: rowContent,
-            ),
-          ),
-          SizedBox(
-            width: _toggleWidth,
-            child: IconButton(
-              tooltip: enabled ? 'Exclude accessory line from calculation' : 'Include accessory line in calculation',
-              onPressed: () => onToggleLine(line),
-              icon: Icon(enabled ? Icons.check_circle_outline : Icons.remove_circle_outline),
-              color: enabled ? colorScheme.primary : colorScheme.onSurfaceVariant,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _cell(
-    BuildContext context,
-    Widget child, {
-    double? width,
-    int? flex,
-    bool header = false,
-  }) {
-    final textStyle = header ? Theme.of(context).textTheme.labelMedium : Theme.of(context).textTheme.bodySmall;
-    final content = DefaultTextStyle.merge(
-      style: textStyle,
-      child: Padding(
-        padding: const EdgeInsets.only(right: 8),
-        child: child,
-      ),
-    );
-    if (width != null) return SizedBox(width: width, child: content);
-    return Expanded(flex: flex ?? 1, child: content);
-  }
-}
-
-class _AccessorySourceRef {
-  const _AccessorySourceRef({
-    required this.tabIndex,
-    required this.itemIndex,
-    required this.enabled,
-  });
-
-  final int tabIndex;
-  final int itemIndex;
-  final bool enabled;
-}
-
-class _AccessoryAggregateLine {
-  _AccessoryAggregateLine({
-    required this.key,
-    required this.catalogItemId,
-    required this.catalogVariantId,
-    required this.name,
-    required this.unitCode,
-    required this.quantity,
-    required this.primaryCode,
-    required this.secondaryInfo,
-    required this.blockLabels,
-    required this.sourceRefs,
-    this.amount = 0,
-    this.hasAmount = false,
-  });
-
-  final String key;
-  final String catalogItemId;
-  final String? catalogVariantId;
-  final String name;
-  final String unitCode;
-  num quantity;
-  final String? primaryCode;
-  final String secondaryInfo;
-  final List<String> blockLabels;
-  final List<_AccessorySourceRef> sourceRefs;
-  num amount;
-  bool hasAmount;
-
-  bool get enabled => sourceRefs.any((entry) => entry.enabled);
-}
-
-List<_AccessoryAggregateLine> _accessoryAggregateLines(
-  CalculatorContext contextData,
-  CalculatorDraft draft,
-  List<Map<String, dynamic>> diagnostics,
-) {
-  final result = <String, _AccessoryAggregateLine>{};
-  var activeOptionIndex = 0;
-
-  for (var tabIndex = 0; tabIndex < draft.setContents.length; tabIndex++) {
-    final tab = draft.setContents[tabIndex];
-    for (var itemIndex = 0; itemIndex < tab.items.length; itemIndex++) {
-      final item = tab.items[itemIndex];
-      Map<String, dynamic>? diagnostic;
-      if (item.enabled) {
-        diagnostic = activeOptionIndex < diagnostics.length ? diagnostics[activeOptionIndex] : null;
-        activeOptionIndex += 1;
-      }
-
-      if (!_isAccessorySetContentItem(contextData, item)) continue;
-
-      final catalogItem = contextData.optionCatalogItems
-          .where((entry) => entry.id == item.catalogItemId)
-          .cast<CalculatorCatalogItemOption?>()
-          .firstOrNull;
-      final variant = contextData.optionCatalogVariants
-          .where((entry) => entry.id == item.catalogVariantId)
-          .cast<CalculatorCatalogVariantOption?>()
-          .firstOrNull;
-      final unitCode = item.salesUnitCode
-          ?? item.unitCode
-          ?? catalogItem?.defaultSalesUnitCode
-          ?? catalogItem?.measureTypeCode
-          ?? 'piece';
-      final key = '${item.catalogItemId}|${item.catalogVariantId ?? ''}|$unitCode|${item.lengthMm ?? ''}';
-      final primaryCode = _firstNonEmptyText([
-        item.articleNo,
-        variant?.articleNo,
-        item.profileNo,
-        variant?.profileNo,
-        item.baseCode,
-        catalogItem?.baseCode,
-        item.variantSku,
-        variant?.variantSku,
-      ]);
-      final name = _joinDistinctTextParts([
-        item.name ?? catalogItem?.name,
-        variant?.variantSku ?? item.variantSku,
-      ]);
-      final secondaryInfo = _joinDistinctTextParts([
-        item.itemTypeCode ?? catalogItem?.itemTypeCode,
-        variant?.colorName,
-        _formatLengthMm(item.lengthMm ?? variant?.lengthMm),
-      ]);
-      final blockLabel = tab.label.isEmpty ? tab.id : tab.label;
-      final amount = _num(diagnostic?['amount']);
-      final hasAmount = item.enabled && diagnostic != null && diagnostic.containsKey('amount');
-
-      final existing = result[key];
-      final sourceRef = _AccessorySourceRef(tabIndex: tabIndex, itemIndex: itemIndex, enabled: item.enabled);
-      if (existing == null) {
-        result[key] = _AccessoryAggregateLine(
-          key: key,
-          catalogItemId: item.catalogItemId,
-          catalogVariantId: item.catalogVariantId,
-          name: name,
-          unitCode: unitCode,
-          quantity: item.quantity,
-          primaryCode: primaryCode,
-          secondaryInfo: secondaryInfo == 'Option' ? '' : secondaryInfo,
-          blockLabels: [blockLabel],
-          sourceRefs: [sourceRef],
-          amount: amount,
-          hasAmount: hasAmount,
-        );
-      } else {
-        existing.quantity += item.quantity;
-        existing.amount += amount;
-        existing.hasAmount = existing.hasAmount || hasAmount;
-        existing.sourceRefs.add(sourceRef);
-        if (!existing.blockLabels.contains(blockLabel)) existing.blockLabels.add(blockLabel);
-      }
-    }
-  }
-
-  final lines = result.values.toList(growable: false)
-    ..sort((a, b) {
-      final codeCompare = (a.primaryCode ?? '').compareTo(b.primaryCode ?? '');
-      if (codeCompare != 0) return codeCompare;
-      return a.name.compareTo(b.name);
-    });
-  return lines;
-}
-
-String? _firstNonEmptyText(Iterable<String?> values) {
-  for (final raw in values) {
-    final value = raw?.trim();
-    if (value != null && value.isNotEmpty) return value;
-  }
-  return null;
 }
 
 class _OptionsStep extends StatefulWidget {
@@ -3867,6 +4377,11 @@ class _OptionsStepState extends State<_OptionsStep> {
                 options: items,
                 displayStringForOption: _itemLabel,
                 searchStringForOption: _itemSearchText,
+                leadingBuilder: (item) => _CatalogNomenclatureMedia(
+                  item: item,
+                  repository: widget.mediaRepository,
+                  size: 36,
+                ),
                 onSelected: (item) {
                   final variants = _variantsForItem(item.id);
                   final onlyVariant = variants.length == 1 ? variants.first : null;
@@ -3918,6 +4433,12 @@ class _OptionsStepState extends State<_OptionsStep> {
                       options: variantsForItem,
                       displayStringForOption: _variantLabel,
                       searchStringForOption: _variantSearchText,
+                      leadingBuilder: (variant) => _CatalogNomenclatureMedia(
+                        item: selectedItem,
+                        variant: variant,
+                        repository: widget.mediaRepository,
+                        size: 36,
+                      ),
                       onSelected: (variant) => setState(() {
                         _catalogVariantId = variant.id;
                         _salesUnitCode = _defaultSalesUnitCode(selectedItem, variant);
@@ -3949,6 +4470,7 @@ class _OptionsStepState extends State<_OptionsStep> {
         const SizedBox(height: 20),
         _SelectedOptionsTable(
           contextData: widget.contextData,
+          mediaRepository: widget.mediaRepository,
           options: widget.draft.options,
           optionDiagnostics: widget.optionDiagnostics,
           onQuantityChanged: widget.notifier.updateOptionQuantity,
@@ -4583,26 +5105,31 @@ class _OptionsStepState extends State<_OptionsStep> {
 }
 
 class _SectionPreviewPlaceholder extends StatelessWidget {
-  const _SectionPreviewPlaceholder();
+  const _SectionPreviewPlaceholder({this.size = 104});
+
+  final double size;
 
   @override
   Widget build(BuildContext context) {
+    final compact = size < 64;
     return Container(
-      width: 104,
-      height: 104,
+      width: size,
+      height: size,
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: Theme.of(context).dividerColor),
       ),
-      child: const Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.image_not_supported_outlined),
-          SizedBox(height: 6),
-          Text('no media\npreview', textAlign: TextAlign.center),
-        ],
-      ),
+      child: compact
+          ? const Icon(Icons.image_not_supported_outlined, size: 18)
+          : const Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.image_not_supported_outlined),
+                SizedBox(height: 6),
+                Text('no media\npreview', textAlign: TextAlign.center),
+              ],
+            ),
     );
   }
 }
@@ -4612,23 +5139,27 @@ class _CatalogOptionMediaPreview extends StatelessWidget {
     required this.item,
     required this.variant,
     required this.repository,
+    this.size = 104,
   });
 
   final CalculatorCatalogItemOption item;
   final CalculatorCatalogVariantOption? variant;
   final AdminResourceRepository repository;
+  final double size;
 
   @override
   Widget build(BuildContext context) {
     final mediaRef = _mediaFileRef;
     if (mediaRef == null) {
-      return const _SectionPreviewPlaceholder();
+      return _SectionPreviewPlaceholder(size: size);
     }
 
     return _CatalogOptionMediaFrame(
       mediaRef: mediaRef,
       detailMediaRef: _detailMediaFileRef ?? mediaRef,
       repository: repository,
+      size: size,
+      showPreviewAction: size >= 64,
     );
   }
 
@@ -4690,11 +5221,15 @@ class _CatalogOptionMediaFrame extends StatefulWidget {
     required this.mediaRef,
     required this.detailMediaRef,
     required this.repository,
+    this.size = 104,
+    this.showPreviewAction = true,
   });
 
   final MediaFileRef mediaRef;
   final MediaFileRef detailMediaRef;
   final AdminResourceRepository repository;
+  final double size;
+  final bool showPreviewAction;
 
   @override
   State<_CatalogOptionMediaFrame> createState() => _CatalogOptionMediaFrameState();
@@ -4706,14 +5241,14 @@ class _CatalogOptionMediaFrameState extends State<_CatalogOptionMediaFrame> {
   @override
   void initState() {
     super.initState();
-    _imageFuture = widget.repository.viewMediaFile(widget.mediaRef.fileId);
+    _imageFuture = _catalogMediaFuture(widget.repository, widget.mediaRef.fileId);
   }
 
   @override
   void didUpdateWidget(covariant _CatalogOptionMediaFrame oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.mediaRef.fileId != widget.mediaRef.fileId) {
-      _imageFuture = widget.repository.viewMediaFile(widget.mediaRef.fileId);
+      _imageFuture = _catalogMediaFuture(widget.repository, widget.mediaRef.fileId);
     }
   }
 
@@ -4721,8 +5256,8 @@ class _CatalogOptionMediaFrameState extends State<_CatalogOptionMediaFrame> {
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     return Container(
-      width: 104,
-      height: 104,
+      width: widget.size,
+      height: widget.size,
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color: colorScheme.surfaceContainerHighest,
@@ -4762,11 +5297,12 @@ class _CatalogOptionMediaFrameState extends State<_CatalogOptionMediaFrame> {
               );
             },
           ),
-          Positioned(
-            top: 4,
-            right: 4,
-            child: Material(
-              color: colorScheme.surface.withValues(alpha: 0.84),
+          if (widget.showPreviewAction)
+            Positioned(
+              top: 4,
+              right: 4,
+              child: Material(
+                color: colorScheme.surface.withValues(alpha: 0.84),
               borderRadius: BorderRadius.circular(18),
               child: IconButton(
                 visualDensity: VisualDensity.compact,
@@ -4792,6 +5328,7 @@ class _CatalogOptionMediaFrameState extends State<_CatalogOptionMediaFrame> {
 class _SelectedOptionsTable extends StatelessWidget {
   const _SelectedOptionsTable({
     required this.contextData,
+    required this.mediaRepository,
     required this.options,
     required this.optionDiagnostics,
     required this.onQuantityChanged,
@@ -4799,6 +5336,7 @@ class _SelectedOptionsTable extends StatelessWidget {
   });
 
   final CalculatorContext contextData;
+  final AdminResourceRepository mediaRepository;
   final List<CalculatorSelectedOption> options;
   final List<Map<String, dynamic>> optionDiagnostics;
   final void Function(int index, num quantity) onQuantityChanged;
@@ -4839,6 +5377,7 @@ class _SelectedOptionsTable extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          _cell(context, const Text('Media'), width: 48, header: true),
           _cell(context, const Text('Profile no'), width: 74, header: true),
           _cell(context, const Text('Name / additional handling'), flex: 5, header: true),
           _cell(context, const Text('Qty'), width: 64, header: true),
@@ -4879,6 +5418,15 @@ class _SelectedOptionsTable extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          _cell(
+            context,
+            _CatalogNomenclatureMedia(
+              item: item,
+              variant: variant,
+              repository: mediaRepository,
+            ),
+            width: 48,
+          ),
           _cell(context, Text('${profileNo ?? '—'}'), width: 74),
           _cell(
             context,
@@ -5370,6 +5918,7 @@ class _ResultPanel extends StatelessWidget {
                                   calculatorContext: calculatorContext,
                                   roofModelState: roofModelState,
                                   mediaRepository: mediaRepository,
+                                  result: result,
                                   calculationNumber: loadedQuote?.quoteNo ?? savedQuote?.quoteNo,
                                   highlightedModuleIndex: highlightedModuleIndex,
                                 ),
@@ -5555,6 +6104,7 @@ class _GeometryPreviewTab extends StatelessWidget {
     required this.calculatorContext,
     required this.roofModelState,
     required this.mediaRepository,
+    this.result,
     this.calculationNumber,
     this.highlightedModuleIndex,
   });
@@ -5563,6 +6113,7 @@ class _GeometryPreviewTab extends StatelessWidget {
   final CalculatorContext calculatorContext;
   final _RoofModelStepState roofModelState;
   final AdminResourceRepository mediaRepository;
+  final CalculatorResult? result;
   final String? calculationNumber;
   final int? highlightedModuleIndex;
 
@@ -5576,7 +6127,10 @@ class _GeometryPreviewTab extends StatelessWidget {
         .where((template) => template.id == draft.templateId)
         .cast<CalculatorTemplateOption?>()
         .firstOrNull;
-    final roofCalculation = calculateRoofGeometryForDraft(
+    final serverRoofCalculation = result == null
+        ? null
+        : roofGeometryCalculationFromSources(result!.sources);
+    final roofCalculation = serverRoofCalculation ?? calculateRoofGeometryForDraft(
       draft: draft,
       template: selectedTemplate,
       model: selectedModel,
@@ -6160,23 +6714,38 @@ class _LinesTab extends StatelessWidget {
     if (result.visibleLines.isEmpty) return const Center(child: Text('No lines.'));
 
     final baseLines = result.visibleLines.take(1).toList(growable: false);
-    final afterBase = result.visibleLines.skip(baseLines.length).toList(growable: false);
-    final setContentLineCount = result.setContentDiagnostics
-        .where((entry) => entry['price_found'] == true && _num(entry['amount']) > 0)
-        .length;
-    final setContentLines = afterBase.take(setContentLineCount).toList(growable: false);
-    final optionLines = afterBase.skip(setContentLines.length).toList(growable: false);
+    var remaining = result.visibleLines.skip(baseLines.length).toList(growable: false);
+    int pricedCount(List<Map<String, dynamic>> diagnostics) =>
+        diagnostics.where((entry) => entry['price_found'] == true).length;
+    List<Map<String, dynamic>> takeSection(int count) {
+      final section = remaining.take(count).toList(growable: false);
+      remaining = remaining.skip(section.length).toList(growable: false);
+      return section;
+    }
+
+    final deltaLines = takeSection(pricedCount(result.setDeltaDiagnostics));
+    final derivedLines = takeSection(pricedCount(result.derivedAccessoryDiagnostics));
+    final manualLines = takeSection(pricedCount(result.manualComponentDiagnostics));
+    final optionLines = remaining;
 
     return ListView(
       padding: const EdgeInsets.all(12),
       children: [
         if (baseLines.isNotEmpty) ...[
-          _sectionHeader(context, 'Base price'),
+          _sectionHeader(context, 'Base set price'),
           ..._lineTiles(baseLines),
         ],
-        if (setContentLines.isNotEmpty) ...[
-          _sectionHeader(context, 'Set contents', '${setContentLines.length} priced line(s)'),
-          ..._lineTiles(setContentLines),
+        if (deltaLines.isNotEmpty) ...[
+          _sectionHeader(context, 'Set delta / Abzug', '${deltaLines.length} priced line(s)'),
+          ..._lineTiles(deltaLines),
+        ],
+        if (derivedLines.isNotEmpty) ...[
+          _sectionHeader(context, 'Derived accessories', '${derivedLines.length} priced line(s)'),
+          ..._lineTiles(derivedLines),
+        ],
+        if (manualLines.isNotEmpty) ...[
+          _sectionHeader(context, 'Manual components', '${manualLines.length} priced line(s)'),
+          ..._lineTiles(manualLines),
         ],
         if (optionLines.isNotEmpty) ...[
           _sectionHeader(context, 'Options / additional handling', '${optionLines.length} priced line(s)'),
@@ -6236,9 +6805,17 @@ class _BomTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bomRows = result.bom;
     final glassRows = result.glassLines;
-    if (bomRows.isEmpty && glassRows.isEmpty) {
+    final hasBom = [
+      result.baseBom,
+      result.calculatedBom,
+      result.effectiveSetBom,
+      result.manualBom,
+      result.derivedAccessories,
+      result.setDeltaBom,
+      result.optionBom,
+    ].any((rows) => rows.isNotEmpty);
+    if (!hasBom && glassRows.isEmpty) {
       return const Center(child: Text('No calculated BOM or glass lines yet.'));
     }
 
@@ -6261,13 +6838,63 @@ class _BomTab extends StatelessWidget {
             ),
           const Divider(height: 24),
         ],
-        if (bomRows.isNotEmpty) ...[
-          Text('Calculated profile BOM', style: Theme.of(context).textTheme.titleSmall),
-          const SizedBox(height: 6),
-          for (final row in bomRows)
-            _CalculatedBomTile(row: row),
-        ],
+        _BomSection(
+          title: 'Effective calculated set',
+          subtitle: 'Physical construction after segment overrides. Not added to price as ordinary options.',
+          rows: result.effectiveSetBom,
+        ),
+        _BomSection(
+          title: 'Standard set',
+          subtitle: 'Comparison basis from the matched rule-matrix row.',
+          rows: result.baseBom,
+        ),
+        _BomSection(
+          title: 'Set delta / Abzug',
+          subtitle: 'Only the difference between effective and standard set is price-relevant.',
+          rows: result.setDeltaBom,
+        ),
+        _BomSection(
+          title: 'Derived accessories',
+          subtitle: 'Automatically calculated from the effective profile BOM.',
+          rows: result.derivedAccessories,
+        ),
+        _BomSection(
+          title: 'Manual components',
+          subtitle: 'User-added positions stored separately from calculated segments.',
+          rows: result.manualBom,
+        ),
+        _BomSection(
+          title: 'Ordinary options',
+          subtitle: 'Additional catalog options outside the base construction.',
+          rows: result.optionBom,
+        ),
       ],
+    );
+  }
+}
+
+class _BomSection extends StatelessWidget {
+  const _BomSection({required this.title, required this.subtitle, required this.rows});
+
+  final String title;
+  final String subtitle;
+  final List<Map<String, dynamic>> rows;
+
+  @override
+  Widget build(BuildContext context) {
+    if (rows.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(height: 2),
+          Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
+          const SizedBox(height: 6),
+          for (final row in rows) _CalculatedBomTile(row: row),
+        ],
+      ),
     );
   }
 }
@@ -6353,6 +6980,7 @@ class _SearchableOptionField<T extends Object> extends StatefulWidget {
     required this.displayStringForOption,
     required this.onSelected,
     this.searchStringForOption,
+    this.leadingBuilder,
     this.hintText,
     this.enabled = true,
   });
@@ -6364,6 +6992,7 @@ class _SearchableOptionField<T extends Object> extends StatefulWidget {
   final List<T> options;
   final String Function(T option) displayStringForOption;
   final String Function(T option)? searchStringForOption;
+  final Widget Function(T option)? leadingBuilder;
   final ValueChanged<T> onSelected;
   final bool enabled;
 
@@ -6498,6 +7127,7 @@ class _SearchableOptionFieldState<T extends Object> extends State<_SearchableOpt
                   final option = rows[index];
                   return ListTile(
                     dense: true,
+                    leading: widget.leadingBuilder?.call(option),
                     title: Text(
                       widget.displayStringForOption(option),
                       maxLines: 2,
