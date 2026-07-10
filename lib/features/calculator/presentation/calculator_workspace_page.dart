@@ -6127,14 +6127,20 @@ class _GeometryPreviewTab extends StatelessWidget {
         .where((template) => template.id == draft.templateId)
         .cast<CalculatorTemplateOption?>()
         .firstOrNull;
-    final serverRoofCalculation = result == null
-        ? null
-        : roofGeometryCalculationFromSources(result!.sources);
-    final roofCalculation = serverRoofCalculation ?? calculateRoofGeometryForDraft(
+    final localRoofCalculation = calculateRoofGeometryForDraft(
       draft: draft,
       template: selectedTemplate,
       model: selectedModel,
     );
+    final serverRoofCalculation = result == null
+        ? null
+        : roofGeometryCalculationFromSources(result!.sources);
+    final hasDraftGeometry = draft.setContents.any(
+      (tab) => tab.moduleWidthMm != null || tab.moduleDepthMm != null,
+    );
+    final roofCalculation = hasDraftGeometry
+        ? localRoofCalculation
+        : (serverRoofCalculation ?? localRoofCalculation);
     final colorPreview = _colorPreviewDataFor(calculatorContext, draft.colorCode);
     final selectedCovering = (calculatorContext.references['tds_glass_covering'] ?? const [])
         .where((option) => option.code == draft.coveringCode || option.id == draft.coveringCode)
