@@ -1546,6 +1546,11 @@ class _SavedQuoteGeometryPreviewTab extends StatelessWidget {
         .firstOrNull;
     final resultJson = _mapFromJsonLike(data['result_json'] ?? data['resultJson']);
     final resultSources = _mapFromJsonLike(resultJson['sources']);
+    final resultWeights = _mapFromJsonLike(resultJson['weights']);
+    final buyerContact = contextData?.buyerContactFor(draft) ?? const CalculatorBuyerContact();
+    final handoverName = contextData == null
+        ? draft.handoverTypeCode
+        : _quoteReferenceLabelFor(contextData, 'handover_types', draft.handoverTypeCode);
     final savedRoofCalculation = roofGeometryCalculationFromSources(resultSources);
     final roofCalculation = savedRoofCalculation ?? (
       contextData == null
@@ -1614,7 +1619,13 @@ class _SavedQuoteGeometryPreviewTab extends StatelessWidget {
             moduleRoles: moduleRoles,
             calculatedModules: roofCalculation?.modules ?? const [],
             calculationNumber: quoteNo,
-            calculationName: quoteNoExternal,
+            buyerName: buyerContact.organizationName,
+            buyerContactName: buyerContact.contactName,
+            buyerEmail: buyerContact.email,
+            buyerPhone: buyerContact.phone,
+            weights: resultWeights,
+            deliveryName: handoverName,
+            completionWeek: draft.completionWeek,
             colorCode: colorPreview?.displayCode,
             colorSwatchColor: colorPreview?.color,
             coveringName: coveringName,
@@ -1628,6 +1639,19 @@ class _SavedQuoteGeometryPreviewTab extends StatelessWidget {
   }
 }
 
+
+String? _quoteReferenceLabelFor(
+  CalculatorContext contextData,
+  String domain,
+  String? rawCode,
+) {
+  final code = rawCode?.trim();
+  if (code == null || code.isEmpty) return null;
+  for (final option in contextData.references[domain] ?? const <CalculatorOption>[]) {
+    if (option.code == code || option.id == code) return option.label;
+  }
+  return code;
+}
 
 String? _quoteCoveringNameFor(CalculatorContext contextData, String? rawCode) {
   final code = rawCode?.trim();

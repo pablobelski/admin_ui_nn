@@ -220,6 +220,11 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
         clearHandover: value == null || value.isEmpty,
       );
 
+  void setCompletionWeek(int? value) => state = state.copyWith(
+        completionWeek: value,
+        clearCompletionWeek: value == null,
+      );
+
   void setQuoteNoExternal(String value) => state = state.copyWith(
         quoteNoExternal: value.trim(),
         clearQuoteNoExternal: value.trim().isEmpty,

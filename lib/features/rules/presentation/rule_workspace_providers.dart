@@ -1,11 +1,15 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/navigation/admin_providers.dart';
+import '../../../core/navigation/admin_registry.dart';
+import '../../../core/navigation/browser_navigation.dart';
 import '../data/rule_set_repository.dart';
 
 class RuleWorkspaceState {
   const RuleWorkspaceState({
     this.ruleSetQuery = '',
+    this.ruleSetFilterId,
+    this.configuratorTemplateFilterId,
     this.matrixQuery = '',
     this.rowQuery = '',
     this.selectedRuleSetId,
@@ -16,6 +20,8 @@ class RuleWorkspaceState {
   });
 
   final String ruleSetQuery;
+  final String? ruleSetFilterId;
+  final String? configuratorTemplateFilterId;
   final String matrixQuery;
   final String rowQuery;
   final String? selectedRuleSetId;
@@ -26,6 +32,8 @@ class RuleWorkspaceState {
 
   RuleWorkspaceState copyWith({
     String? ruleSetQuery,
+    String? ruleSetFilterId,
+    String? configuratorTemplateFilterId,
     String? matrixQuery,
     String? rowQuery,
     String? selectedRuleSetId,
@@ -34,11 +42,18 @@ class RuleWorkspaceState {
     int? offset,
     int? limit,
     bool clearRuleSet = false,
+    bool clearRuleSetFilter = false,
+    bool clearConfiguratorTemplateFilter = false,
     bool clearMatrix = false,
     bool clearRow = false,
   }) {
     return RuleWorkspaceState(
       ruleSetQuery: ruleSetQuery ?? this.ruleSetQuery,
+      ruleSetFilterId:
+          clearRuleSetFilter ? null : (ruleSetFilterId ?? this.ruleSetFilterId),
+      configuratorTemplateFilterId: clearConfiguratorTemplateFilter
+          ? null
+          : (configuratorTemplateFilterId ?? this.configuratorTemplateFilterId),
       matrixQuery: matrixQuery ?? this.matrixQuery,
       rowQuery: rowQuery ?? this.rowQuery,
       selectedRuleSetId: clearRuleSet ? null : (selectedRuleSetId ?? this.selectedRuleSetId),
@@ -53,7 +68,26 @@ class RuleWorkspaceState {
 
 class RuleWorkspaceNotifier extends Notifier<RuleWorkspaceState> {
   @override
-  RuleWorkspaceState build() => const RuleWorkspaceState();
+  RuleWorkspaceState build() {
+    final resourceKey = currentAdminResourceKey();
+    if (resourceKey == 'rule_matrices') {
+      final filters = currentAdminResourceFilters(findResourceByKey('rule_matrices'));
+      final ruleSetId = filters['rule_set_id'];
+      return RuleWorkspaceState(
+        ruleSetFilterId: ruleSetId,
+        selectedRuleSetId: ruleSetId,
+        selectedRuleMatrixId: filters['id'],
+      );
+    }
+
+    final filters = currentAdminResourceFilters(findResourceByKey('rule_sets'));
+    final filterId = filters['id'];
+    return RuleWorkspaceState(
+      ruleSetFilterId: filterId,
+      configuratorTemplateFilterId: filters['configurator_template_id'],
+      selectedRuleSetId: filterId,
+    );
+  }
 
   void setRuleSetQuery(String value) {
     state = state.copyWith(
@@ -63,6 +97,32 @@ class RuleWorkspaceNotifier extends Notifier<RuleWorkspaceState> {
       clearMatrix: true,
       clearRow: true,
     );
+  }
+
+
+  void setConfiguratorTemplateFilter(String? value) {
+    final normalized = value?.trim() ?? '';
+    state = state.copyWith(
+      configuratorTemplateFilterId: normalized.isEmpty ? null : normalized,
+      clearConfiguratorTemplateFilter: normalized.isEmpty,
+      offset: 0,
+      clearRuleSet: true,
+      clearMatrix: true,
+      clearRow: true,
+    );
+  }
+
+  void clearFilters() {
+    state = state.copyWith(
+      ruleSetQuery: '',
+      offset: 0,
+      clearRuleSetFilter: true,
+      clearConfiguratorTemplateFilter: true,
+      clearRuleSet: true,
+      clearMatrix: true,
+      clearRow: true,
+    );
+    ref.read(selectedResourceProvider.notifier).select('rule_sets');
   }
 
   void setMatrixQuery(String value) {
@@ -119,6 +179,8 @@ final ruleSetListProvider = FutureProvider.autoDispose<RuleSetListResponse>((ref
   final repository = ref.watch(ruleSetRepositoryProvider);
   return repository.fetchRuleSets(
     query: browser.ruleSetQuery,
+    id: browser.ruleSetFilterId,
+    configuratorTemplateId: browser.configuratorTemplateFilterId,
     limit: browser.limit,
     offset: browser.offset,
   );

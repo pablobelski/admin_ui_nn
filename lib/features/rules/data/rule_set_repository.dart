@@ -12,6 +12,8 @@ class RuleSetRepository {
 
   Future<RuleSetListResponse> fetchRuleSets({
     String query = '',
+    String? id,
+    String? configuratorTemplateId,
     int limit = 30,
     int offset = 0,
   }) async {
@@ -19,6 +21,9 @@ class RuleSetRepository {
       _ruleSetsEndpoint,
       query: {
         if (query.isNotEmpty) 'q': query,
+        if (id != null && id.isNotEmpty) 'id': id,
+        if (configuratorTemplateId != null && configuratorTemplateId.isNotEmpty)
+          'configurator_template_id': configuratorTemplateId,
         'limit': '$limit',
         'offset': '$offset',
       },
@@ -171,6 +176,7 @@ class RuleSet {
     required this.statusCode,
     required this.rulesJson,
     required this.raw,
+    this.name,
     this.validFrom,
     this.validTo,
     this.notes,
@@ -183,6 +189,7 @@ class RuleSet {
       id: _string(json['id']),
       configuratorTemplateId: _string(json['configurator_template_id']),
       version: _intOrZero(json['version']),
+      name: _stringOrNull(json['name']),
       rulesJson: _mapOrNull(json['rules_json']) ?? const {},
       validFrom: _stringOrNull(json['valid_from']),
       validTo: _stringOrNull(json['valid_to']),
@@ -197,6 +204,7 @@ class RuleSet {
   final String id;
   final String configuratorTemplateId;
   final int version;
+  final String? name;
   final Map<String, dynamic> rulesJson;
   final String? validFrom;
   final String? validTo;

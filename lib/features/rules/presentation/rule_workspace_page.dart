@@ -4,12 +4,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import '../../../core/navigation/admin_providers.dart';
 import '../../../core/navigation/admin_registry.dart';
 import '../../../core/ui/admin_list_table.dart';
 import '../../../core/ui/header_focus_icon_button.dart';
 import '../../../core/ui/json_view_card.dart';
 import '../../../core/ui/resizable_split_pane.dart';
 import '../../../core/ui/resource_editor_dialog.dart';
+import '../../../core/ui/searchable_select_form_field.dart';
 import '../data/rule_set_repository.dart';
 import 'rule_workspace_providers.dart';
 
@@ -138,9 +140,25 @@ class _RuleSetToolbarState extends ConsumerState<_RuleSetToolbar> {
 
   @override
   Widget build(BuildContext context) {
+    final browserState = ref.watch(ruleWorkspaceProvider);
     final browser = ref.read(ruleWorkspaceProvider.notifier);
     final repository = ref.read(ruleSetRepositoryProvider);
     final ruleSetResource = findResourceByKey('rule_sets');
+    final templateOptions = ref.watch(adminLookupProvider(configuratorTemplateLookup)).maybeWhen(
+          data: (rows) => rows
+              .map(
+                (row) => SearchableSelectOption(
+                  value: '${row['id'] ?? ''}',
+                  label: _configuratorTemplateLabel(row),
+                ),
+              )
+              .where((option) => option.value.isNotEmpty)
+              .toList(growable: false),
+          orElse: () => const <SearchableSelectOption>[],
+        );
+    final hasFilters = _ruleSetQueryController.text.trim().isNotEmpty ||
+        browserState.ruleSetFilterId != null ||
+        browserState.configuratorTemplateFilterId != null;
 
     return Wrap(
       spacing: 12,
@@ -154,15 +172,35 @@ class _RuleSetToolbarState extends ConsumerState<_RuleSetToolbar> {
             decoration: const InputDecoration(
               prefixIcon: Icon(Icons.search),
               labelText: 'Search rule sets',
-              hintText: 'version, workbook, notes, status...',
+              hintText: 'name, version, workbook, notes, status...',
             ),
             onSubmitted: browser.setRuleSetQuery,
+          ),
+        ),
+        SizedBox(
+          width: 360,
+          child: SearchableSelectFormField(
+            value: browserState.configuratorTemplateFilterId ?? '',
+            options: templateOptions,
+            onChanged: browser.setConfiguratorTemplateFilter,
+            labelText: 'Configurator template',
+            emptyLabel: '— All templates —',
           ),
         ),
         FilledButton.tonalIcon(
           onPressed: () => browser.setRuleSetQuery(_ruleSetQueryController.text.trim()),
           icon: const Icon(Icons.manage_search_rounded),
           label: const Text('Apply filter'),
+        ),
+        OutlinedButton.icon(
+          onPressed: hasFilters
+              ? () {
+                  _ruleSetQueryController.clear();
+                  browser.clearFilters();
+                }
+              : null,
+          icon: const Icon(Icons.filter_alt_off_outlined),
+          label: const Text('Reset filters'),
         ),
         IconButton(
           tooltip: 'Refresh rule sets / matrices / rows',
@@ -201,6 +239,10 @@ class _RuleSetListCard extends ConsumerWidget {
     final listAsync = ref.watch(ruleSetListProvider);
     final browserState = ref.watch(ruleWorkspaceProvider);
     final browser = ref.read(ruleWorkspaceProvider.notifier);
+    final templateLabels = ref.watch(adminLookupProvider(configuratorTemplateLookup)).maybeWhen(
+          data: _configuratorTemplateLabelMap,
+          orElse: () => const <String, String>{},
+        );
 
     return Card(
       child: Padding(
@@ -236,7 +278,7 @@ class _RuleSetListCard extends ConsumerWidget {
                           child: Row(
                             children: [
                               AdminRowNumberHeader(),
-                              AdminTableHeaderCell(label: 'Version', flex: 2),
+                              AdminTableHeaderCell(label: 'Name', flex: 2),
                               AdminTableHeaderCell(label: 'Template / notes', flex: 5),
                               AdminTableHeaderCell(label: 'Valid from', flex: 3),
                               AdminTableHeaderCell(label: 'Status', flex: 2),
@@ -273,7 +315,7 @@ class _RuleSetListCard extends ConsumerWidget {
                                   const SizedBox(width: 8),
                                   Expanded(
                                     child: Text(
-                                      'v${ruleSet.version}',
+                                      _ruleSetDisplayName(ruleSet),
                                       style: Theme.of(context).textTheme.titleMedium?.copyWith(
                                             fontWeight: FontWeight.w700,
                                           ),
@@ -286,7 +328,7 @@ class _RuleSetListCard extends ConsumerWidget {
                               Text(
                                 ruleSet.notes?.isNotEmpty == true
                                     ? ruleSet.notes!
-                                    : 'Template ${ruleSet.configuratorTemplateId}',
+                                    : _templateNameForId(templateLabels, ruleSet.configuratorTemplateId),
                                 maxLines: 2,
                                 overflow: TextOverflow.ellipsis,
                               ),
@@ -301,7 +343,7 @@ class _RuleSetListCard extends ConsumerWidget {
                                   ),
                                   _MetaChip(
                                     icon: Icons.rule_folder_outlined,
-                                    label: 'Template ${_shortId(ruleSet.configuratorTemplateId)}',
+                                    label: _templateNameForId(templateLabels, ruleSet.configuratorTemplateId),
                                   ),
                                 ],
                               ),
@@ -349,6 +391,10 @@ class _RuleSetDetailsCard extends ConsumerWidget {
     final selectedRuleSetId = ref.watch(ruleWorkspaceProvider.select((value) => value.selectedRuleSetId));
     final ruleSetResource = findResourceByKey('rule_sets');
     final focusDependentLayer = ref.watch(ruleDependentLayerFocusProvider);
+    final templateLabels = ref.watch(adminLookupProvider(configuratorTemplateLookup)).maybeWhen(
+          data: _configuratorTemplateLabelMap,
+          orElse: () => const <String, String>{},
+        );
 
     return detailsAsync.when(
       loading: () => const Card(child: Center(child: CircularProgressIndicator())),
@@ -379,14 +425,14 @@ class _RuleSetDetailsCard extends ConsumerWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Rule set v${ruleSet.version}',
+                            _ruleSetDisplayName(ruleSet),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: Theme.of(context).textTheme.headlineSmall,
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            'Template ${ruleSet.configuratorTemplateId}',
+                            _templateNameForId(templateLabels, ruleSet.configuratorTemplateId),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
@@ -422,7 +468,7 @@ class _RuleSetDetailsCard extends ConsumerWidget {
                               context: context,
                               builder: (_) => AlertDialog(
                                 title: const Text('Delete rule set?'),
-                                content: Text('Delete rule set v${ruleSet.version}?'),
+                                content: Text('Delete ${ruleSet.name?.trim().isNotEmpty == true ? ruleSet.name! : 'rule set v${ruleSet.version}'}?'),
                                 actions: [
                                   TextButton(
                                     onPressed: () => Navigator.of(context).pop(false),
@@ -461,7 +507,10 @@ class _RuleSetDetailsCard extends ConsumerWidget {
                           _InfoTile(label: 'Status', value: ruleSet.statusCode),
                           _InfoTile(label: 'Valid from', value: _dateLabel(ruleSet.validFrom)),
                           _InfoTile(label: 'Valid to', value: _dateLabel(ruleSet.validTo)),
-                          _InfoTile(label: 'Template', value: ruleSet.configuratorTemplateId),
+                          _InfoTile(
+                            label: 'Template',
+                            value: _templateNameForId(templateLabels, ruleSet.configuratorTemplateId),
+                          ),
                           _InfoTile(label: 'Created', value: _dateTimeLabel(ruleSet.createdAt)),
                           _InfoTile(label: 'Updated', value: _dateTimeLabel(ruleSet.updatedAt)),
                         ],
@@ -1302,6 +1351,35 @@ String _shortValue(Object? value) {
 }
 
 String _shortId(String value) => value.length <= 8 ? value : value.substring(0, 8);
+
+String _ruleSetDisplayName(RuleSet ruleSet) {
+  final name = ruleSet.name?.trim() ?? '';
+  return name.isNotEmpty ? name : 'Rule set v${ruleSet.version}';
+}
+
+Map<String, String> _configuratorTemplateLabelMap(List<Map<String, dynamic>> rows) {
+  return {
+    for (final row in rows)
+      if ('${row['id'] ?? ''}'.trim().isNotEmpty)
+        '${row['id']}': _configuratorTemplateLabel(row),
+  };
+}
+
+String _configuratorTemplateLabel(Map<String, dynamic> row) {
+  final name = '${row['name'] ?? ''}'.trim();
+  final code = '${row['code'] ?? ''}'.trim();
+  final version = '${row['version'] ?? ''}'.trim();
+  final primary = name.isNotEmpty ? name : (code.isNotEmpty ? code : '${row['id'] ?? '—'}');
+  final details = <String>[
+    if (code.isNotEmpty && code != primary) code,
+    if (version.isNotEmpty) 'v$version',
+  ];
+  return details.isEmpty ? primary : '$primary · ${details.join(' · ')}';
+}
+
+String _templateNameForId(Map<String, String> labels, String id) {
+  return labels[id] ?? 'Template ${_shortId(id)}';
+}
 
 String _dateLabel(String? value) {
   if (value == null || value.isEmpty) return '—';

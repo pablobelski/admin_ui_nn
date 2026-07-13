@@ -26,7 +26,13 @@ class ModelGeometryPreview extends ConsumerStatefulWidget {
     this.moduleRoles = const [],
     this.calculatedModules = const [],
     this.calculationNumber,
-    this.calculationName,
+    this.buyerName,
+    this.buyerContactName,
+    this.buyerEmail,
+    this.buyerPhone,
+    this.weights = const {},
+    this.deliveryName,
+    this.completionWeek,
     this.colorCode,
     this.colorSwatchColor,
     this.coveringName,
@@ -47,7 +53,13 @@ class ModelGeometryPreview extends ConsumerStatefulWidget {
   final List<String> moduleRoles;
   final List<RoofModuleCalculation> calculatedModules;
   final String? calculationNumber;
-  final String? calculationName;
+  final String? buyerName;
+  final String? buyerContactName;
+  final String? buyerEmail;
+  final String? buyerPhone;
+  final Map<String, dynamic> weights;
+  final String? deliveryName;
+  final int? completionWeek;
   final String? colorCode;
   final Color? colorSwatchColor;
   final String? coveringName;
@@ -102,17 +114,17 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
           children: [
             Row(
               children: [
-                IconButton(
-                  tooltip: 'Open large geometry preview',
-                  onPressed: hasSelection ? () => _showExpandedPreview(context, currentUser) : null,
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints.tightFor(width: 28, height: 28),
-                  icon: const Icon(Icons.open_in_full_rounded, size: 18),
-                ),
-                const SizedBox(width: 4),
                 Icon(Icons.schema_outlined, size: 18, color: colorScheme.primary),
                 const SizedBox(width: 8),
                 Text('Geometry preview', style: theme.textTheme.titleSmall),
+                const Spacer(),
+                IconButton(
+                  tooltip: 'Open printable geometry preview',
+                  onPressed: hasSelection ? () => _showExpandedPreview(context, currentUser) : null,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints.tightFor(width: 28, height: 28),
+                  icon: const Icon(Icons.print_outlined, size: 18),
+                ),
               ],
             ),
             const SizedBox(height: 4),
@@ -141,7 +153,7 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
     return code != null && code.isNotEmpty ? code : 'No model selected';
   }
 
-  Widget _buildGeometryCanvas(ColorScheme colorScheme) {
+  Widget _buildGeometryCanvas(ColorScheme colorScheme, {bool clearHighlight = false}) {
     return FutureBuilder<ui.Image?>(
       future: _humanImageFuture,
       builder: (context, snapshot) {
@@ -161,7 +173,7 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
             mutedLineColor: colorScheme.onSurfaceVariant,
             accentColor: colorScheme.primary,
             surfaceColor: colorScheme.surface,
-            highlightedModuleIndex: widget.highlightedModuleIndex,
+            highlightedModuleIndex: clearHighlight ? null : widget.highlightedModuleIndex,
             roofAngleDeg: widget.roofAngleDeg,
             rearHeightMm: widget.rearHeightMm,
             frontHeightMm: widget.frontHeightMm,
@@ -237,19 +249,36 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
                                   modelLabel: _modelDisplayLabel,
                                   modelCode: widget.modelCode,
                                   calculationNumber: widget.calculationNumber,
-                                  calculationName: widget.calculationName,
+                                  buyerName: widget.buyerName,
+                                  buyerContactName: widget.buyerContactName,
+                                  buyerEmail: widget.buyerEmail,
+                                  buyerPhone: widget.buyerPhone,
+                                  weights: widget.weights,
+                                  deliveryName: widget.deliveryName,
+                                  completionWeek: widget.completionWeek,
                                   widthMm: widget.widthMm,
                                   depthMm: widget.depthMm,
                                   heightMm: widget.heightMm,
                                   roofAngleDeg: widget.roofAngleDeg,
                                   coveringName: widget.coveringName,
-                                  modules: widget.modules,
-                                  moduleRoles: widget.moduleRoles,
                                   currentUser: currentUser,
                                 ),
                               ),
                               const SizedBox(width: 20),
-                              Expanded(child: _buildGeometryCanvas(colorScheme)),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                                  children: [
+                                    Expanded(child: _buildGeometryCanvas(colorScheme, clearHighlight: true)),
+                                    const SizedBox(height: 12),
+                                    _ExpandedPreviewModules(
+                                      calculatedModules: widget.calculatedModules,
+                                      modules: widget.modules,
+                                      moduleRoles: widget.moduleRoles,
+                                    ),
+                                  ],
+                                ),
+                              ),
                             ],
                           ),
                         ),
@@ -300,14 +329,18 @@ class _ExpandedPreviewInfo extends StatelessWidget {
     required this.modelLabel,
     required this.modelCode,
     required this.calculationNumber,
-    required this.calculationName,
+    required this.buyerName,
+    required this.buyerContactName,
+    required this.buyerEmail,
+    required this.buyerPhone,
+    required this.weights,
+    required this.deliveryName,
+    required this.completionWeek,
     required this.widthMm,
     required this.depthMm,
     required this.heightMm,
     required this.roofAngleDeg,
     required this.coveringName,
-    required this.modules,
-    required this.moduleRoles,
     required this.currentUser,
   });
 
@@ -315,14 +348,18 @@ class _ExpandedPreviewInfo extends StatelessWidget {
   final String modelLabel;
   final String? modelCode;
   final String? calculationNumber;
-  final String? calculationName;
+  final String? buyerName;
+  final String? buyerContactName;
+  final String? buyerEmail;
+  final String? buyerPhone;
+  final Map<String, dynamic> weights;
+  final String? deliveryName;
+  final int? completionWeek;
   final int? widthMm;
   final int? depthMm;
   final int? heightMm;
   final int? roofAngleDeg;
   final String? coveringName;
-  final List<CalculatorSetContentTab> modules;
-  final List<String> moduleRoles;
   final String currentUser;
 
   @override
@@ -331,7 +368,16 @@ class _ExpandedPreviewInfo extends StatelessWidget {
     final colorScheme = theme.colorScheme;
     final modelCodeValue = modelCode?.trim();
     final calculationNumberValue = calculationNumber?.trim();
-    final calculationNameValue = calculationName?.trim();
+    final buyerNameValue = buyerName?.trim();
+    final contactDetails = [buyerContactName, buyerEmail, buyerPhone]
+        .map((value) => value?.trim() ?? '')
+        .where((value) => value.isNotEmpty)
+        .join(' · ');
+    double weight(String key) => (weights[key] as num?)?.toDouble() ?? 0;
+    bool complete(String key) => weights[key] is bool ? weights[key] as bool : true;
+    String weightText(String valueKey, String completeKey) => complete(completeKey)
+        ? '${weight(valueKey).toStringAsFixed(1)} kg'
+        : '—';
 
     return Container(
       padding: const EdgeInsets.all(18),
@@ -347,7 +393,19 @@ class _ExpandedPreviewInfo extends StatelessWidget {
           children: [
             Text('Roof geometry', style: theme.textTheme.titleLarge),
             const SizedBox(height: 14),
+            _PreviewMetadataRow(
+              label: 'Besteller / Auftraggeber',
+              value: buyerNameValue == null || buyerNameValue.isEmpty ? '—' : buyerNameValue,
+            ),
+            if (contactDetails.isNotEmpty)
+              _PreviewMetadataRow(label: 'Configurator contact', value: contactDetails),
             _PreviewMetadataRow(label: 'Date', value: _displayDate(date)),
+            _PreviewMetadataRow(
+              label: 'Kommission',
+              value: calculationNumberValue == null || calculationNumberValue.isEmpty
+                  ? 'New calculation'
+                  : calculationNumberValue,
+            ),
             _PreviewMetadataRow(
               label: 'Roof type',
               value: modelCodeValue == null || modelCodeValue.isEmpty
@@ -356,39 +414,74 @@ class _ExpandedPreviewInfo extends StatelessWidget {
             ),
             if (coveringName?.trim().isNotEmpty == true)
               _PreviewMetadataRow(label: 'Covering', value: coveringName!.trim()),
-            _PreviewMetadataRow(
-              label: 'Calculation',
-              value: calculationNumberValue == null || calculationNumberValue.isEmpty
-                  ? 'New calculation'
-                  : calculationNumberValue,
-            ),
-            if (calculationNameValue != null && calculationNameValue.isNotEmpty)
-              _PreviewMetadataRow(label: 'Name', value: calculationNameValue),
+            if ((deliveryName ?? '').trim().isNotEmpty || completionWeek != null)
+              _PreviewMetadataRow(
+                label: 'Delivery',
+                value: [
+                  if ((deliveryName ?? '').trim().isNotEmpty) deliveryName!.trim(),
+                  if (completionWeek != null) 'Fertigst. KW $completionWeek',
+                ].join(' · '),
+              ),
+            if (weights.isNotEmpty)
+              _PreviewMetadataRow(
+                label: 'Gewicht',
+                value: '${complete('set_complete') && complete('accessories_complete') && complete('options_complete') ? '${(weight('set_kg') + weight('accessories_kg') + weight('options_kg')).toStringAsFixed(1)} kg' : '—'} / '
+                    'Glas: ${weightText('glass_kg', 'glass_complete')} / '
+                    'Gesamt: ${weightText('total_kg', 'total_complete')}',
+              ),
             _PreviewMetadataRow(
               label: 'Overall dimensions',
               value: 'B: ${_dimensionValue(widthMm)} mm × T: ${_dimensionValue(depthMm)} mm × H: ${_dimensionValue(heightMm)} mm',
             ),
             if (roofAngleDeg != null) _PreviewMetadataRow(label: 'Roof angle', value: '$roofAngleDeg°'),
-            const SizedBox(height: 8),
-            Text('Modules', style: theme.textTheme.labelLarge),
-            const SizedBox(height: 4),
-            if (modules.isEmpty)
-              const Text('—')
-            else
-              for (var index = 0; index < modules.length; index++)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 7),
-                  child: Text(
-                    '${index + 1} · ${_moduleLabel(_effectiveModuleRole(modules[index], index, moduleRoles), index + 1)} · '
-                    'T: ${_dimensionValue(modules[index].moduleDepthMm)} mm × '
-                    'B: ${_dimensionValue(modules[index].moduleWidthMm)} mm',
-                  ),
-                ),
             const Spacer(),
             const Divider(),
             _PreviewMetadataRow(label: 'User', value: currentUser),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _ExpandedPreviewModules extends StatelessWidget {
+  const _ExpandedPreviewModules({
+    required this.calculatedModules,
+    required this.modules,
+    required this.moduleRoles,
+  });
+
+  final List<RoofModuleCalculation> calculatedModules;
+  final List<CalculatorSetContentTab> modules;
+  final List<String> moduleRoles;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 0, 4, 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Divider(height: 1),
+          const SizedBox(height: 10),
+          Text('Modules', style: theme.textTheme.labelLarge),
+          const SizedBox(height: 5),
+          if (modules.isEmpty)
+            Text('—', style: theme.textTheme.bodyMedium)
+          else
+            for (var index = 0; index < modules.length; index++)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Text(
+                  '${index + 1} · ${_moduleLabel(_effectiveModuleRole(modules[index], index, moduleRoles), index + 1)} · '
+                  'T: ${_dimensionValue(modules[index].moduleDepthMm)} mm × '
+                  'B: ${_dimensionValue(modules[index].moduleWidthMm)} mm · '
+                  'Glas: ${calculatedModules.where((entry) => entry.moduleIndex == index + 1).firstOrNull?.glassCount ?? '—'}',
+                  style: theme.textTheme.bodyMedium,
+                ),
+              ),
+        ],
       ),
     );
   }
@@ -1146,13 +1239,13 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     canvas.drawPath(
       path,
       Paint()
-        ..color = const Color(0xFFB7F3C6).withValues(alpha: 0.36)
+        ..color = const Color(0xFF61FFDF).withValues(alpha: 0.30)
         ..style = PaintingStyle.fill,
     );
     canvas.drawPath(
       path,
       Paint()
-        ..color = const Color(0xFF7FCF8E).withValues(alpha: 0.58)
+        ..color = const Color(0xFFB8BAFF).withValues(alpha: 0.82)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.2,
     );

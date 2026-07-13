@@ -50,6 +50,7 @@ Uri adminUriForResourceKey(
 
 Map<String, String> adminFiltersFromLocationUri(Uri uri, AdminResourceDefinition resource) {
   final acceptedFilterKeys = <String>{
+    'id',
     for (final filter in resource.listFilters) filter.key,
     for (final sourceResource in allResources)
       for (final action in sourceResource.detailActions)

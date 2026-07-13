@@ -23,9 +23,9 @@ const _steps = <_StepDefinition>[
   _StepDefinition('product', 'Product', Icons.inventory_2_outlined),
   _StepDefinition('template', 'Template', Icons.account_tree_outlined),
   _StepDefinition('model', 'Model', Icons.view_in_ar_outlined),
+  _StepDefinition('color', 'Color', Icons.palette_outlined),
   _StepDefinition('dimensions', 'Dimensions', Icons.straighten_outlined),
   _StepDefinition('covering', 'Covering', Icons.layers_outlined),
-  _StepDefinition('color', 'Color', Icons.palette_outlined),
   _StepDefinition('set_contents', 'Set contents', Icons.view_list_outlined),
   _StepDefinition('accessory', 'Accessory', Icons.build_outlined),
   _StepDefinition('options', 'Options', Icons.tune_outlined),
@@ -89,6 +89,7 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
         final disabledStepKeys = <String>{
           if (!roofModelState.required) 'model',
         };
+        final buyerContact = calculatorContext.buyerContactFor(draft);
         final canCalculate = draft.templateId != null &&
             draft.widthMm != null &&
             draft.depthMm != null &&
@@ -98,11 +99,11 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _Header(
-              loadedQuote: loadedQuote,
               selectedIndex: _selectedStep,
               disabledStepKeys: disabledStepKeys,
               draft: draft,
-              onStepSelected: (index) => setState(() => _selectedStep = index),
+              buyerContact: buyerContact,
+              onStepSelected: (index) => _selectStep(index),
               onNewCalculation: () => _confirmNewCalculation(context),
               onRefresh: () {
                 ref.invalidate(calculatorContextProvider);
@@ -196,6 +197,16 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
     );
   }
 
+  void _selectStep(int index) {
+    final key = _steps[index].key;
+    setState(() {
+      _selectedStep = index;
+      if (!{'dimensions', 'set_contents', 'covering'}.contains(key)) {
+        _highlightedModuleIndex = null;
+      }
+    });
+  }
+
   void _moveStep(Set<String> disabledStepKeys, int direction) {
     var next = _selectedStep;
 
@@ -211,7 +222,7 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
       }
     }
 
-    setState(() => _selectedStep = next);
+    _selectStep(next);
   }
 
   Future<void> _confirmNewCalculation(BuildContext context) async {
@@ -385,81 +396,146 @@ class _Header extends StatelessWidget {
   const _Header({
     required this.onRefresh,
     required this.onNewCalculation,
-    required this.loadedQuote,
     required this.selectedIndex,
     required this.disabledStepKeys,
     required this.draft,
+    required this.buyerContact,
     required this.onStepSelected,
   });
 
   final VoidCallback onRefresh;
   final VoidCallback onNewCalculation;
-  final LoadedQuote? loadedQuote;
   final int selectedIndex;
   final Set<String> disabledStepKeys;
   final CalculatorDraft draft;
+  final CalculatorBuyerContact buyerContact;
   final ValueChanged<int> onStepSelected;
 
   @override
   Widget build(BuildContext context) {
-    final quoteLabel = loadedQuote?.quoteNo ?? 'new quote';
+    final buyerName = buyerContact.organizationName?.trim() ?? '';
+    final buyerContactDetails = [
+      buyerContact.contactName,
+      buyerContact.email,
+      buyerContact.phone,
+    ]
+        .whereType<String>()
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .join(' · ');
 
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        SizedBox(
-          width: 60,
-          height: 60,
-          child: Center(
-            child: Icon(
-              Icons.build_circle_outlined,
-              size: 60,
-              color: Theme.of(context).colorScheme.primary,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final left = Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            SizedBox(
+              width: 60,
+              height: 60,
+              child: Center(
+                child: Icon(
+                  Icons.build_circle_outlined,
+                  size: 60,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+              ),
             ),
-          ),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Calculator Workspace', style: Theme.of(context).textTheme.headlineSmall),
-              const SizedBox(height: 4),
-              SizedBox(
-                height: 40,
-                child: _StepScroller(
-                  selectedIndex: selectedIndex,
-                  disabledStepKeys: disabledStepKeys,
-                  draft: draft,
-                  onSelect: onStepSelected,
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Calculator Workspace', style: Theme.of(context).textTheme.headlineSmall),
+                  const SizedBox(height: 4),
+                  SizedBox(
+                    height: 40,
+                    child: _StepScroller(
+                      selectedIndex: selectedIndex,
+                      disabledStepKeys: disabledStepKeys,
+                      draft: draft,
+                      onSelect: onStepSelected,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        );
+        final actions = Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: onNewCalculation,
+                  icon: const Icon(Icons.add_circle_outline),
+                  label: const Text('New calculation'),
+                ),
+                const SizedBox(width: 8),
+                OutlinedButton.icon(
+                  onPressed: onRefresh,
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Refresh context'),
+                ),
+              ],
+            ),
+            if (buyerName.isNotEmpty || buyerContactDetails.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 18),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (buyerName.isNotEmpty)
+                        Text(
+                          buyerName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                                fontWeight: FontWeight.w700,
+                              ),
+                        ),
+                      if (buyerName.isNotEmpty && buyerContactDetails.isNotEmpty)
+                        const SizedBox(height: 2),
+                      if (buyerContactDetails.isNotEmpty)
+                        Text(
+                          buyerContactDetails,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                              ),
+                        ),
+                    ],
+                  ),
                 ),
               ),
             ],
-          ),
-        ),
-        const SizedBox(width: 12),
-        Chip(
-          avatar: Icon(
-            loadedQuote == null ? Icons.add_circle_outline : Icons.request_quote_outlined,
-            size: 18,
-          ),
-          label: Text(quoteLabel),
-        ),
-        const SizedBox(width: 8),
-        OutlinedButton.icon(
-          onPressed: onNewCalculation,
-          icon: const Icon(Icons.add_circle_outline),
-          label: const Text('New calculation'),
-        ),
-        const SizedBox(width: 8),
-        OutlinedButton.icon(
-          onPressed: onRefresh,
-          icon: const Icon(Icons.refresh),
-          label: const Text('Refresh context'),
-        ),
-      ],
+          ],
+        );
+
+        if (constraints.maxWidth >= 1180) {
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(flex: 3, child: left),
+              const SizedBox(width: 16),
+              Expanded(flex: 2, child: actions),
+            ],
+          );
+        }
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [left, const SizedBox(height: 8), actions],
+        );
+      },
     );
   }
+
 }
 
 class _StepScroller extends StatelessWidget {
@@ -805,6 +881,9 @@ class _StepCard extends ConsumerWidget {
           onRelatedCustomerChanged: notifier.setRelatedCustomer,
           onBrandingChanged: notifier.setBranding,
           onEngravingEnabledChanged: notifier.setEngravingEnabled,
+          onOpenOrganization: (organizationId) => ref
+              .read(selectedResourceProvider.notifier)
+              .select('organizations', filters: {'id': organizationId}),
         );
       case 'template':
         return _TemplateStep(
@@ -836,6 +915,7 @@ class _StepCard extends ConsumerWidget {
           selectedRoofModel: roofModelState.selectedForCode(draft.modelCode),
           notifier: notifier,
           options: calculatorContext.references['tds_glass_covering'] ?? const [],
+          onModuleFocusChanged: onModuleFocusChanged,
         );
       case 'color':
         return _ColorStep(
@@ -856,7 +936,21 @@ class _StepCard extends ConsumerWidget {
           preview: preview,
           diagnostics: result?.manualComponentDiagnostics ?? const [],
           mediaRepository: ref.read(resourceRepositoryProvider),
+          weights: result?.weights ?? const {},
+          onModuleFocusChanged: onModuleFocusChanged,
           onUpdateFromDefaults: () => _confirmAndReloadSetContents(context, ref, notifier),
+          onOpenRuleSet: (id) => ref
+              .read(selectedResourceProvider.notifier)
+              .select('rule_sets', filters: {'id': id}),
+          onOpenRuleMatrix: (matrixId, ruleSetId) => ref
+              .read(selectedResourceProvider.notifier)
+              .select(
+                'rule_matrices',
+                filters: {
+                  'id': matrixId,
+                  if (ruleSetId != null && ruleSetId.isNotEmpty) 'rule_set_id': ruleSetId,
+                },
+              ),
         );
       case 'accessory':
         final result = ref.watch(calculatorResultProvider).maybeWhen(
@@ -872,6 +966,7 @@ class _StepCard extends ConsumerWidget {
           derivedDiagnostics: result?.derivedAccessoryDiagnostics ?? const [],
           manualDiagnostics: result?.manualComponentDiagnostics ?? const [],
           mediaRepository: ref.read(resourceRepositoryProvider),
+          weights: result?.weights ?? const {},
           onFastenersPressed: () {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('Fasteners import will be connected in the next iteration.')),
@@ -889,15 +984,14 @@ class _StepCard extends ConsumerWidget {
           notifier: notifier,
           optionDiagnostics: result?.optionDiagnostics ?? const [],
           mediaRepository: ref.read(resourceRepositoryProvider),
+          weights: result?.weights ?? const {},
         );
       case 'delivery':
-        return _SelectStep(
-          title: 'Delivery / handover',
-          description: 'Uses handover_types. Delivery price can be calculated as an extra price mode or a separate delivery service line.',
-          value: draft.handoverTypeCode,
+        return _DeliveryStep(
+          draft: draft,
           options: calculatorContext.references['handover_types'] ?? const [],
-          onChanged: notifier.setHandover,
-          emptyLabel: '— Delivery not selected —',
+          onHandoverChanged: notifier.setHandover,
+          onCompletionWeekChanged: notifier.setCompletionWeek,
         );
       case 'summary':
       default:
@@ -923,6 +1017,7 @@ class _ProductStep extends StatefulWidget {
     required this.onRelatedCustomerChanged,
     required this.onBrandingChanged,
     required this.onEngravingEnabledChanged,
+    required this.onOpenOrganization,
   });
 
   final CalculatorContext contextData;
@@ -936,6 +1031,7 @@ class _ProductStep extends StatefulWidget {
   final ValueChanged<String?> onRelatedCustomerChanged;
   final ValueChanged<Map<String, dynamic>> onBrandingChanged;
   final ValueChanged<bool> onEngravingEnabledChanged;
+  final ValueChanged<String> onOpenOrganization;
 
   @override
   State<_ProductStep> createState() => _ProductStepState();
@@ -944,6 +1040,10 @@ class _ProductStep extends StatefulWidget {
 class _ProductStepState extends State<_ProductStep> {
   late final TextEditingController _quoteNoExternal;
   late final TextEditingController _externalNotes;
+  late final TextEditingController _organizationSearch;
+  late final FocusNode _organizationFocus;
+  late final TextEditingController _relatedCustomerSearch;
+  late final FocusNode _relatedCustomerFocus;
   bool _byRelatedCustomer = false;
   String? _selectedRelatedCustomerId;
 
@@ -952,6 +1052,10 @@ class _ProductStepState extends State<_ProductStep> {
     super.initState();
     _quoteNoExternal = TextEditingController(text: widget.draft.quoteNoExternal ?? '');
     _externalNotes = TextEditingController(text: widget.draft.externalNotes ?? '');
+    _organizationSearch = TextEditingController(text: _organizationById(widget.draft.organizationId)?.label ?? '');
+    _organizationFocus = FocusNode();
+    _relatedCustomerSearch = TextEditingController();
+    _relatedCustomerFocus = FocusNode();
     _byRelatedCustomer = _brandingSourceCode(widget.draft.branding) == 'selected_organization' ||
         (widget.draft.relatedCustomerId ?? '').isNotEmpty;
     _selectedRelatedCustomerId = widget.draft.relatedCustomerId;
@@ -963,9 +1067,11 @@ class _ProductStepState extends State<_ProductStep> {
     super.didUpdateWidget(oldWidget);
     _sync(_quoteNoExternal, widget.draft.quoteNoExternal);
     _sync(_externalNotes, widget.draft.externalNotes);
+    _sync(_organizationSearch, _organizationById(widget.draft.organizationId)?.label);
     if (oldWidget.draft.organizationId != widget.draft.organizationId) {
       _byRelatedCustomer = false;
       _selectedRelatedCustomerId = null;
+      _relatedCustomerSearch.clear();
     }
     if (oldWidget.draft.relatedCustomerId != widget.draft.relatedCustomerId &&
         widget.draft.relatedCustomerId != _selectedRelatedCustomerId) {
@@ -1064,6 +1170,10 @@ class _ProductStepState extends State<_ProductStep> {
   void dispose() {
     _quoteNoExternal.dispose();
     _externalNotes.dispose();
+    _organizationSearch.dispose();
+    _organizationFocus.dispose();
+    _relatedCustomerSearch.dispose();
+    _relatedCustomerFocus.dispose();
     super.dispose();
   }
 
@@ -1092,6 +1202,7 @@ class _ProductStepState extends State<_ProductStep> {
         _byRelatedCustomer = false;
         _selectedRelatedCustomerId = null;
       });
+      _relatedCustomerSearch.clear();
       widget.onRelatedCustomerChanged(null);
       _applyBranding(byRelatedCustomer: false, engravingEnabled: false);
       return;
@@ -1103,9 +1214,22 @@ class _ProductStepState extends State<_ProductStep> {
       _byRelatedCustomer = true;
       _selectedRelatedCustomerId = selected.id;
     });
+    _relatedCustomerSearch.text = _relatedCustomerName(selected);
     widget.onRelatedCustomerChanged(selected.id);
     widget.onQuoteNoExternalChanged(_relatedCustomerName(selected));
     _applyBranding(byRelatedCustomer: true);
+  }
+
+  String? _buyerOrganizationId(CalculatorOption? relatedCustomer) {
+    if (_byRelatedCustomer && relatedCustomer != null) {
+      final raw = relatedCustomer.raw;
+      for (final key in const ['child_organization_id', 'organization_id', 'branding_organization_id']) {
+        final value = raw[key]?.toString().trim() ?? '';
+        if (value.isNotEmpty) return value;
+      }
+    }
+    final organizationId = widget.draft.organizationId?.trim() ?? '';
+    return organizationId.isEmpty ? null : organizationId;
   }
 
   @override
@@ -1113,10 +1237,13 @@ class _ProductStepState extends State<_ProductStep> {
     final relatedCustomers = widget.contextData.relatedCustomersFor(widget.draft.organizationId);
     final canUseRelatedCustomer = relatedCustomers.isNotEmpty;
     final selectedRelatedCustomer = _selectedRelatedCustomer(relatedCustomers);
-    final selectedRelatedCustomerId = selectedRelatedCustomer?.id;
+    if (!_relatedCustomerFocus.hasFocus) {
+      _sync(_relatedCustomerSearch, selectedRelatedCustomer == null ? null : _relatedCustomerName(selectedRelatedCustomer));
+    }
     final activeBranding = _activeBranding(canUseRelatedCustomer);
     final engravingText = activeBranding?.engravingText?.trim() ?? '';
     final engravingEnabled = _brandingEngravingEnabled();
+    final buyerContact = widget.contextData.buyerContactFor(widget.draft);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1128,25 +1255,78 @@ class _ProductStepState extends State<_ProductStep> {
           style: Theme.of(context).textTheme.bodyMedium,
         ),
         const SizedBox(height: 20),
-        _DropdownField(
+        _SearchableOptionField<CalculatorOption>(
           label: 'Organization',
-          value: widget.draft.organizationId,
+          controller: _organizationSearch,
+          focusNode: _organizationFocus,
           options: widget.contextData.organizations,
-          idSelector: (option) => option.id,
-          onChanged: (value) {
-            widget.onOrganizationChanged(value);
+          displayStringForOption: (option) => option.label,
+          searchStringForOption: (option) => [
+            option.label,
+            option.code,
+            option.raw['legal_name'],
+            option.raw['display_name'],
+            option.raw['short_name'],
+          ].whereType<Object>().join(' '),
+          onSelected: (option) {
+            widget.onOrganizationChanged(option.id);
             if (_byRelatedCustomer) {
               setState(() {
                 _byRelatedCustomer = false;
                 _selectedRelatedCustomerId = null;
               });
+              _relatedCustomerSearch.clear();
               widget.onRelatedCustomerChanged(null);
             }
             _applyBranding(byRelatedCustomer: false, engravingEnabled: false);
           },
-          emptyLabel: '— No organization terms —',
         ),
+        if (buyerContact.hasOrganization || buyerContact.hasContact) ...[
+          const SizedBox(height: 8),
+          Card(
+            margin: EdgeInsets.zero,
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: () {
+                final organizationId = _buyerOrganizationId(selectedRelatedCustomer);
+                if (organizationId != null) widget.onOpenOrganization(organizationId);
+              },
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (buyerContact.hasOrganization)
+                            Text(
+                              buyerContact.organizationName!,
+                              style: Theme.of(context).textTheme.labelLarge,
+                            ),
+                          if (buyerContact.hasContact) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              [buyerContact.contactName, buyerContact.email, buyerContact.phone]
+                                  .whereType<String>()
+                                  .where((value) => value.trim().isNotEmpty)
+                                  .join(' · '),
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    const Icon(Icons.open_in_new, size: 18),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
         const SizedBox(height: 16),
+
         _DropdownField(
           label: 'Product family',
           value: widget.draft.productFamilyId,
@@ -1178,25 +1358,22 @@ class _ProductStepState extends State<_ProductStep> {
         ),
         const SizedBox(height: 12),
         if (_byRelatedCustomer && canUseRelatedCustomer)
-          DropdownButtonFormField<String>(
-            initialValue: selectedRelatedCustomerId,
-            isExpanded: true,
-            decoration: const InputDecoration(
-              labelText: 'Kommission name *',
-              helperText: 'Uses the selected related customer short name.',
-              border: OutlineInputBorder(),
-              isDense: true,
-            ),
-            items: [
-              for (final option in relatedCustomers)
-                DropdownMenuItem(
-                  value: option.id,
-                  child: Text(_relatedCustomerName(option), overflow: TextOverflow.ellipsis),
-                ),
-            ],
-            onChanged: (value) {
-              final selected = relatedCustomers.where((option) => option.id == value).firstOrNull;
-              if (selected == null) return;
+          _SearchableOptionField<CalculatorOption>(
+            label: 'Kommission name *',
+            hintText: 'Search related customer',
+            controller: _relatedCustomerSearch,
+            focusNode: _relatedCustomerFocus,
+            options: relatedCustomers,
+            displayStringForOption: _relatedCustomerName,
+            searchStringForOption: (option) => [
+              _relatedCustomerName(option),
+              option.label,
+              option.code,
+              option.raw['legal_name'],
+              option.raw['display_name'],
+              option.raw['short_name'],
+            ].whereType<Object>().join(' '),
+            onSelected: (selected) {
               setState(() => _selectedRelatedCustomerId = selected.id);
               widget.onRelatedCustomerChanged(selected.id);
               widget.onQuoteNoExternalChanged(_relatedCustomerName(selected));
@@ -2393,6 +2570,7 @@ class _CoveringStep extends StatefulWidget {
     required this.selectedRoofModel,
     required this.notifier,
     required this.options,
+    required this.onModuleFocusChanged,
   });
 
   final CalculatorDraft draft;
@@ -2400,6 +2578,7 @@ class _CoveringStep extends StatefulWidget {
   final CalculatorOption? selectedRoofModel;
   final CalculatorDraftNotifier notifier;
   final List<CalculatorOption> options;
+  final ValueChanged<int?> onModuleFocusChanged;
 
   @override
   State<_CoveringStep> createState() => _CoveringStepState();
@@ -2407,6 +2586,7 @@ class _CoveringStep extends StatefulWidget {
 
 class _CoveringStepState extends State<_CoveringStep> {
   late final TextEditingController _maxGlassFieldWidth;
+  int? _selectedModuleIndex;
 
   @override
   void initState() {
@@ -2468,6 +2648,11 @@ class _CoveringStepState extends State<_CoveringStep> {
           _CalculatedGlassCard(
             modules: roofCalculation.modules,
             coveringCode: widget.draft.coveringCode,
+            selectedModuleIndex: _selectedModuleIndex,
+            onModuleSelected: (index) {
+              setState(() => _selectedModuleIndex = index);
+              widget.onModuleFocusChanged(index);
+            },
           ),
         ],
         if (widget.selectedTemplate != null && !widget.selectedTemplate!.hasCompleteRoofParameters) ...[
@@ -2484,13 +2669,25 @@ class _CoveringStepState extends State<_CoveringStep> {
 
 
 class _CalculatedGlassCard extends StatelessWidget {
-  const _CalculatedGlassCard({required this.modules, required this.coveringCode});
+  const _CalculatedGlassCard({
+    required this.modules,
+    required this.coveringCode,
+    required this.selectedModuleIndex,
+    required this.onModuleSelected,
+  });
 
   final List<RoofModuleCalculation> modules;
   final String? coveringCode;
+  final int? selectedModuleIndex;
+  final ValueChanged<int> onModuleSelected;
 
   @override
   Widget build(BuildContext context) {
+    final totalWeight = modules.fold<double>(
+      0,
+      (sum, module) => sum + _glassWeightKg(module.glassAreaM2, coveringCode),
+    );
+    final colorScheme = Theme.of(context).colorScheme;
     return Card(
       margin: EdgeInsets.zero,
       child: Padding(
@@ -2498,42 +2695,176 @@ class _CalculatedGlassCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Calculated glass', style: Theme.of(context).textTheme.labelLarge),
+            Row(
+              children: [
+                Expanded(child: Text('Calculated glass', style: Theme.of(context).textTheme.labelLarge)),
+                _CalculationValueChip(label: 'Glasgewicht', value: '${totalWeight.toStringAsFixed(1)} kg'),
+              ],
+            ),
             const SizedBox(height: 10),
             for (final module in modules)
               Padding(
                 padding: const EdgeInsets.only(bottom: 8),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    SizedBox(
-                      width: 110,
-                      child: Text(_moduleDisplayLabel(module.role, module.moduleIndex)),
-                    ),
-                    Expanded(
-                      child: Wrap(
-                        spacing: 8,
-                        runSpacing: 6,
+                child: Material(
+                  color: selectedModuleIndex == module.moduleIndex
+                      ? const Color(0xFFF1F3F5).withValues(alpha: 0.18)
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(10),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(10),
+                    onTap: () => onModuleSelected(module.moduleIndex),
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: selectedModuleIndex == module.moduleIndex
+                              ? const Color(0xFFAEB4BC)
+                              : colorScheme.outlineVariant.withValues(alpha: 0.45),
+                          width: selectedModuleIndex == module.moduleIndex
+                              ? 1.2
+                              : 1,
+                        ),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          _CalculationValueChip(label: 'Type', value: coveringCode ?? '—'),
-                          _CalculationValueChip(label: 'Quantity', value: '${module.glassCount}'),
-                          _CalculationValueChip(
-                            label: 'Size',
-                            value: '${module.glassWidthMm} × ${module.glassLengthMm} mm',
+                          SizedBox(
+                            width: 110,
+                            child: Text(
+                              _moduleDisplayLabel(module.role, module.moduleIndex),
+                              style: Theme.of(context).textTheme.labelLarge,
+                            ),
                           ),
-                          _CalculationValueChip(
-                            label: 'Area',
-                            value: '${module.glassAreaM2.toStringAsFixed(1)} m²',
+                          Expanded(
+                            child: Wrap(
+                              spacing: 8,
+                              runSpacing: 6,
+                              children: [
+                                _CalculationValueChip(label: 'Type', value: coveringCode ?? '—'),
+                                _CalculationValueChip(label: 'Quantity', value: '${module.glassCount}'),
+                                _CalculationValueChip(
+                                  label: 'Size',
+                                  value: '${module.glassWidthMm} × ${module.glassLengthMm} mm',
+                                ),
+                                _CalculationValueChip(
+                                  label: 'Area',
+                                  value: '${module.glassAreaM2.toStringAsFixed(1)} m²',
+                                ),
+                                _CalculationValueChip(
+                                  label: 'Weight',
+                                  value: '${_glassWeightKg(module.glassAreaM2, coveringCode).toStringAsFixed(1)} kg',
+                                ),
+                              ],
+                            ),
                           ),
                         ],
                       ),
                     ),
-                  ],
+                  ),
                 ),
               ),
           ],
         ),
       ),
+    );
+  }
+}
+
+
+class _DeliveryStep extends StatefulWidget {
+  const _DeliveryStep({
+    required this.draft,
+    required this.options,
+    required this.onHandoverChanged,
+    required this.onCompletionWeekChanged,
+  });
+
+  final CalculatorDraft draft;
+  final List<CalculatorOption> options;
+  final ValueChanged<String?> onHandoverChanged;
+  final ValueChanged<int?> onCompletionWeekChanged;
+
+  @override
+  State<_DeliveryStep> createState() => _DeliveryStepState();
+}
+
+class _DeliveryStepState extends State<_DeliveryStep> {
+  late final TextEditingController _weekController;
+
+  @override
+  void initState() {
+    super.initState();
+    _weekController = TextEditingController(text: widget.draft.completionWeek?.toString() ?? '');
+  }
+
+  @override
+  void didUpdateWidget(covariant _DeliveryStep oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.draft.completionWeek == widget.draft.completionWeek) return;
+    final text = widget.draft.completionWeek?.toString() ?? '';
+    if (_weekController.text != text) _weekController.text = text;
+  }
+
+  @override
+  void dispose() {
+    _weekController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final now = DateTime.now();
+    final currentWeek = _isoWeekNumber(now);
+    final lastWeek = _isoWeekNumber(DateTime(now.year, 12, 28));
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Delivery / handover', style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 8),
+        const Text('Delivery type and planned completion week are stored with the calculation and quote.'),
+        const SizedBox(height: 20),
+        _DropdownField(
+          label: 'Delivery / handover',
+          value: widget.draft.handoverTypeCode,
+          options: widget.options,
+          idSelector: (option) => option.code,
+          onChanged: widget.onHandoverChanged,
+          emptyLabel: '— Delivery not selected —',
+        ),
+        const SizedBox(height: 16),
+        SizedBox(
+          width: 260,
+          child: TextFormField(
+            controller: _weekController,
+            keyboardType: TextInputType.number,
+            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+            decoration: InputDecoration(
+              labelText: 'Fertigst. KW',
+              suffixText: 'KW',
+              helperText: 'Allowed: KW $currentWeek–$lastWeek (${now.year})',
+              border: const OutlineInputBorder(),
+              isDense: true,
+            ),
+            autovalidateMode: AutovalidateMode.onUserInteraction,
+            validator: (value) {
+              if (value == null || value.trim().isEmpty) return null;
+              final week = int.tryParse(value);
+              if (week == null || week < currentWeek || week > lastWeek) {
+                return 'Enter a week from $currentWeek to $lastWeek';
+              }
+              return null;
+            },
+            onChanged: (value) {
+              final week = int.tryParse(value);
+              widget.onCompletionWeekChanged(
+                week != null && week >= currentWeek && week <= lastWeek ? week : null,
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 }
@@ -2883,7 +3214,11 @@ class _SetContentsStep extends StatefulWidget {
     required this.preview,
     required this.diagnostics,
     required this.mediaRepository,
+    required this.weights,
+    required this.onModuleFocusChanged,
     required this.onUpdateFromDefaults,
+    required this.onOpenRuleSet,
+    required this.onOpenRuleMatrix,
   });
 
   final CalculatorContext contextData;
@@ -2892,13 +3227,29 @@ class _SetContentsStep extends StatefulWidget {
   final AsyncValue<CalculatorSetContentsPreview> preview;
   final List<Map<String, dynamic>> diagnostics;
   final AdminResourceRepository mediaRepository;
+  final Map<String, dynamic> weights;
+  final ValueChanged<int?> onModuleFocusChanged;
   final Future<void> Function() onUpdateFromDefaults;
+  final ValueChanged<String> onOpenRuleSet;
+  final void Function(String matrixId, String? ruleSetId) onOpenRuleMatrix;
 
   @override
   State<_SetContentsStep> createState() => _SetContentsStepState();
 }
 
 class _SetContentsStepState extends State<_SetContentsStep> {
+  int _selectedModuleTabIndex = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && widget.draft.setContents.isNotEmpty) {
+        widget.onModuleFocusChanged(1);
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     widget.preview.whenData((preview) {
@@ -2951,11 +3302,30 @@ class _SetContentsStepState extends State<_SetContentsStep> {
             spacing: 8,
             runSpacing: 8,
             children: [
-              _InfoChip(label: 'Rule set', value: '${source['rule_set_id'] ?? '—'}'),
-              _InfoChip(label: 'Matrix', value: '${source['matrix_code'] ?? source['matrix_name'] ?? '—'}'),
+              _InfoChip(
+                label: 'Rule set',
+                value: '${source['rule_set_name'] ?? source['rule_set_id'] ?? '—'}',
+                onTap: '${source['rule_set_id'] ?? ''}'.trim().isEmpty
+                    ? null
+                    : () => widget.onOpenRuleSet('${source['rule_set_id']}'),
+              ),
+              _InfoChip(
+                label: 'Matrix',
+                value: '${source['matrix_name'] ?? source['matrix_code'] ?? '—'}',
+                onTap: '${source['rule_matrix_id'] ?? ''}'.trim().isEmpty
+                    ? null
+                    : () => widget.onOpenRuleMatrix(
+                          '${source['rule_matrix_id']}',
+                          '${source['rule_set_id'] ?? ''}'.trim().isEmpty
+                              ? null
+                              : '${source['rule_set_id']}',
+                        ),
+              ),
               _InfoChip(label: 'Row', value: '${source['row_no'] ?? '—'}'),
               _InfoChip(label: 'Standard lines', value: '${standardBom.length}'),
               _InfoChip(label: 'Delta lines', value: '${setDeltaBom.length}'),
+              if (widget.weights.isNotEmpty)
+                _InfoChip(label: 'Set weight', value: _weightText(widget.weights, 'set_kg', 'set_complete')),
             ],
           ),
           const SizedBox(height: 8),
@@ -2978,9 +3348,12 @@ class _SetContentsStepState extends State<_SetContentsStep> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const TabBar(
+                TabBar(
                   isScrollable: true,
-                  tabs: [
+                  onTap: (index) {
+                    widget.onModuleFocusChanged(index == 0 ? _selectedModuleTabIndex + 1 : null);
+                  },
+                  tabs: const [
                     Tab(text: 'Modules set'),
                     Tab(text: 'Standard set'),
                     Tab(text: 'Current set delta'),
@@ -3012,6 +3385,7 @@ class _SetContentsStepState extends State<_SetContentsStep> {
                         subtitle: 'Only these differences are price-relevant; the calculated BOM itself is not.',
                         emptyText: 'The current calculated set has no price-relevant differences from the standard set.',
                         lines: setDeltaBom,
+                        showDeltaDirection: true,
                       ),
                     ],
                   ),
@@ -3033,6 +3407,10 @@ class _SetContentsStepState extends State<_SetContentsStep> {
         children: [
           TabBar(
             isScrollable: true,
+            onTap: (index) {
+              setState(() => _selectedModuleTabIndex = index);
+              widget.onModuleFocusChanged(index + 1);
+            },
             tabs: [for (final tab in tabs) Tab(text: tab.label)],
           ),
           const SizedBox(height: 10),
@@ -3465,6 +3843,7 @@ class _BomSummaryList extends StatefulWidget {
     required this.subtitle,
     required this.emptyText,
     required this.lines,
+    this.showDeltaDirection = false,
   });
 
   final CalculatorContext contextData;
@@ -3473,6 +3852,7 @@ class _BomSummaryList extends StatefulWidget {
   final String subtitle;
   final String emptyText;
   final List<Map<String, dynamic>> lines;
+  final bool showDeltaDirection;
 
   @override
   State<_BomSummaryList> createState() => _BomSummaryListState();
@@ -3529,7 +3909,10 @@ class _BomSummaryListState extends State<_BomSummaryList> {
                       ),
                       title: Text('${line['article_no'] ?? line['profile_no'] ?? '—'} · ${line['name'] ?? 'Component'}'),
                       subtitle: Text(_bomLineDescription(line)),
-                      trailing: Text('${_num(line['quantity'])} ${_formatUnitLabel('${line['unit_code'] ?? 'piece'}')}'),
+                      trailing: _BomSummaryTrailing(
+                        quantityText: '${_num(line['quantity'])} ${_formatUnitLabel('${line['unit_code'] ?? 'piece'}')}',
+                        deltaKind: widget.showDeltaDirection ? _deltaKind(line) : null,
+                      ),
                     );
                   },
                 ),
@@ -3538,6 +3921,15 @@ class _BomSummaryListState extends State<_BomSummaryList> {
         ],
       ),
     );
+  }
+
+  String? _deltaKind(Map<String, dynamic> line) {
+    final source = line['source'] is Map
+        ? Map<String, dynamic>.from(line['source'] as Map)
+        : const <String, dynamic>{};
+    final kind = '${source['delta_kind'] ?? ''}'.trim().toLowerCase();
+    if (kind == 'positive' || kind == 'abzug') return kind;
+    return null;
   }
 
   String _bomLineDescription(Map<String, dynamic> line) {
@@ -3555,17 +3947,59 @@ class _BomSummaryListState extends State<_BomSummaryList> {
   }
 }
 
-class _InfoChip extends StatelessWidget {
-  const _InfoChip({required this.label, required this.value});
+class _BomSummaryTrailing extends StatelessWidget {
+  const _BomSummaryTrailing({
+    required this.quantityText,
+    required this.deltaKind,
+  });
 
-  final String label;
-  final String value;
+  final String quantityText;
+  final String? deltaKind;
 
   @override
   Widget build(BuildContext context) {
-    return Chip(
+    final isPositive = deltaKind == 'positive';
+    final isAbzug = deltaKind == 'abzug';
+    if (!isPositive && !isAbzug) return Text(quantityText);
+
+    final colorScheme = Theme.of(context).colorScheme;
+    final icon = isPositive ? Icons.arrow_upward_rounded : Icons.arrow_downward_rounded;
+    final color = isPositive ? colorScheme.primary : colorScheme.error;
+    final tooltip = isPositive ? 'Positive set delta' : 'Abzug';
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(quantityText),
+        const SizedBox(width: 6),
+        Tooltip(
+          message: tooltip,
+          child: Icon(icon, size: 18, color: color),
+        ),
+      ],
+    );
+  }
+}
+
+class _InfoChip extends StatelessWidget {
+  const _InfoChip({required this.label, required this.value, this.onTap});
+
+  final String label;
+  final String value;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final chip = Chip(
+      avatar: onTap == null ? null : const Icon(Icons.open_in_new, size: 15),
       label: Text('$label: $value', overflow: TextOverflow.ellipsis),
       visualDensity: VisualDensity.compact,
+    );
+    if (onTap == null) return chip;
+    return InkWell(
+      borderRadius: BorderRadius.circular(20),
+      onTap: onTap,
+      child: chip,
     );
   }
 }
@@ -3627,20 +4061,22 @@ CalculatorCatalogItemOption? _findCatalogItem(
   Iterable<String?> codes = const [],
 }) {
   final normalizedId = id?.trim();
+  CalculatorCatalogItemOption? idMatch;
   if (normalizedId != null && normalizedId.isNotEmpty) {
-    final byId = contextData.optionCatalogItems
+    idMatch = contextData.optionCatalogItems
         .where((entry) => entry.id == normalizedId)
         .cast<CalculatorCatalogItemOption?>()
         .firstOrNull;
-    if (byId != null) return byId;
+    if (idMatch != null && _catalogItemHasMedia(idMatch)) return idMatch;
   }
 
   final wanted = <String>{};
   for (final code in codes) {
     wanted.addAll(_catalogCodeKeys(code));
   }
-  if (wanted.isEmpty) return null;
+  if (wanted.isEmpty) return idMatch;
 
+  CalculatorCatalogItemOption? canonicalMatch;
   CalculatorCatalogItemOption? prefixedMatch;
   for (final item in contextData.optionCatalogItems) {
     final itemKeys = <String>{
@@ -3650,10 +4086,19 @@ CalculatorCatalogItemOption? _findCatalogItem(
     };
     if (itemKeys.intersection(wanted).isEmpty) continue;
     final baseCode = item.baseCode.trim();
-    if (!baseCode.contains(':')) return item;
-    prefixedMatch ??= item;
+    if (!baseCode.contains(':')) {
+      if (_catalogItemHasMedia(item)) return item;
+      canonicalMatch ??= item;
+    } else {
+      prefixedMatch ??= item;
+    }
   }
-  return prefixedMatch;
+  return canonicalMatch ?? idMatch ?? prefixedMatch;
+}
+
+bool _catalogItemHasMedia(CalculatorCatalogItemOption item) {
+  return (item.mediaLargeFileId?.trim().isNotEmpty ?? false)
+      || (item.mediaFileId?.trim().isNotEmpty ?? false);
 }
 
 Set<String> _catalogCodeKeys(String? raw) {
@@ -3985,6 +4430,7 @@ class _AccessoryStep extends StatelessWidget {
     required this.derivedDiagnostics,
     required this.manualDiagnostics,
     required this.mediaRepository,
+    required this.weights,
     required this.onFastenersPressed,
   });
 
@@ -3995,6 +4441,7 @@ class _AccessoryStep extends StatelessWidget {
   final List<Map<String, dynamic>> derivedDiagnostics;
   final List<Map<String, dynamic>> manualDiagnostics;
   final AdminResourceRepository mediaRepository;
+  final Map<String, dynamic> weights;
   final VoidCallback onFastenersPressed;
 
   @override
@@ -4037,6 +4484,8 @@ class _AccessoryStep extends StatelessWidget {
               _InfoChip(label: 'Manual', value: '${lines.where((line) => !line.isDerived).length}'),
               _InfoChip(label: 'Priced', value: '${lines.where((line) => line.hasAmount).length}'),
               _InfoChip(label: 'Cost', value: totalAmount == 0 ? '—' : _moneyFormat.format(totalAmount)),
+              if (weights.isNotEmpty)
+                _InfoChip(label: 'Weight', value: _weightText(weights, 'accessories_kg', 'accessories_complete')),
             ],
           ),
           const SizedBox(height: 12),
@@ -4278,6 +4727,7 @@ class _OptionsStep extends StatefulWidget {
     required this.notifier,
     required this.optionDiagnostics,
     required this.mediaRepository,
+    required this.weights,
   });
 
   final CalculatorContext contextData;
@@ -4285,6 +4735,7 @@ class _OptionsStep extends StatefulWidget {
   final CalculatorDraftNotifier notifier;
   final List<Map<String, dynamic>> optionDiagnostics;
   final AdminResourceRepository mediaRepository;
+  final Map<String, dynamic> weights;
 
   @override
   State<_OptionsStep> createState() => _OptionsStepState();
@@ -4339,6 +4790,16 @@ class _OptionsStepState extends State<_OptionsStep> {
         const Text(
           'Options are additional catalog positions selected only for the current calculation. They do not change the base set, but are added to price lines and option BOM.',
         ),
+        if (widget.weights.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: _InfoChip(
+              label: 'Options / Zusätzliche Artikeln weight',
+              value: _weightText(widget.weights, 'options_kg', 'options_complete'),
+            ),
+          ),
+        ],
         const SizedBox(height: 16),
         Wrap(
           spacing: 12,
@@ -5252,74 +5713,82 @@ class _CatalogOptionMediaFrameState extends State<_CatalogOptionMediaFrame> {
     }
   }
 
+  void _openPreview() {
+    showDialog<void>(
+      context: context,
+      builder: (_) => MediaPreviewDialog(
+        repository: widget.repository,
+        files: [widget.detailMediaRef],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    return Container(
-      width: widget.size,
-      height: widget.size,
-      clipBehavior: Clip.antiAlias,
-      decoration: BoxDecoration(
-        color: colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Theme.of(context).dividerColor),
-      ),
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          FutureBuilder<ApiBinaryResponse>(
-            future: _imageFuture,
-            builder: (context, snapshot) {
-              if (snapshot.connectionState != ConnectionState.done) {
-                return const Center(
-                  child: SizedBox(
-                    width: 22,
-                    height: 22,
-                    child: CircularProgressIndicator(strokeWidth: 2),
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: _openPreview,
+      child: Container(
+        width: widget.size,
+        height: widget.size,
+        clipBehavior: Clip.antiAlias,
+        decoration: BoxDecoration(
+          color: colorScheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Theme.of(context).dividerColor),
+        ),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            FutureBuilder<ApiBinaryResponse>(
+              future: _imageFuture,
+              builder: (context, snapshot) {
+                if (snapshot.connectionState != ConnectionState.done) {
+                  return const Center(
+                    child: SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  );
+                }
+
+                final response = snapshot.data;
+                if (snapshot.hasError || response == null || response.bytes.isEmpty) {
+                  return const Center(child: Icon(Icons.broken_image_outlined));
+                }
+
+                return Padding(
+                  padding: const EdgeInsets.all(6),
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Image.memory(
+                      response.bytes,
+                      errorBuilder: (_, __, ___) => const Center(child: Icon(Icons.broken_image_outlined)),
+                    ),
                   ),
                 );
-              }
-
-              final response = snapshot.data;
-              if (snapshot.hasError || response == null || response.bytes.isEmpty) {
-                return const Center(child: Icon(Icons.broken_image_outlined));
-              }
-
-              return Padding(
-                padding: const EdgeInsets.all(6),
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: Image.memory(
-                    response.bytes,
-                    errorBuilder: (_, __, ___) => const Center(child: Icon(Icons.broken_image_outlined)),
-                  ),
-                ),
-              );
-            },
-          ),
-          if (widget.showPreviewAction)
-            Positioned(
-              top: 4,
-              right: 4,
-              child: Material(
-                color: colorScheme.surface.withValues(alpha: 0.84),
-              borderRadius: BorderRadius.circular(18),
-              child: IconButton(
-                visualDensity: VisualDensity.compact,
-                iconSize: 18,
-                tooltip: 'Preview media',
-                onPressed: () => showDialog<void>(
-                  context: context,
-                  builder: (_) => MediaPreviewDialog(
-                    repository: widget.repository,
-                    files: [widget.detailMediaRef],
-                  ),
-                ),
-                icon: const Icon(Icons.open_in_full_rounded),
-              ),
+              },
             ),
-          ),
-        ],
+            if (widget.showPreviewAction)
+              Positioned(
+                top: 4,
+                right: 4,
+                child: Material(
+                  color: colorScheme.surface.withValues(alpha: 0.84),
+                  borderRadius: BorderRadius.circular(18),
+                  child: IconButton(
+                    visualDensity: VisualDensity.compact,
+                    iconSize: 18,
+                    tooltip: 'Preview media',
+                    onPressed: _openPreview,
+                    icon: const Icon(Icons.open_in_full_rounded),
+                  ),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -5742,7 +6211,12 @@ class _SummaryStep extends StatelessWidget {
         ].join(' × ')),
         _SummaryRow('Covering', draft.coveringCode ?? '—'),
         _SummaryRow('Color', draft.colorCode ?? '—'),
-        _SummaryRow('Delivery', draft.handoverTypeCode ?? '—'),
+        _SummaryRow(
+          'Delivery',
+          [draft.handoverTypeCode, if (draft.completionWeek != null) 'Fertigst. KW ${draft.completionWeek}']
+              .whereType<String>()
+              .join(' · '),
+        ),
         _SummaryRow('Options', draft.options.isEmpty ? '—' : '${draft.options.length} selected'),
         if (roofCalculation.angleDeg != null)
           _SummaryRow('Roof angle', '${roofCalculation.angleDeg}°'),
@@ -5857,6 +6331,7 @@ class _ResultPanel extends StatelessWidget {
                                   calculatorContext: calculatorContext,
                                   roofModelState: roofModelState,
                                   mediaRepository: mediaRepository,
+                                  savedInput: loadedQuote?.input,
                                   calculationNumber: loadedQuote?.quoteNo ?? savedQuote?.quoteNo,
                                   highlightedModuleIndex: highlightedModuleIndex,
                                 ),
@@ -5894,7 +6369,10 @@ class _ResultPanel extends StatelessWidget {
                     children: [
                       Padding(
                         padding: const EdgeInsets.fromLTRB(18, 16, 18, 8),
-                        child: _PriceHeader(result: result),
+                        child: _PriceHeader(
+                          result: result,
+                          calculationNumber: loadedQuote?.quoteNo ?? savedQuote?.quoteNo ?? 'new quote',
+                        ),
                       ),
                       TabBar(
                         isScrollable: true,
@@ -5919,6 +6397,7 @@ class _ResultPanel extends StatelessWidget {
                                   roofModelState: roofModelState,
                                   mediaRepository: mediaRepository,
                                   result: result,
+                                  savedInput: loadedQuote?.input,
                                   calculationNumber: loadedQuote?.quoteNo ?? savedQuote?.quoteNo,
                                   highlightedModuleIndex: highlightedModuleIndex,
                                 ),
@@ -6105,6 +6584,7 @@ class _GeometryPreviewTab extends StatelessWidget {
     required this.roofModelState,
     required this.mediaRepository,
     this.result,
+    this.savedInput,
     this.calculationNumber,
     this.highlightedModuleIndex,
   });
@@ -6114,6 +6594,7 @@ class _GeometryPreviewTab extends StatelessWidget {
   final _RoofModelStepState roofModelState;
   final AdminResourceRepository mediaRepository;
   final CalculatorResult? result;
+  final Map<String, dynamic>? savedInput;
   final String? calculationNumber;
   final int? highlightedModuleIndex;
 
@@ -6147,31 +6628,38 @@ class _GeometryPreviewTab extends StatelessWidget {
         .cast<CalculatorOption?>()
         .firstOrNull;
     final coveringName = selectedCovering?.label ?? draft.coveringCode;
+    final buyerContact = calculatorContext.buyerContactFor(draft);
+    final draftHandoverTypeCode = draft.handoverTypeCode?.trim();
+    final savedHandoverTypeCode = (savedInput?['handover_type_code'] ?? savedInput?['handoverTypeCode'])
+        ?.toString()
+        .trim();
+    final effectiveHandoverTypeCode = draftHandoverTypeCode?.isNotEmpty == true
+        ? draftHandoverTypeCode
+        : (savedHandoverTypeCode?.isNotEmpty == true ? savedHandoverTypeCode : null);
+    final savedCompletionWeek = _intFromFlexible(
+      savedInput?['completion_week'] ?? savedInput?['completionWeek'],
+    );
+    final effectiveCompletionWeek = draft.completionWeek ?? savedCompletionWeek;
+    final handover = (calculatorContext.references['handover_types'] ?? const [])
+        .where(
+          (option) => option.code == effectiveHandoverTypeCode || option.id == effectiveHandoverTypeCode,
+        )
+        .cast<CalculatorOption?>()
+        .firstOrNull;
     final modelCode = draft.modelCode?.trim();
-    final modelLabel = selectedModel?.label.trim();
     final hasModel = modelCode != null && modelCode.isNotEmpty;
 
     return _ScrollableResultCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Roof type', style: Theme.of(context).textTheme.titleSmall),
-          const SizedBox(height: 8),
-          if (hasModel)
-            _PreviewInfoCard(
-              rows: [
-                _PreviewInfoRow('Model', modelLabel?.isNotEmpty == true ? modelLabel! : modelCode),
-                _PreviewInfoRow('Code', modelCode),
-              ],
-            )
-          else
+          if (!hasModel)
             const _HintCard(
               icon: Icons.view_in_ar_outlined,
               title: 'No roof type selected',
               text: 'Select a model to show the geometry preview.',
             ),
-          if (hasModel) ...[
-            const SizedBox(height: 12),
+          if (hasModel)
             ModelGeometryPreview(
               modelCode: draft.modelCode,
               modelLabel: selectedModel?.label,
@@ -6184,7 +6672,13 @@ class _GeometryPreviewTab extends StatelessWidget {
               moduleRoles: _moduleRolesFor(selectedModel),
               calculatedModules: roofCalculation.modules,
               calculationNumber: calculationNumber,
-              calculationName: draft.quoteNoExternal,
+              buyerName: buyerContact.organizationName,
+              buyerContactName: buyerContact.contactName,
+              buyerEmail: buyerContact.email,
+              buyerPhone: buyerContact.phone,
+              weights: result?.weights ?? const {},
+              deliveryName: handover?.label ?? effectiveHandoverTypeCode,
+              completionWeek: effectiveCompletionWeek,
               colorCode: colorPreview?.displayCode,
               colorSwatchColor: colorPreview?.color,
               coveringName: coveringName,
@@ -6193,57 +6687,10 @@ class _GeometryPreviewTab extends StatelessWidget {
               rearHeightMm: draft.roofRearHeightMm ?? draft.heightMm,
               frontHeightMm: draft.roofFrontHeightMm,
             ),
-          ],
         ],
       ),
     );
   }
-}
-
-class _PreviewInfoCard extends StatelessWidget {
-  const _PreviewInfoCard({required this.rows});
-
-  final List<_PreviewInfoRow> rows;
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.45),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: colorScheme.outlineVariant),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          for (final row in rows)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 6),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  SizedBox(
-                    width: 56,
-                    child: Text(row.label, style: Theme.of(context).textTheme.labelMedium),
-                  ),
-                  Expanded(child: Text(row.value.isEmpty ? '—' : row.value)),
-                ],
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-class _PreviewInfoRow {
-  const _PreviewInfoRow(this.label, this.value);
-
-  final String label;
-  final String value;
 }
 
 class _ResultActions extends StatelessWidget {
@@ -6630,15 +7077,65 @@ class _SaveQuoteModeDialog extends StatelessWidget {
 }
 
 class _PriceHeader extends StatelessWidget {
-  const _PriceHeader({required this.result});
+  const _PriceHeader({
+    required this.result,
+    required this.calculationNumber,
+  });
 
   final CalculatorResult result;
+  final String calculationNumber;
+
+  List<String> _discounts() {
+    final labels = <String>[];
+    final seen = <String>{};
+    final breakdown = result.price['discount_breakdown'];
+    if (breakdown is List) {
+      for (final raw in breakdown.whereType<Map>()) {
+        final row = Map<String, dynamic>.from(raw);
+        final pct = _num(row['discount_pct']).toDouble();
+        if (pct <= 0) continue;
+        final source = '${row['label'] ?? row['code'] ?? 'Discount'}'.trim();
+        final label = '$source ${pct.toStringAsFixed(pct == pct.roundToDouble() ? 0 : 1)}%';
+        if (seen.add(label)) labels.add(label);
+      }
+    }
+
+    final diagnostics = [
+      ...result.setDeltaDiagnostics,
+      ...result.derivedAccessoryDiagnostics,
+      ...result.manualComponentDiagnostics,
+      ...result.optionDiagnostics,
+    ];
+    for (final row in diagnostics) {
+      final pct = _num(row['item_discount_pct']).toDouble();
+      if (pct <= 0) continue;
+      final source = '${row['option_price_list_code'] ?? row['price_list_code'] ?? 'Position'}'.trim();
+      final label = '$source ${pct.toStringAsFixed(pct == pct.roundToDouble() ? 0 : 1)}%';
+      if (seen.add(label)) labels.add(label);
+    }
+
+    if (labels.isEmpty) {
+      final global = _num(result.price['discount_pct']).toDouble();
+      if (global > 0) {
+        final label = 'Organization ${global.toStringAsFixed(global == global.roundToDouble() ? 0 : 1)}%';
+        if (seen.add(label)) labels.add(label);
+      }
+    }
+    return labels;
+  }
 
   @override
   Widget build(BuildContext context) {
     final net = _num(result.price['net']);
     final gross = _num(result.price['gross']);
     final margin = result.internalPrice['margin'];
+    final discounts = _discounts();
+    final nonGlassComplete = _weightComplete(result.weights, 'set_complete')
+        && _weightComplete(result.weights, 'accessories_complete')
+        && _weightComplete(result.weights, 'options_complete');
+    final nonGlassWeight = _weightValue(result.weights, 'set_kg')
+        + _weightValue(result.weights, 'accessories_kg')
+        + _weightValue(result.weights, 'options_kg');
     final missingOptionPriceCount = result.optionDiagnostics
         .where((row) => row['price_found'] == false)
         .length;
@@ -6646,6 +7143,18 @@ class _PriceHeader extends StatelessWidget {
       final code = '${warning['code'] ?? ''}';
       return !code.startsWith('option_');
     }).toList(growable: false);
+    final missingWeightItems = (result.weights['missing_weight_items'] as List? ?? const [])
+        .map((item) => '$item'.trim())
+        .where((item) => item.isNotEmpty)
+        .toList(growable: false);
+    final warningMessages = <String>[
+      if (missingOptionPriceCount > 0)
+        '⚠ $missingOptionPriceCount selected option(s) have no configured price. See Options tab.',
+      for (final warning in nonOptionWarnings)
+        '⚠ ${warning['message'] ?? warning['code']}',
+      if (missingWeightItems.isNotEmpty)
+        '⚠ Weight is partial. Missing catalog weight data: ${missingWeightItems.join(', ')}',
+    ];
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -6654,17 +7163,30 @@ class _PriceHeader extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Expanded(
-              child: Wrap(
-                spacing: 10,
-                runSpacing: 4,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  Text('Net price', style: Theme.of(context).textTheme.labelLarge),
-                  Text(_moneyFormat.format(net), style: Theme.of(context).textTheme.headlineSmall),
-                ],
+              child: Text.rich(
+                TextSpan(
+                  children: [
+                    TextSpan(text: 'Net / gross price: ', style: Theme.of(context).textTheme.labelLarge),
+                    TextSpan(
+                      text: '${_moneyFormat.format(net)} / ${_moneyFormat.format(gross)}',
+                      style: Theme.of(context).textTheme.headlineSmall,
+                    ),
+                  ],
+                ),
               ),
             ),
             const SizedBox(width: 12),
+            Chip(
+              visualDensity: VisualDensity.compact,
+              avatar: Icon(
+                calculationNumber == 'new quote'
+                    ? Icons.add_circle_outline
+                    : Icons.request_quote_outlined,
+                size: 18,
+              ),
+              label: Text(calculationNumber, overflow: TextOverflow.ellipsis),
+            ),
+            const SizedBox(width: 8),
             Chip(
               visualDensity: VisualDensity.compact,
               avatar: Icon(result.status == 'valid' ? Icons.check_circle : Icons.warning_amber_rounded),
@@ -6672,40 +7194,75 @@ class _PriceHeader extends StatelessWidget {
             ),
           ],
         ),
-        const SizedBox(height: 8),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            _MetricChip(label: 'Gross', value: _moneyFormat.format(gross)),
-            if (margin != null) _MetricChip(label: 'Margin', value: _moneyFormat.format(_num(margin))),
-            _MetricChip(label: 'Options', value: '${result.optionDiagnostics.length}'),
-            _MetricChip(label: 'Currency', value: result.currency),
-          ],
+        const SizedBox(height: 4),
+        Text(
+          discounts.isEmpty
+              ? 'Discounts: —'
+              : [
+                  for (var index = 0; index < discounts.length; index++)
+                    '${index == 0 ? 'Discount 1' : 'then ${index + 1}'}: ${discounts[index]}',
+                ].join(' · '),
+          style: Theme.of(context).textTheme.labelLarge,
         ),
-        if (missingOptionPriceCount > 0) ...[
-          const SizedBox(height: 12),
+        if (margin != null) ...[
+          const SizedBox(height: 8),
+          _MetricChip(label: 'Margin', value: _moneyFormat.format(_num(margin))),
+        ],
+        if (result.weights.isNotEmpty) ...[
+          const SizedBox(height: 8),
           Text(
-            '⚠ $missingOptionPriceCount selected option(s) have no configured price. See Options tab.',
-            style: TextStyle(color: Theme.of(context).colorScheme.error),
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
+            'Gewicht: ${nonGlassWeight > 0 ? '${nonGlassWeight.toStringAsFixed(1)} kg${nonGlassComplete ? '' : '*'}' : '—'} / '
+            'Glas: ${_weightText(result.weights, 'glass_kg', 'glass_complete')} / '
+            'Gesamt: ${_weightText(result.weights, 'total_kg', 'total_complete')}',
+            style: Theme.of(context).textTheme.labelMedium,
           ),
         ],
-        if (nonOptionWarnings.isNotEmpty) ...[
-          const SizedBox(height: 8),
-          for (final warning in nonOptionWarnings.take(3))
-            Padding(
-              padding: const EdgeInsets.only(bottom: 4),
-              child: Text(
-                '⚠ ${warning['message'] ?? warning['code']}',
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
+        if (warningMessages.isNotEmpty) ...[
+          const SizedBox(height: 10),
+          _ScrollableWarningText(messages: warningMessages),
         ],
       ],
+    );
+  }
+}
+
+
+class _ScrollableWarningText extends StatefulWidget {
+  const _ScrollableWarningText({required this.messages});
+
+  final List<String> messages;
+
+  @override
+  State<_ScrollableWarningText> createState() => _ScrollableWarningTextState();
+}
+
+class _ScrollableWarningTextState extends State<_ScrollableWarningText> {
+  final ScrollController _controller = ScrollController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxHeight: 92),
+      child: Scrollbar(
+        controller: _controller,
+        thumbVisibility: true,
+        child: SingleChildScrollView(
+          controller: _controller,
+          padding: const EdgeInsets.only(right: 12),
+          child: SelectionArea(
+            child: Text(
+              widget.messages.join('\n'),
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -7724,6 +8281,39 @@ String _joinDistinctTextParts(Iterable<String?> values) {
   return result.isEmpty ? 'Option' : result.join(' · ');
 }
 
+
+double _weightValue(Map<String, dynamic> weights, String key) {
+  final value = weights[key];
+  if (value is num) return value.toDouble();
+  return double.tryParse('$value') ?? 0;
+}
+
+bool _weightComplete(Map<String, dynamic> weights, String key) {
+  final value = weights[key];
+  return value is bool ? value : true;
+}
+
+String _weightText(Map<String, dynamic> weights, String valueKey, String completeKey) {
+  final value = _weightValue(weights, valueKey);
+  final complete = _weightComplete(weights, completeKey);
+  if (value <= 0 && !complete) return '—';
+  return '${value.toStringAsFixed(1)} kg${complete ? '' : '*'}';
+}
+
+double _glassWeightKg(double areaM2, String? coveringCode) {
+  final match = RegExp(r'(\d+(?:[.,]\d+)?)\s*(?:_?mm)?', caseSensitive: false)
+      .firstMatch(coveringCode ?? '');
+  final thickness = match == null ? 0 : double.tryParse(match.group(1)!.replaceAll(',', '.')) ?? 0;
+  return areaM2 * thickness * 2.5;
+}
+
+int _isoWeekNumber(DateTime date) {
+  final normalized = DateTime(date.year, date.month, date.day);
+  final thursday = normalized.add(Duration(days: 4 - normalized.weekday));
+  final firstThursday = DateTime(thursday.year, 1, 4);
+  final weekOne = firstThursday.add(Duration(days: 4 - firstThursday.weekday));
+  return 1 + thursday.difference(weekOne).inDays ~/ 7;
+}
 
 String? _normalizeRalCode(String? value) {
   if (value == null) return null;

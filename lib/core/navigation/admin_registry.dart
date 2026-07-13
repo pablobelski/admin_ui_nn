@@ -1508,14 +1508,33 @@ const adminNavGroups = <AdminNavGroup>[
         endpoint: '/api/admin/rule-sets',
         icon: Icons.rule_rounded,
         columns: [
-          AdminColumn(key: 'version', label: 'Version', isPrimary: true),
-          AdminColumn(key: 'configurator_template_id', label: 'Template'),
+          AdminColumn(key: 'name', label: 'Name', isPrimary: true, flex: 2),
+          AdminColumn(key: 'version', label: 'Version'),
+          AdminColumn(
+            key: 'configurator_template_id',
+            label: 'Template',
+            flex: 2,
+            lookup: configuratorTemplateLookup,
+          ),
           AdminColumn(key: 'status_code', label: 'Status'),
           AdminColumn(key: 'valid_from', label: 'Valid from'),
           AdminColumn(key: 'valid_to', label: 'Valid to'),
         ],
+        listFilters: [
+          AdminResourceFilter(
+            key: 'configurator_template_id',
+            label: 'Template',
+            lookup: configuratorTemplateLookup,
+          ),
+          AdminResourceFilter(key: 'status_code', label: 'Status', options: statusOptions),
+        ],
         formFields: [
-          AdminField(key: 'configurator_template_id', label: 'Configurator template id'),
+          AdminField(key: 'name', label: 'Name'),
+          AdminField(
+            key: 'configurator_template_id',
+            label: 'Configurator template',
+            lookup: configuratorTemplateLookup,
+          ),
           AdminField(key: 'version', label: 'Version', type: AdminFieldType.number),
           AdminField(key: 'valid_from', label: 'Valid from', type: AdminFieldType.date),
           AdminField(key: 'valid_to', label: 'Valid to', type: AdminFieldType.date),
@@ -1536,6 +1555,10 @@ const adminNavGroups = <AdminNavGroup>[
           AdminColumn(key: 'source_sheet_name', label: 'Sheet'),
           AdminColumn(key: 'source_range', label: 'Range'),
           AdminColumn(key: 'is_active', label: 'Active'),
+        ],
+        listFilters: [
+          AdminResourceFilter(key: 'rule_set_id', label: 'Rule set'),
+          AdminResourceFilter(key: 'is_active', label: 'Active', options: activeFilterOptions),
         ],
         formFields: [
           AdminField(key: 'rule_set_id', label: 'Rule set id'),

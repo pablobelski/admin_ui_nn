@@ -64,12 +64,52 @@ class CalculatorContext {
   final Map<String, List<CalculatorAdditionalHandlingOption>> additionalHandlingByParentItemId;
   final CalculatorCatalogItemOption? customPaintCatalogItem;
 
+  CalculatorBuyerContact buyerContactFor(CalculatorDraft draft) {
+    CalculatorOption? option;
+    final relatedId = draft.relatedCustomerId?.trim() ?? '';
+    if (relatedId.isNotEmpty) {
+      option = relatedCustomers.where((entry) => entry.id == relatedId).firstOrNull;
+    }
+    final organizationId = draft.organizationId?.trim() ?? '';
+    option ??= organizations.where((entry) => entry.id == organizationId).firstOrNull;
+    if (option == null) return const CalculatorBuyerContact();
+    final raw = option.raw;
+    String? text(Object? value) {
+      final normalized = value == null ? '' : '$value'.trim();
+      return normalized.isEmpty ? null : normalized;
+    }
+    return CalculatorBuyerContact(
+      organizationName: text(raw['legal_name']) ?? text(raw['display_name']) ?? option.label,
+      contactName: text(raw['configurator_contact_full_name']),
+      email: text(raw['configurator_contact_email']),
+      phone: text(raw['configurator_contact_phone']),
+    );
+  }
+
   List<CalculatorOption> relatedCustomersFor(String? parentOrganizationId) {
     if (parentOrganizationId == null || parentOrganizationId.isEmpty) return const [];
     return relatedCustomers
         .where((entry) => '${entry.raw['parent_organization_id'] ?? ''}' == parentOrganizationId)
         .toList(growable: false);
   }
+}
+
+
+class CalculatorBuyerContact {
+  const CalculatorBuyerContact({
+    this.organizationName,
+    this.contactName,
+    this.email,
+    this.phone,
+  });
+
+  final String? organizationName;
+  final String? contactName;
+  final String? email;
+  final String? phone;
+
+  bool get hasOrganization => (organizationName ?? '').isNotEmpty;
+  bool get hasContact => [contactName, email, phone].any((value) => (value ?? '').isNotEmpty);
 }
 
 
@@ -757,6 +797,7 @@ class CalculatorDraft {
     this.coveringCode,
     this.colorCode,
     this.handoverTypeCode,
+    this.completionWeek,
     this.quoteNoExternal,
     this.externalNotes,
     this.relatedCustomerId,
@@ -800,6 +841,7 @@ class CalculatorDraft {
       coveringCode: _nullableString(json['covering_code']),
       colorCode: _nullableString(json['color_code']),
       handoverTypeCode: _nullableString(json['handover_type_code']),
+      completionWeek: _intOrNull(json['completion_week'] ?? json['completionWeek']),
       quoteNoExternal: _nullableString(json['quote_no_external'] ?? json['quoteNoExternal']),
       externalNotes: _nullableString(json['external_notes'] ?? json['externalNotes']),
       relatedCustomerId: _nullableString(json['related_customer_id'] ?? json['relatedCustomerId']),
@@ -825,6 +867,7 @@ class CalculatorDraft {
   final String? coveringCode;
   final String? colorCode;
   final String? handoverTypeCode;
+  final int? completionWeek;
   final String? quoteNoExternal;
   final String? externalNotes;
   final String? relatedCustomerId;
@@ -863,6 +906,8 @@ class CalculatorDraft {
     bool clearColor = false,
     String? handoverTypeCode,
     bool clearHandover = false,
+    int? completionWeek,
+    bool clearCompletionWeek = false,
     String? quoteNoExternal,
     bool clearQuoteNoExternal = false,
     String? externalNotes,
@@ -891,6 +936,7 @@ class CalculatorDraft {
       coveringCode: clearCovering ? null : coveringCode ?? this.coveringCode,
       colorCode: clearColor ? null : colorCode ?? this.colorCode,
       handoverTypeCode: clearHandover ? null : handoverTypeCode ?? this.handoverTypeCode,
+      completionWeek: clearCompletionWeek ? null : completionWeek ?? this.completionWeek,
       quoteNoExternal: clearQuoteNoExternal ? null : quoteNoExternal ?? this.quoteNoExternal,
       externalNotes: clearExternalNotes ? null : externalNotes ?? this.externalNotes,
       relatedCustomerId: clearRelatedCustomer ? null : relatedCustomerId ?? this.relatedCustomerId,
@@ -952,6 +998,7 @@ class CalculatorDraft {
       if (coveringCode != null && coveringCode!.isNotEmpty) 'covering_code': coveringCode,
       if (colorCode != null && colorCode!.isNotEmpty) 'color_code': colorCode,
       if (handoverTypeCode != null && handoverTypeCode!.isNotEmpty) 'handover_type_code': handoverTypeCode,
+      if (completionWeek != null) 'completion_week': completionWeek,
       if (quoteNoExternal != null && quoteNoExternal!.isNotEmpty) 'quote_no_external': quoteNoExternal,
       if (externalNotes != null && externalNotes!.isNotEmpty) 'external_notes': externalNotes,
       if (relatedCustomerId != null && relatedCustomerId!.isNotEmpty) 'related_customer_id': relatedCustomerId,
@@ -1082,6 +1129,7 @@ class CalculatorResult {
     required this.visibleLines,
     required this.summary,
     required this.warnings,
+    required this.weights,
     required this.internalPrice,
     required this.sources,
     required this.bom,
@@ -1111,6 +1159,7 @@ class CalculatorResult {
       visibleLines: _list(json['visibleLines']),
       summary: _list(json['summary']),
       warnings: _list(json['warnings']),
+      weights: _map(json['weights']),
       internalPrice: _map(json['internalPrice']),
       sources: _map(json['sources']),
       bom: _list(json['bom']),
@@ -1139,6 +1188,7 @@ class CalculatorResult {
   final List<Map<String, dynamic>> visibleLines;
   final List<Map<String, dynamic>> summary;
   final List<Map<String, dynamic>> warnings;
+  final Map<String, dynamic> weights;
   final Map<String, dynamic> internalPrice;
   final Map<String, dynamic> sources;
   final List<Map<String, dynamic>> bom;
