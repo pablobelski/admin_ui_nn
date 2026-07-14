@@ -27,6 +27,20 @@ class CalculatorRepository {
     return CalculatorResult.fromJson(response);
   }
 
+  Future<String?> previewQuoteNumber({
+    String? organizationId,
+    required String commissionName,
+  }) async {
+    final response = await _client.postJson(
+      '/api/internal/calculator/quote-number-preview',
+      body: {
+        if (organizationId != null && organizationId.isNotEmpty) 'organization_id': organizationId,
+        'quote_no_external': commissionName,
+      },
+    );
+    return _repoNullableString(response['quote_no'] ?? response['quoteNo']);
+  }
+
   Future<LoadedQuote> loadQuoteForWorkspace(String quoteId) async {
     final response = await _client.postJson(
       '/api/internal/calculator/load-quote',

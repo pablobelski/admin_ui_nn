@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -149,15 +150,26 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
     );
   }
 
-  void setWidth(String value) => state = state.copyWith(
-        widthMm: int.tryParse(value),
-        clearWidth: value.trim().isEmpty,
-      );
+  void setWidth(String value) {
+    final parsed = int.tryParse(value.trim());
+    state = state.copyWith(
+      widthMm: parsed,
+      clearWidth: value.trim().isEmpty,
+      setContents: _syncFirstModuleDimension(
+        state.setContents,
+        key: 'width_mm',
+        total: parsed,
+      ),
+    );
+  }
 
-  void setDepth(String value) => state = state.copyWith(
-        depthMm: int.tryParse(value),
-        clearDepth: value.trim().isEmpty,
-      );
+  void setDepth(String value) {
+    final parsed = int.tryParse(value.trim());
+    state = state.copyWith(
+      depthMm: parsed,
+      clearDepth: value.trim().isEmpty,
+    );
+  }
 
   void setHeight(String value) {
     final parsed = int.tryParse(value);
@@ -342,6 +354,10 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
             geometryKey: {
               ...current[i].geometryKey,
               'role': role,
+              if (i == 0 && current[i].moduleWidthMm == null && state.widthMm != null)
+                'width_mm': state.widthMm,
+              if (i == 0 && current[i].moduleDepthMm == null && state.depthMm != null)
+                'depth_mm': state.depthMm,
             },
           ),
         );
@@ -357,7 +373,11 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
           CalculatorSetContentTab(
             id: 'part-${i + 1}',
             label: label,
-            geometryKey: {'role': role},
+            geometryKey: {
+              'role': role,
+              if (i == 0 && state.widthMm != null) 'width_mm': state.widthMm,
+              if (i == 0 && state.depthMm != null) 'depth_mm': state.depthMm,
+            },
             items: const [],
           ),
         );
@@ -396,7 +416,7 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
     if (tabIndex < 0 || tabIndex >= state.setContents.length) return;
     final parsed = int.tryParse(value.trim());
     if (normalizedKey == 'width_mm') {
-      _updateBalancedSetContentModuleWidth(tabIndex, parsed);
+      _updateBalancedSetContentModuleDimension(tabIndex, normalizedKey, parsed);
       return;
     }
     final tabs = [...state.setContents];
@@ -404,35 +424,59 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
     state = state.copyWith(setContents: tabs);
   }
 
-  void _updateBalancedSetContentModuleWidth(int tabIndex, int? value) {
+  void _updateBalancedSetContentModuleDimension(int tabIndex, String key, int? value) {
     final tabs = [...state.setContents];
-    final totalWidth = state.widthMm;
-    if (value == null || totalWidth == null || totalWidth <= 0) {
-      tabs[tabIndex] = tabs[tabIndex].withGeometryValue('width_mm', value);
+    final total = state.widthMm;
+    if (value == null || total == null || total <= 0) {
+      tabs[tabIndex] = tabs[tabIndex].withGeometryValue(key, value);
       state = state.copyWith(setContents: tabs);
       return;
     }
 
     if (tabs.length == 1) {
-      tabs[tabIndex] = tabs[tabIndex].withGeometryValue('width_mm', totalWidth);
+      tabs[tabIndex] = tabs[tabIndex].withGeometryValue(key, total);
       state = state.copyWith(setContents: tabs);
       return;
     }
 
     final neighborIndex = tabIndex < tabs.length - 1 ? tabIndex + 1 : tabIndex - 1;
-    var fixedWidth = 0;
+    int dimensionFor(CalculatorSetContentTab tab) => tab.moduleWidthMm ?? 0;
+    var fixedValue = 0;
     for (var i = 0; i < tabs.length; i++) {
       if (i == tabIndex || i == neighborIndex) continue;
-      fixedWidth += tabs[i].moduleWidthMm ?? 0;
+      fixedValue += dimensionFor(tabs[i]);
     }
 
-    final availableForPair = totalWidth - fixedWidth;
-    final currentWidth = value.clamp(0, availableForPair < 0 ? 0 : availableForPair).toInt();
-    final neighborWidth = availableForPair > 0 ? availableForPair - currentWidth : 0;
-    tabs[tabIndex] = tabs[tabIndex].withGeometryValue('width_mm', currentWidth);
-    tabs[neighborIndex] = tabs[neighborIndex].withGeometryValue('width_mm', neighborWidth);
+    final availableForPair = total - fixedValue;
+    final currentValue = value.clamp(0, availableForPair < 0 ? 0 : availableForPair).toInt();
+    final neighborValue = availableForPair > 0 ? availableForPair - currentValue : 0;
+    tabs[tabIndex] = tabs[tabIndex].withGeometryValue(key, currentValue);
+    tabs[neighborIndex] = tabs[neighborIndex].withGeometryValue(key, neighborValue);
     state = state.copyWith(setContents: tabs);
   }
+
+  List<CalculatorSetContentTab> _syncFirstModuleDimension(
+    List<CalculatorSetContentTab> source, {
+    required String key,
+    required int? total,
+  }) {
+    if (source.isEmpty) return source;
+    final tabs = [...source];
+    if (total == null) {
+      tabs[0] = tabs[0].withGeometryValue(key, null);
+      return tabs;
+    }
+
+    int dimensionFor(CalculatorSetContentTab tab) =>
+        key == 'depth_mm' ? (tab.moduleDepthMm ?? 0) : (tab.moduleWidthMm ?? 0);
+    final otherTotal = tabs.skip(1).fold<int>(0, (sum, tab) => sum + dimensionFor(tab));
+    final firstValue = tabs.length == 1 || otherTotal == 0
+        ? total
+        : (total - otherTotal).clamp(0, total).toInt();
+    tabs[0] = tabs[0].withGeometryValue(key, firstValue);
+    return tabs;
+  }
+
 
   void setSetContentItemsEnabled(List<({int tabIndex, int itemIndex})> refs, bool enabled) {
     if (refs.isEmpty) return;
@@ -776,6 +820,35 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
 final calculatorDraftProvider = NotifierProvider<CalculatorDraftNotifier, CalculatorDraft>(
   CalculatorDraftNotifier.new,
 );
+
+final calculatorQuoteNumberPreviewProvider = FutureProvider.autoDispose<String?>((ref) async {
+  final request = ref.watch(
+    calculatorDraftProvider.select(
+      (draft) => (
+        organizationId: draft.organizationId?.trim() ?? '',
+        commissionName: draft.quoteNoExternal?.trim() ?? '',
+      ),
+    ),
+  );
+  if (request.commissionName.isEmpty) return null;
+  final repository = ref.watch(calculatorRepositoryProvider);
+
+  var cancelled = false;
+  final completer = Completer<void>();
+  final timer = Timer(const Duration(milliseconds: 350), () => completer.complete());
+  ref.onDispose(() {
+    cancelled = true;
+    timer.cancel();
+    if (!completer.isCompleted) completer.complete();
+  });
+  await completer.future;
+  if (cancelled) return null;
+
+  return repository.previewQuoteNumber(
+    organizationId: request.organizationId.isEmpty ? null : request.organizationId,
+    commissionName: request.commissionName,
+  );
+});
 
 class CalculatorResultNotifier extends Notifier<AsyncValue<CalculatorResult?>> {
   @override

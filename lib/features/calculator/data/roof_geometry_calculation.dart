@@ -41,6 +41,7 @@ class RoofModuleCalculation {
     required this.beamLengthMm,
     required this.beamStepMm,
     required this.glassCountOffset,
+    required this.glassDepthFieldCount,
     required this.glassCount,
     required this.glassWidthMm,
     required this.glassLengthMm,
@@ -55,6 +56,7 @@ class RoofModuleCalculation {
   final int beamLengthMm;
   final double beamStepMm;
   final int glassCountOffset;
+  final int glassDepthFieldCount;
   final int glassCount;
   final int glassWidthMm;
   final int glassLengthMm;
@@ -105,6 +107,7 @@ RoofGeometryCalculation? roofGeometryCalculationFromSources(
     final beamLengthMm = _asInt(module['beam_length_mm'] ?? module['beamLengthMm']);
     final beamStepMm = _asDouble(module['beam_step_mm'] ?? module['beamStepMm']);
     final glassCountOffset = _asInt(module['glass_count_offset'] ?? module['glassCountOffset']);
+    final glassDepthFieldCount = _asInt(module['glass_depth_field_count'] ?? module['glassDepthFieldCount']) ?? 1;
     final glassCount = _asInt(module['glass_count'] ?? module['glassCount']);
     final glassWidthMm = _asInt(module['glass_width_mm'] ?? module['glassWidthMm']);
     final glassLengthMm = _asInt(module['glass_length_mm'] ?? module['glassLengthMm']);
@@ -133,6 +136,7 @@ RoofGeometryCalculation? roofGeometryCalculationFromSources(
         beamLengthMm: beamLengthMm,
         beamStepMm: beamStepMm,
         glassCountOffset: glassCountOffset,
+        glassDepthFieldCount: glassDepthFieldCount,
         glassCount: glassCount,
         glassWidthMm: glassWidthMm,
         glassLengthMm: glassLengthMm,
@@ -160,6 +164,7 @@ RoofGeometryCalculation calculateRoofGeometryForDraft({
   final frontOffsetMm = _number(params, 'frontOffsetMm', 'front_offset_mm');
   final glassFrontAddMm = _number(params, 'glassFrontAddMm', 'glass_front_add_mm');
   final glassOverlapMm = _number(params, 'glassOverlapMm', 'glass_overlap_mm');
+  final coatingMaxLengthMm = _number(params, 'coatingMaxLengthMm', 'coating_max_length_mm');
   final defaultMaxGlassFieldWidthMm = _number(
     params,
     'defaultMaxGlassFieldWidthMm',
@@ -171,6 +176,7 @@ RoofGeometryCalculation calculateRoofGeometryForDraft({
     frontOffsetMm,
     glassFrontAddMm,
     glassOverlapMm,
+    coatingMaxLengthMm,
     defaultMaxGlassFieldWidthMm,
   ].any((value) => value == null)) {
     return const RoofGeometryCalculation(angleDeg: null, frontHeightMm: null, modules: []);
@@ -181,6 +187,7 @@ RoofGeometryCalculation calculateRoofGeometryForDraft({
   final frontOffset = frontOffsetMm!;
   final glassFrontAdd = glassFrontAddMm!;
   final glassOverlap = glassOverlapMm!;
+  final coatingMaxLength = coatingMaxLengthMm!;
   final defaultMaxGlassWidth = defaultMaxGlassFieldWidthMm!.round();
   final roles = roofModuleRolesForModel(model);
   final tabsByRole = <String, CalculatorSetContentTab>{
@@ -241,9 +248,12 @@ RoofGeometryCalculation calculateRoofGeometryForDraft({
     final beamLength = (longLeg / math.cos(angle * math.pi / 180)).round();
     final beamStep = (width - beamCount * beamWidth) / (beamCount - 1);
     final glassCountOffset = offsets[role] ?? -1;
-    final glassCount = math.max(0, beamCount + glassCountOffset).toInt();
-    final glassWidth = (beamStep + glassOverlap).ceil();
-    final glassLength = (beamLength + glassFrontAdd + _angleCorrection(angle)).round();
+    final glassCountAcrossWidth = math.max(0, beamCount + glassCountOffset).toInt();
+    final glassWidth = beamStep.round() + glassOverlap.round();
+    final unsplitGlassLength = (beamLength + glassFrontAdd + _angleCorrection(angle)).round();
+    final glassDepthFieldCount = math.max(1, (unsplitGlassLength / coatingMaxLength).ceil()).toInt();
+    final glassLength = (unsplitGlassLength / glassDepthFieldCount).ceil();
+    final glassCount = glassCountAcrossWidth * glassDepthFieldCount;
     final glassArea = _roundAreaUp(
       glassCount * (glassWidth / 1000) * (glassLength / 1000),
     );
@@ -257,6 +267,7 @@ RoofGeometryCalculation calculateRoofGeometryForDraft({
         beamLengthMm: beamLength,
         beamStepMm: (beamStep * 10).round() / 10,
         glassCountOffset: glassCountOffset,
+        glassDepthFieldCount: glassDepthFieldCount,
         glassCount: glassCount,
         glassWidthMm: glassWidth,
         glassLengthMm: glassLength,

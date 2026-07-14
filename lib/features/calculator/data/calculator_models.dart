@@ -208,6 +208,7 @@ class CalculatorTemplateOption {
     this.defaultValues = const {},
     this.uiSchema = const {},
     this.parametersModuleId,
+    this.parametersModuleData = const {},
     this.roofParameters = const {},
     this.roofParameterMissingKeys = const [],
   });
@@ -223,6 +224,7 @@ class CalculatorTemplateOption {
       defaultValues: _map(json['default_values_json']),
       uiSchema: _map(json['ui_schema_json']),
       parametersModuleId: _nullableString(json['parameters_module_id']),
+      parametersModuleData: _map(json['parameters_module_data_json']),
       roofParameters: _map(json['roof_parameters_json']),
       roofParameterMissingKeys: (json['roof_parameter_missing_keys'] as List? ?? const [])
           .map((entry) => '$entry')
@@ -240,6 +242,7 @@ class CalculatorTemplateOption {
   final Map<String, dynamic> defaultValues;
   final Map<String, dynamic> uiSchema;
   final String? parametersModuleId;
+  final Map<String, dynamic> parametersModuleData;
   final Map<String, dynamic> roofParameters;
   final List<String> roofParameterMissingKeys;
 

@@ -35,7 +35,9 @@ class ModelGeometryPreview extends ConsumerStatefulWidget {
     this.completionWeek,
     this.colorCode,
     this.colorSwatchColor,
+    this.isSpecialColor = false,
     this.coveringName,
+    this.quoteNotes,
     this.highlightedModuleIndex,
     this.roofAngleDeg,
     this.rearHeightMm,
@@ -62,7 +64,9 @@ class ModelGeometryPreview extends ConsumerStatefulWidget {
   final int? completionWeek;
   final String? colorCode;
   final Color? colorSwatchColor;
+  final bool isSpecialColor;
   final String? coveringName;
+  final String? quoteNotes;
   final int? highlightedModuleIndex;
   final int? roofAngleDeg;
   final int? rearHeightMm;
@@ -167,6 +171,7 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
             geometryParams: widget.geometryParams,
             colorCode: widget.colorCode,
             colorSwatchColor: widget.colorSwatchColor,
+            isSpecialColor: widget.isSpecialColor,
             coveringName: widget.coveringName,
             humanImage: snapshot.data,
             lineColor: colorScheme.onSurface,
@@ -260,6 +265,8 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
                                   depthMm: widget.depthMm,
                                   heightMm: widget.heightMm,
                                   roofAngleDeg: widget.roofAngleDeg,
+                                  colorCode: widget.colorCode,
+                                  isSpecialColor: widget.isSpecialColor,
                                   coveringName: widget.coveringName,
                                   currentUser: currentUser,
                                 ),
@@ -269,7 +276,32 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.stretch,
                                   children: [
-                                    Expanded(child: _buildGeometryCanvas(colorScheme, clearHighlight: true)),
+                                    Expanded(
+                                      child: Stack(
+                                        fit: StackFit.expand,
+                                        children: [
+                                          _buildGeometryCanvas(colorScheme, clearHighlight: true),
+                                          if (widget.quoteNotes?.trim().isNotEmpty == true)
+                                            Positioned(
+                                              left: 12,
+                                              right: 12,
+                                              bottom: 8,
+                                              child: Text(
+                                                widget.quoteNotes!.trim(),
+                                                maxLines: 3,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: Theme.of(dialogContext)
+                                                    .textTheme
+                                                    .bodySmall
+                                                    ?.copyWith(
+                                                      color: Colors.black,
+                                                      fontWeight: FontWeight.w500,
+                                                    ),
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                                    ),
                                     const SizedBox(height: 12),
                                     _ExpandedPreviewModules(
                                       calculatedModules: widget.calculatedModules,
@@ -340,6 +372,8 @@ class _ExpandedPreviewInfo extends StatelessWidget {
     required this.depthMm,
     required this.heightMm,
     required this.roofAngleDeg,
+    required this.colorCode,
+    required this.isSpecialColor,
     required this.coveringName,
     required this.currentUser,
   });
@@ -359,6 +393,8 @@ class _ExpandedPreviewInfo extends StatelessWidget {
   final int? depthMm;
   final int? heightMm;
   final int? roofAngleDeg;
+  final String? colorCode;
+  final bool isSpecialColor;
   final String? coveringName;
   final String currentUser;
 
@@ -412,6 +448,11 @@ class _ExpandedPreviewInfo extends StatelessWidget {
                   ? modelLabel
                   : '$modelLabel ($modelCodeValue)',
             ),
+            if (colorCode?.trim().isNotEmpty == true)
+              _PreviewMetadataRow(
+                label: isSpecialColor ? 'Color (Sonderfarbe)' : 'Color',
+                value: colorCode!.trim(),
+              ),
             if (coveringName?.trim().isNotEmpty == true)
               _PreviewMetadataRow(label: 'Covering', value: coveringName!.trim()),
             if ((deliveryName ?? '').trim().isNotEmpty || completionWeek != null)
@@ -704,6 +745,7 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     required this.geometryParams,
     required this.colorCode,
     required this.colorSwatchColor,
+    required this.isSpecialColor,
     required this.coveringName,
     required this.humanImage,
     required this.lineColor,
@@ -725,6 +767,7 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
   final List<RoofGeometryParam> geometryParams;
   final String? colorCode;
   final Color? colorSwatchColor;
+  final bool isSpecialColor;
   final String? coveringName;
   final ui.Image? humanImage;
   final Color lineColor;
@@ -1541,7 +1584,41 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     );
 
     _drawText(canvas, code, tileRect.center, foreground, 11.0, isBold: true, hAlign: 0.5);
-    return tileRect.bottom;
+    if (!isSpecialColor) return tileRect.bottom;
+
+    const warningHeight = 18.0;
+    final warningCenter = Offset(tileRect.center.dx, tileRect.bottom + 6 + warningHeight / 2);
+    final iconCenter = Offset(warningCenter.dx - 37, warningCenter.dy);
+    final triangle = Path()
+      ..moveTo(iconCenter.dx, iconCenter.dy - 6)
+      ..lineTo(iconCenter.dx - 6, iconCenter.dy + 5)
+      ..lineTo(iconCenter.dx + 6, iconCenter.dy + 5)
+      ..close();
+    final warningPaint = Paint()
+      ..color = Colors.red
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.6;
+    canvas.drawPath(triangle, warningPaint);
+    canvas.drawLine(
+      Offset(iconCenter.dx, iconCenter.dy - 2.5),
+      Offset(iconCenter.dx, iconCenter.dy + 1.5),
+      warningPaint,
+    );
+    canvas.drawCircle(
+      Offset(iconCenter.dx, iconCenter.dy + 3.8),
+      0.8,
+      warningPaint..style = PaintingStyle.fill,
+    );
+    _drawText(
+      canvas,
+      'Sonderfarbe',
+      Offset(warningCenter.dx - 28, warningCenter.dy),
+      Colors.red,
+      10.5,
+      isBold: true,
+      hAlign: 0,
+    );
+    return tileRect.bottom + 6 + warningHeight;
   }
 
   void _drawSlopeInset(Canvas canvas, Rect sideRect, double top) {
@@ -1839,6 +1916,7 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
         !_sameGeometryParams(oldDelegate.geometryParams, geometryParams) ||
         oldDelegate.colorCode != colorCode ||
         oldDelegate.colorSwatchColor != colorSwatchColor ||
+        oldDelegate.isSpecialColor != isSpecialColor ||
         oldDelegate.coveringName != coveringName ||
         oldDelegate.humanImage != humanImage ||
         oldDelegate.lineColor != lineColor ||

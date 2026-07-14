@@ -66,6 +66,7 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
     final draft = ref.watch(calculatorDraftProvider);
     final resultAsync = ref.watch(calculatorResultProvider);
     final loadedQuote = ref.watch(loadedQuoteProvider);
+    final quoteNumberPreview = ref.watch(calculatorQuoteNumberPreviewProvider);
     final isWide = MediaQuery.sizeOf(context).width >= 1280;
 
     return contextAsync.when(
@@ -90,6 +91,8 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
           if (!roofModelState.required) 'model',
         };
         final buyerContact = calculatorContext.buyerContactFor(draft);
+        final calculationNumber = loadedQuote?.quoteNo ?? quoteNumberPreview.asData?.value;
+        final isCalculationSaved = loadedQuote != null && !draft.differsFromLoadedQuote(loadedQuote);
         final canCalculate = draft.templateId != null &&
             draft.widthMm != null &&
             draft.depthMm != null &&
@@ -146,6 +149,8 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
                             mediaRepository: ref.read(resourceRepositoryProvider),
                             loadedQuote: loadedQuote,
                             savedQuote: _savedQuote,
+                            calculationNumber: calculationNumber,
+                            isCalculationSaved: isCalculationSaved,
                             isSavingQuote: _isSavingQuote,
                             onSaveQuote: () => _showSaveQuoteDialog(context),
                             onPrint: () => _showPrintDialog(context),
@@ -183,6 +188,8 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
                             mediaRepository: ref.read(resourceRepositoryProvider),
                             loadedQuote: loadedQuote,
                             savedQuote: _savedQuote,
+                            calculationNumber: calculationNumber,
+                            isCalculationSaved: isCalculationSaved,
                             isSavingQuote: _isSavingQuote,
                             onSaveQuote: () => _showSaveQuoteDialog(context),
                             onPrint: () => _showPrintDialog(context),
@@ -1465,7 +1472,7 @@ class _BrandingLogoPlaque extends StatelessWidget {
         child: logoFileId.isEmpty
             ? Icon(Icons.image_not_supported_outlined, color: colorScheme.onSurfaceVariant)
             : FutureBuilder<ApiBinaryResponse>(
-                future: repository.viewMediaFile(logoFileId),
+                future: _catalogMediaFuture(repository, logoFileId),
                 builder: (context, snapshot) {
                   if (snapshot.connectionState == ConnectionState.waiting) {
                     return const SizedBox(
@@ -1584,11 +1591,237 @@ class _TemplateStep extends StatelessWidget {
             title: 'Select a published configurator template',
             text: 'The backend will resolve the imported pricing product family, price list and matrix from this template.',
           )
-        else
+        else ...[
           _TemplateInfoCard(template: selectedTemplate!),
+          const SizedBox(height: 16),
+          _TemplateConstantsCard(template: selectedTemplate!),
+        ],
       ],
     );
   }
+}
+
+
+class _TemplateConstantsCard extends StatelessWidget {
+  const _TemplateConstantsCard({required this.template});
+
+  final CalculatorTemplateOption template;
+
+  @override
+  Widget build(BuildContext context) {
+    final entries = _templateConstantEntries(template);
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.data_object_outlined, size: 19, color: colorScheme.primary),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text('Template constants', style: Theme.of(context).textTheme.titleSmall),
+                ),
+                Text('${entries.length}', style: Theme.of(context).textTheme.labelLarge),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Effective constants from the selected template Parameters module.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+            ),
+            const SizedBox(height: 14),
+            if (entries.isEmpty)
+              Text(
+                'No Parameters-module constants are configured for this template.',
+                style: Theme.of(context).textTheme.bodyMedium,
+              )
+            else
+              for (var i = 0; i < entries.length; i++) ...[
+                _TemplateConstantRow(entry: entries[i]),
+                if (i < entries.length - 1) const Divider(height: 18),
+              ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _TemplateConstantRow extends StatelessWidget {
+  const _TemplateConstantRow({required this.entry});
+
+  final _TemplateConstantEntry entry;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 680;
+        final name = SelectableText(
+          entry.path,
+          style: theme.textTheme.bodySmall?.copyWith(
+            fontFamily: 'monospace',
+            fontWeight: FontWeight.w700,
+          ),
+        );
+        final value = SelectableText(
+          entry.value,
+          style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+        );
+        final description = Text(
+          entry.description,
+          style: theme.textTheme.bodySmall?.copyWith(color: colorScheme.onSurfaceVariant),
+        );
+
+        if (compact) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              name,
+              const SizedBox(height: 4),
+              value,
+              const SizedBox(height: 3),
+              description,
+            ],
+          );
+        }
+
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(width: 230, child: name),
+            const SizedBox(width: 12),
+            SizedBox(width: 130, child: value),
+            const SizedBox(width: 12),
+            Expanded(child: description),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _TemplateConstantEntry {
+  const _TemplateConstantEntry({
+    required this.path,
+    required this.value,
+    required this.description,
+  });
+
+  final String path;
+  final String value;
+  final String description;
+}
+
+List<_TemplateConstantEntry> _templateConstantEntries(CalculatorTemplateOption template) {
+  final moduleData = template.parametersModuleData;
+  final nested = moduleData['tds_glass_params'] ?? moduleData['tdsGlassParams'];
+  final rawSource = nested is Map
+      ? Map<String, dynamic>.from(nested)
+      : moduleData;
+  final values = <String, Object?>{};
+
+  void flatten(Object? value, String path) {
+    if (value is Map) {
+      final entries = value.entries.toList()
+        ..sort((a, b) => '${a.key}'.compareTo('${b.key}'));
+      if (entries.isEmpty && path.isNotEmpty) {
+        values[path] = const <String, dynamic>{};
+      }
+      for (final entry in entries) {
+        final key = '${entry.key}'.trim();
+        flatten(entry.value, path.isEmpty ? key : '$path.$key');
+      }
+      return;
+    }
+    if (path.isNotEmpty) values[path] = value;
+  }
+
+  flatten(template.roofParameters, '');
+  flatten(rawSource, '');
+  return values.entries
+      .map(
+        (entry) => _TemplateConstantEntry(
+          path: entry.key,
+          value: _templateConstantValue(entry.value),
+          description: _templateConstantDescription(entry.key),
+        ),
+      )
+      .toList(growable: false)
+    ..sort((a, b) => a.path.compareTo(b.path));
+}
+
+String _templateConstantValue(Object? value) {
+  if (value == null) return '—';
+  if (value is String) return value;
+  if (value is num || value is bool) return '$value';
+  return jsonEncode(value);
+}
+
+String _templateConstantDescription(String path) {
+  final key = path.split('.').last;
+  final normalizedKey = _constantCamelKey(key);
+  const descriptions = <String, String>{
+    'beamWidthMm': 'Structural beam width used in roof field and beam-spacing formulas, in millimetres.',
+    'backOffsetMm': 'Rear deduction from the module depth when calculating the effective beam length, in millimetres.',
+    'frontOffsetMm': 'Front deduction from the module depth when calculating the effective beam length, in millimetres.',
+    'glassListFrontAddMm': 'Additional front length applied to glass-list profiles, in millimetres.',
+    'glassFrontAddMm': 'Additional front length applied to calculated glass panels, in millimetres.',
+    'glassOverlapMm': 'Glass overlap included in the calculated glass-field width, in millimetres.',
+    'defaultMaxGlassFieldWidthMm': 'Default maximum permitted glass-field width, in millimetres.',
+    'screwSpacingMm': 'Target spacing between fixing screws, in millimetres.',
+    'profileSplitThresholdMm': 'Profile length above which the profile is split into multiple pieces, in millimetres.',
+    'gutterSplitThresholdMm': 'Gutter length above which the gutter is split into multiple pieces, in millimetres.',
+    'coatingMaxLengthMm': 'Maximum profile length accepted by the coating calculation, in millimetres.',
+    'coatingMinOrderValue': 'Minimum charge used for the special-colour coating calculation.',
+    'coatingExtraPct': 'Additional percentage applied by the coating calculation.',
+    'postLengthMm': 'Standard stock length used for post quantity calculations, in millimetres.',
+    'pvcPipeLengthMm': 'Standard stock length used for PVC pipe quantity calculations, in millimetres.',
+    'wallSealExtraM': 'Additional wall-seal allowance added to the calculated length, in metres.',
+  };
+  final known = descriptions[normalizedKey];
+  if (known != null) return known;
+
+  if (path.startsWith('componentArticleMap.') || path.startsWith('component_article_map.')) {
+    return 'Catalog article number used for the ${_constantWords(key)} construction component.';
+  }
+  if (path.startsWith('accessoryArticleMap.') || path.startsWith('accessory_article_map.')) {
+    return 'Catalog article number used for the ${_constantWords(key)} accessory.';
+  }
+  if (path.startsWith('glassCountOffsetsByModel.') || path.startsWith('glass_count_offsets_by_model.')) {
+    final parts = path.split('.');
+    final model = parts.length > 1 ? parts[1] : 'selected';
+    final role = parts.length > 2 ? parts[2] : 'module';
+    return 'Glass-count adjustment for model $model and module role $role.';
+  }
+  return 'Template constant used by the selected calculation template.';
+}
+
+
+String _constantCamelKey(String value) {
+  final parts = value.split('_');
+  if (parts.length == 1) return value;
+  return parts.first +
+      parts.skip(1).map((part) {
+        if (part.isEmpty) return '';
+        return '${part[0].toUpperCase()}${part.substring(1)}';
+      }).join();
+}
+
+String _constantWords(String value) {
+  return value
+      .replaceAll('_', ' ')
+      .replaceAllMapped(RegExp(r'([a-z0-9])([A-Z])'), (match) => '${match.group(1)} ${match.group(2)}')
+      .toLowerCase();
 }
 
 
@@ -1664,16 +1897,21 @@ class _DimensionsStepState extends State<_DimensionsStep> {
   void _syncModelDrivenState() {
     final roles = _moduleRolesFor(widget.selectedRoofModel);
     final needsModuleSeed = !widget.isLoadedCalculation && widget.draft.setContents.isEmpty;
+    final firstModule = widget.draft.setContents.firstOrNull;
+    final needsDimensionSeed = !widget.isLoadedCalculation &&
+        firstModule != null &&
+        ((widget.draft.widthMm != null && firstModule.moduleWidthMm == null) ||
+            (widget.draft.depthMm != null && firstModule.moduleDepthMm == null));
     final defaultAngle = _defaultAngleFor(widget.selectedRoofModel);
     final needsAngleSeed = widget.draft.roofAngleDeg == null && defaultAngle != null;
     final rearHeight = _effectiveRearHeight(widget.draft);
     final frontHeight = widget.draft.roofFrontHeightMm;
     final needsFrontHeightCorrection = rearHeight != null && frontHeight != null && frontHeight > rearHeight;
-    if (!needsModuleSeed && !needsAngleSeed && !needsFrontHeightCorrection) return;
+    if (!needsModuleSeed && !needsDimensionSeed && !needsAngleSeed && !needsFrontHeightCorrection) return;
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      if (needsModuleSeed) widget.notifier.setSetContentModuleRoles(roles);
+      if (needsModuleSeed || needsDimensionSeed) widget.notifier.setSetContentModuleRoles(roles);
       if (needsAngleSeed) {
         widget.notifier.setRoofAngleValue(defaultAngle);
         _recalculateFrontHeightFromAngle(defaultAngle);
@@ -1695,11 +1933,11 @@ class _DimensionsStepState extends State<_DimensionsStep> {
   }
 
   int? _effectiveDepth(CalculatorDraft draft) {
-    final moduleDepth = draft.setContents
+    if (draft.depthMm != null) return draft.depthMm;
+    return draft.setContents
         .map((tab) => tab.moduleDepthMm)
         .whereType<int>()
         .fold<int?>(null, (maxDepth, value) => maxDepth == null || value > maxDepth ? value : maxDepth);
-    return moduleDepth ?? draft.depthMm;
   }
 
   void _onHeightChanged(String value) {
@@ -1808,12 +2046,6 @@ class _DimensionsStepState extends State<_DimensionsStep> {
           angleController: _angle,
           onFrontHeightChanged: _onFrontHeightChanged,
           onAngleChanged: _onAngleChanged,
-        ),
-        const SizedBox(height: 20),
-        const _HintCard(
-          icon: Icons.grid_on_outlined,
-          title: 'Matrix-aware matching',
-          text: 'Pricing still uses the existing matrix matching. Module dimensions are now prepared for the next roof geometry calculation iteration.',
         ),
       ],
     );
@@ -2045,10 +2277,7 @@ class _SetContentModuleDimensionsEditor extends StatelessWidget {
     if (value == null || maxValue == null || maxValue <= 0) return null;
     if (value > maxValue) return '>${_formatLengthMm(maxValue)}';
     if (fieldKey == 'width_mm') {
-      final values = draft.setContents
-          .map((tab) => tab.moduleWidthMm)
-          .whereType<int>()
-          .toList(growable: false);
+      final values = draft.setContents.map((tab) => tab.moduleWidthMm).whereType<int>().toList(growable: false);
       if (values.length == draft.setContents.length && values.length > 1) {
         final sum = values.fold<int>(0, (total, item) => total + item);
         if (sum != maxValue) return 'Σ ${_formatLengthMm(sum)} ≠ ${_formatLengthMm(maxValue)}';
@@ -2065,9 +2294,6 @@ class _SetContentModuleDimensionsEditor extends StatelessWidget {
       if (draft.widthMm != null && tab.moduleWidthMm != null && tab.moduleWidthMm! > draft.widthMm!) {
         warnings.add('$label: width ${_formatLengthMm(tab.moduleWidthMm)} is greater than main width ${_formatLengthMm(draft.widthMm)}.');
       }
-      if (draft.depthMm != null && tab.moduleDepthMm != null && tab.moduleDepthMm! > draft.depthMm!) {
-        warnings.add('$label: depth ${_formatLengthMm(tab.moduleDepthMm)} is greater than main depth ${_formatLengthMm(draft.depthMm)}.');
-      }
     }
 
     final widthValues = tabs.map((tab) => tab.moduleWidthMm).whereType<int>().toList(growable: false);
@@ -2077,6 +2303,7 @@ class _SetContentModuleDimensionsEditor extends StatelessWidget {
         warnings.add('Sum of module widths ${_formatLengthMm(sum)} must equal main width ${_formatLengthMm(draft.widthMm)}.');
       }
     }
+
     return warnings;
   }
 }
@@ -6253,6 +6480,8 @@ class _ResultPanel extends StatelessWidget {
     required this.onSaveQuote,
     required this.onPrint,
     required this.isSavingQuote,
+    required this.calculationNumber,
+    required this.isCalculationSaved,
     this.loadedQuote,
     this.savedQuote,
   });
@@ -6268,6 +6497,8 @@ class _ResultPanel extends StatelessWidget {
   final VoidCallback onSaveQuote;
   final VoidCallback onPrint;
   final bool isSavingQuote;
+  final String? calculationNumber;
+  final bool isCalculationSaved;
   final SavedQuote? savedQuote;
 
   bool get _showPreviewTab {
@@ -6332,7 +6563,7 @@ class _ResultPanel extends StatelessWidget {
                                   roofModelState: roofModelState,
                                   mediaRepository: mediaRepository,
                                   savedInput: loadedQuote?.input,
-                                  calculationNumber: loadedQuote?.quoteNo ?? savedQuote?.quoteNo,
+                                  calculationNumber: calculationNumber,
                                   highlightedModuleIndex: highlightedModuleIndex,
                                 ),
                                 _noCalculationTab(),
@@ -6371,7 +6602,8 @@ class _ResultPanel extends StatelessWidget {
                         padding: const EdgeInsets.fromLTRB(18, 16, 18, 8),
                         child: _PriceHeader(
                           result: result,
-                          calculationNumber: loadedQuote?.quoteNo ?? savedQuote?.quoteNo ?? 'new quote',
+                          calculationNumber: calculationNumber ?? 'new quote',
+                          isCalculationSaved: isCalculationSaved,
                         ),
                       ),
                       TabBar(
@@ -6398,7 +6630,7 @@ class _ResultPanel extends StatelessWidget {
                                   mediaRepository: mediaRepository,
                                   result: result,
                                   savedInput: loadedQuote?.input,
-                                  calculationNumber: loadedQuote?.quoteNo ?? savedQuote?.quoteNo,
+                                  calculationNumber: calculationNumber,
                                   highlightedModuleIndex: highlightedModuleIndex,
                                 ),
                               _LinesTab(result: result),
@@ -6476,7 +6708,7 @@ class _ResultPanel extends StatelessWidget {
                             calculatorContext: calculatorContext,
                             roofModelState: roofModelState,
                             mediaRepository: mediaRepository,
-                            calculationNumber: loadedQuote?.quoteNo ?? savedQuote?.quoteNo,
+                            calculationNumber: calculationNumber,
                             highlightedModuleIndex: highlightedModuleIndex,
                           ),
                         const Center(child: Text('No price lines were generated because calculation failed.')),
@@ -6681,7 +6913,9 @@ class _GeometryPreviewTab extends StatelessWidget {
               completionWeek: effectiveCompletionWeek,
               colorCode: colorPreview?.displayCode,
               colorSwatchColor: colorPreview?.color,
+              isSpecialColor: colorPreview != null && !colorPreview.isStandard,
               coveringName: coveringName,
+              quoteNotes: draft.externalNotes,
               highlightedModuleIndex: highlightedModuleIndex,
               roofAngleDeg: draft.roofAngleDeg,
               rearHeightMm: draft.roofRearHeightMm ?? draft.heightMm,
@@ -7080,10 +7314,12 @@ class _PriceHeader extends StatelessWidget {
   const _PriceHeader({
     required this.result,
     required this.calculationNumber,
+    required this.isCalculationSaved,
   });
 
   final CalculatorResult result;
   final String calculationNumber;
+  final bool isCalculationSaved;
 
   List<String> _discounts() {
     final labels = <String>[];
@@ -7176,15 +7412,21 @@ class _PriceHeader extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 12),
-            Chip(
-              visualDensity: VisualDensity.compact,
-              avatar: Icon(
-                calculationNumber == 'new quote'
-                    ? Icons.add_circle_outline
-                    : Icons.request_quote_outlined,
-                size: 18,
+            Tooltip(
+              message: isCalculationSaved
+                  ? 'Saved and unchanged'
+                  : 'Not saved or contains unsaved changes',
+              child: Chip(
+                visualDensity: VisualDensity.compact,
+                avatar: Icon(
+                  isCalculationSaved ? Icons.check_circle_outline : Icons.edit_outlined,
+                  size: 18,
+                  color: isCalculationSaved
+                      ? Colors.green.shade700
+                      : Theme.of(context).colorScheme.tertiary,
+                ),
+                label: Text(calculationNumber, overflow: TextOverflow.ellipsis),
               ),
-              label: Text(calculationNumber, overflow: TextOverflow.ellipsis),
             ),
             const SizedBox(width: 8),
             Chip(
@@ -8064,10 +8306,12 @@ class _ColorPreviewData {
   const _ColorPreviewData({
     required this.displayCode,
     required this.color,
+    required this.isStandard,
   });
 
   final String displayCode;
   final Color? color;
+  final bool isStandard;
 }
 
 _ColorPreviewData? _colorPreviewDataFor(CalculatorContext contextData, String? rawCode) {
@@ -8077,6 +8321,7 @@ _ColorPreviewData? _colorPreviewDataFor(CalculatorContext contextData, String? r
   final colorOptions = contextData.references['colors'] ?? const <CalculatorOption>[];
   final ralColorOptions = contextData.references['ral_colors'] ?? const <CalculatorOption>[];
 
+  final isStandard = colorOptions.any((option) => _normalizeRalCode(option.code) == code);
   CalculatorOption? match;
   for (final option in [...colorOptions, ...ralColorOptions]) {
     if (_normalizeRalCode(option.code) == code) {
@@ -8092,6 +8337,7 @@ _ColorPreviewData? _colorPreviewDataFor(CalculatorContext contextData, String? r
   return _ColorPreviewData(
     displayCode: RegExp(r'^\d{4}$').hasMatch(code) ? 'RAL $code' : code,
     color: color,
+    isStandard: isStandard,
   );
 }
 
