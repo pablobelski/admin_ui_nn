@@ -164,7 +164,14 @@ RoofGeometryCalculation calculateRoofGeometryForDraft({
   final frontOffsetMm = _number(params, 'frontOffsetMm', 'front_offset_mm');
   final glassFrontAddMm = _number(params, 'glassFrontAddMm', 'glass_front_add_mm');
   final glassOverlapMm = _number(params, 'glassOverlapMm', 'glass_overlap_mm');
-  final coatingMaxLengthMm = _number(params, 'coatingMaxLengthMm', 'coating_max_length_mm');
+  final defaultGlassDepthFieldCount = _number(params, 'defaultGlassDepthFieldCount', 'default_glass_depth_field_count');
+  final glassDepthJointGapMm = _number(params, 'glassDepthJointGapMm', 'glass_depth_joint_gap_mm');
+  final singleGlassFieldMaxBeamLengthMm = _number(
+    params,
+    'singleGlassFieldMaxBeamLengthMm',
+    'single_glass_field_max_beam_length_mm',
+  ) ??
+      _number(params, 'glassMaxPanelLengthMm', 'glass_max_panel_length_mm');
   final defaultMaxGlassFieldWidthMm = _number(
     params,
     'defaultMaxGlassFieldWidthMm',
@@ -176,7 +183,9 @@ RoofGeometryCalculation calculateRoofGeometryForDraft({
     frontOffsetMm,
     glassFrontAddMm,
     glassOverlapMm,
-    coatingMaxLengthMm,
+    defaultGlassDepthFieldCount,
+    glassDepthJointGapMm,
+    singleGlassFieldMaxBeamLengthMm,
     defaultMaxGlassFieldWidthMm,
   ].any((value) => value == null)) {
     return const RoofGeometryCalculation(angleDeg: null, frontHeightMm: null, modules: []);
@@ -187,7 +196,9 @@ RoofGeometryCalculation calculateRoofGeometryForDraft({
   final frontOffset = frontOffsetMm!;
   final glassFrontAdd = glassFrontAddMm!;
   final glassOverlap = glassOverlapMm!;
-  final coatingMaxLength = coatingMaxLengthMm!;
+  final defaultGlassDepthFields = defaultGlassDepthFieldCount!.round();
+  final glassDepthJointGap = glassDepthJointGapMm!;
+  final singleGlassFieldMaxBeamLength = singleGlassFieldMaxBeamLengthMm!;
   final defaultMaxGlassWidth = defaultMaxGlassFieldWidthMm!.round();
   final roles = roofModuleRolesForModel(model);
   final tabsByRole = <String, CalculatorSetContentTab>{
@@ -259,8 +270,14 @@ RoofGeometryCalculation calculateRoofGeometryForDraft({
     final glassCountAcrossWidth = math.max(0, beamCount + glassCountOffset).toInt();
     final glassWidth = beamStep.round() + glassOverlap.round();
     final unsplitGlassLength = (beamLength + glassFrontAdd + _angleCorrection(angle)).round();
-    final glassDepthFieldCount = math.max(1, (unsplitGlassLength / coatingMaxLength).ceil()).toInt();
-    final glassLength = (unsplitGlassLength / glassDepthFieldCount).ceil();
+    final glassDepthFieldCount = beamLength > singleGlassFieldMaxBeamLength
+        ? math.max(
+            defaultGlassDepthFields,
+            (beamLength / singleGlassFieldMaxBeamLength).ceil(),
+          ).toInt()
+        : 1;
+    final totalGlassJointGap = glassDepthJointGap * math.max(0, glassDepthFieldCount - 1);
+    final glassLength = ((unsplitGlassLength - totalGlassJointGap) / glassDepthFieldCount).round();
     final glassCount = glassCountAcrossWidth * glassDepthFieldCount;
     final glassArea = _roundAreaUp(
       glassCount * (glassWidth / 1000) * (glassLength / 1000),
