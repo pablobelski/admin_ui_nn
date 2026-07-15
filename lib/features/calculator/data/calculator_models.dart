@@ -251,6 +251,39 @@ class CalculatorTemplateOption {
   int? get defaultMaxGlassFieldWidthMm => _intOrNull(
         roofParameters['defaultMaxGlassFieldWidthMm'] ?? roofParameters['default_max_glass_field_width_mm'],
       );
+
+  int get minRoofAngleDeg => _intOrNull(
+        roofParameters['minRoofAngleDeg'] ?? roofParameters['min_roof_angle_deg'],
+      ) ?? 2;
+
+  int get maxRoofAngleDeg => _intOrNull(
+        roofParameters['maxRoofAngleDeg'] ?? roofParameters['max_roof_angle_deg'],
+      ) ?? 14;
+
+  Map<int, int> get glassMaxFieldWidthByThicknessMm {
+    final raw = roofParameters['glassMaxFieldWidthByThicknessMm']
+        ?? roofParameters['glass_max_field_width_by_thickness_mm'];
+    if (raw is! Map) return const {8: 750, 10: 980};
+    final resolved = <int, int>{8: 750, 10: 980};
+    for (final entry in raw.entries) {
+      final thickness = int.tryParse('${entry.key}'.trim());
+      final width = _intOrNull(entry.value);
+      if (thickness != null && width != null && thickness > 0 && width > 0) {
+        resolved[thickness] = width;
+      }
+    }
+    return resolved;
+  }
+
+  int maxGlassFieldWidthFor(String? coveringCode) {
+    final match = RegExp(r'(\d+(?:[.,]\d+)?)').firstMatch(coveringCode ?? '');
+    final thickness = match == null
+        ? null
+        : double.tryParse(match.group(1)!.replaceAll(',', '.'))?.round();
+    return glassMaxFieldWidthByThicknessMm[thickness]
+        ?? defaultMaxGlassFieldWidthMm
+        ?? 750;
+  }
 }
 
 class CalculatorCatalogItemOption {

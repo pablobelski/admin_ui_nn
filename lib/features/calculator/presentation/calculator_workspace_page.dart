@@ -1853,6 +1853,7 @@ class _DimensionsStepState extends State<_DimensionsStep> {
   late final TextEditingController _rearHeight;
   late final TextEditingController _frontHeight;
   late final TextEditingController _angle;
+  String? _angleErrorText;
 
   @override
   void initState() {
@@ -1863,6 +1864,7 @@ class _DimensionsStepState extends State<_DimensionsStep> {
     _rearHeight = TextEditingController(text: _effectiveRearHeight(widget.draft)?.toString() ?? '');
     _frontHeight = TextEditingController(text: widget.draft.roofFrontHeightMm?.toString() ?? '');
     _angle = TextEditingController(text: _effectiveAngle(widget.draft)?.toString() ?? '');
+    _angleErrorText = _angleValidationMessage(_angle.text);
     _syncModelDrivenState();
   }
 
@@ -1875,6 +1877,7 @@ class _DimensionsStepState extends State<_DimensionsStep> {
     _sync(_rearHeight, _effectiveRearHeight(widget.draft));
     _sync(_frontHeight, widget.draft.roofFrontHeightMm);
     _sync(_angle, _effectiveAngle(widget.draft));
+    _angleErrorText = _angleValidationMessage(_angle.text);
     _syncModelDrivenState();
   }
 
@@ -1894,6 +1897,21 @@ class _DimensionsStepState extends State<_DimensionsStep> {
     super.dispose();
   }
 
+  int get _minRoofAngleDeg => widget.selectedTemplate?.minRoofAngleDeg ?? 2;
+
+  int get _maxRoofAngleDeg => widget.selectedTemplate?.maxRoofAngleDeg ?? 14;
+
+  int _clampRoofAngle(int value) => value.clamp(_minRoofAngleDeg, _maxRoofAngleDeg).toInt();
+
+  String? _angleValidationMessage(String value) {
+    final parsed = int.tryParse(value.trim());
+    if (parsed == null) return 'Enter $_minRoofAngleDeg–$_maxRoofAngleDeg°';
+    if (parsed < _minRoofAngleDeg || parsed > _maxRoofAngleDeg) {
+      return 'Allowed $_minRoofAngleDeg–$_maxRoofAngleDeg°';
+    }
+    return null;
+  }
+
   void _syncModelDrivenState() {
     final roles = _moduleRolesFor(widget.selectedRoofModel);
     final needsModuleSeed = !widget.isLoadedCalculation && widget.draft.setContents.isEmpty;
@@ -1902,7 +1920,8 @@ class _DimensionsStepState extends State<_DimensionsStep> {
         firstModule != null &&
         ((widget.draft.widthMm != null && firstModule.moduleWidthMm == null) ||
             (widget.draft.depthMm != null && firstModule.moduleDepthMm == null));
-    final defaultAngle = _defaultAngleFor(widget.selectedRoofModel);
+    final rawDefaultAngle = _defaultAngleFor(widget.selectedRoofModel);
+    final defaultAngle = rawDefaultAngle == null ? null : _clampRoofAngle(rawDefaultAngle);
     final needsAngleSeed = widget.draft.roofAngleDeg == null && defaultAngle != null;
     final rearHeight = _effectiveRearHeight(widget.draft);
     final frontHeight = widget.draft.roofFrontHeightMm;
@@ -1924,12 +1943,12 @@ class _DimensionsStepState extends State<_DimensionsStep> {
   int? _effectiveRearHeight(CalculatorDraft draft) => draft.roofRearHeightMm ?? draft.heightMm;
 
   int? _effectiveAngle(CalculatorDraft draft) {
-    if (draft.roofAngleDeg != null) return draft.roofAngleDeg;
+    if (draft.roofAngleDeg != null) return _clampRoofAngle(draft.roofAngleDeg!);
     final rear = _effectiveRearHeight(draft);
     final front = draft.roofFrontHeightMm;
     final depth = _effectiveDepth(draft);
     if (rear == null || front == null || depth == null || depth <= 0) return _defaultAngleFor(widget.selectedRoofModel);
-    return (math.atan((rear - front) / depth) * 180 / math.pi).round();
+    return _clampRoofAngle((math.atan((rear - front) / depth) * 180 / math.pi).round());
   }
 
   int? _effectiveDepth(CalculatorDraft draft) {
@@ -1961,8 +1980,15 @@ class _DimensionsStepState extends State<_DimensionsStep> {
   }
 
   void _onAngleChanged(String value) {
+    final error = _angleValidationMessage(value);
+    if (_angleErrorText != error) setState(() => _angleErrorText = error);
     final angle = int.tryParse(value.trim());
-    widget.notifier.setRoofAngle(value);
+    if (angle == null) {
+      widget.notifier.setRoofAngle(value);
+      return;
+    }
+    if (error != null) return;
+    widget.notifier.setRoofAngleValue(angle);
     _recalculateFrontHeightFromAngle(angle);
   }
 
@@ -1978,8 +2004,10 @@ class _DimensionsStepState extends State<_DimensionsStep> {
     if (front != parsed) _sync(_frontHeight, front > 0 ? front : null);
     widget.notifier.setRoofFrontHeightValue(front > 0 ? front : null);
     if (rear == null || depth == null || depth <= 0) return;
-    final angle = (math.atan((rear - front) / depth) * 180 / math.pi).round();
+    final rawAngle = (math.atan((rear - front) / depth) * 180 / math.pi).round();
+    final angle = _clampRoofAngle(rawAngle);
     widget.notifier.setRoofAngleValue(angle);
+    if (rawAngle != angle) _recalculateFrontHeightFromAngle(angle, rearHeight: rear, depthMm: depth);
   }
 
   void _recalculateFrontHeightFromAngle(int? angle, {int? rearHeight, int? depthMm}) {
@@ -2044,6 +2072,9 @@ class _DimensionsStepState extends State<_DimensionsStep> {
           rearHeightController: _rearHeight,
           frontHeightController: _frontHeight,
           angleController: _angle,
+          minAngleDeg: _minRoofAngleDeg,
+          maxAngleDeg: _maxRoofAngleDeg,
+          angleErrorText: _angleErrorText,
           onFrontHeightChanged: _onFrontHeightChanged,
           onAngleChanged: _onAngleChanged,
         ),
@@ -2404,6 +2435,9 @@ class _RoofSlopeControls extends StatelessWidget {
     required this.rearHeightController,
     required this.frontHeightController,
     required this.angleController,
+    required this.minAngleDeg,
+    required this.maxAngleDeg,
+    required this.angleErrorText,
     required this.onFrontHeightChanged,
     required this.onAngleChanged,
   });
@@ -2411,6 +2445,9 @@ class _RoofSlopeControls extends StatelessWidget {
   final TextEditingController rearHeightController;
   final TextEditingController frontHeightController;
   final TextEditingController angleController;
+  final int minAngleDeg;
+  final int maxAngleDeg;
+  final String? angleErrorText;
   final ValueChanged<String> onFrontHeightChanged;
   final ValueChanged<String> onAngleChanged;
 
@@ -2425,7 +2462,9 @@ class _RoofSlopeControls extends StatelessWidget {
           children: [
             Text('Roof slope / angle', style: Theme.of(context).textTheme.titleSmall),
             const SizedBox(height: 4),
-            const Text('Rear height follows the global Height value. Front height and angle keep each other in sync.'),
+            Text(
+              'Rear height follows the global Height value. Front height and angle keep each other in sync. Allowed angle: $minAngleDeg–$maxAngleDeg°.',
+            ),
             const SizedBox(height: 14),
             Wrap(
               spacing: 16,
@@ -2433,7 +2472,13 @@ class _RoofSlopeControls extends StatelessWidget {
               children: [
                 _NumberField(label: 'Rear height, mm', controller: rearHeightController, onChanged: (_) {}, readOnly: true),
                 _NumberField(label: 'Front height, mm', controller: frontHeightController, onChanged: onFrontHeightChanged),
-                _NumberField(label: 'Roof angle, °', controller: angleController, onChanged: onAngleChanged),
+                _NumberField(
+                  label: 'Roof angle',
+                  controller: angleController,
+                  onChanged: onAngleChanged,
+                  suffixText: '°',
+                  errorText: angleErrorText,
+                ),
               ],
             ),
           ],
@@ -2489,9 +2534,17 @@ class _RoofCalculationParamsCard extends StatelessWidget {
 }
 
 class _CoveringCalculationParamsCard extends StatelessWidget {
-  const _CoveringCalculationParamsCard({required this.maxGlassFieldWidthController});
+  const _CoveringCalculationParamsCard({
+    required this.maxGlassFieldWidthController,
+    required this.maximumWidthMm,
+    required this.errorText,
+    required this.onChanged,
+  });
 
   final TextEditingController maxGlassFieldWidthController;
+  final int maximumWidthMm;
+  final String? errorText;
+  final ValueChanged<String> onChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -2507,11 +2560,13 @@ class _CoveringCalculationParamsCard extends StatelessWidget {
               Text('Calculation parameters', style: Theme.of(context).textTheme.labelLarge),
               const SizedBox(height: 8),
               _NumberField(
-                label: 'Max glass field width, mm',
+                label: 'Max glass field width',
                 controller: maxGlassFieldWidthController,
-                onChanged: (_) {},
-                readOnly: true,
+                onChanged: onChanged,
+                errorText: errorText,
               ),
+              const SizedBox(height: 4),
+              Text('Maximum for selected glass: $maximumWidthMm mm'),
             ],
           ),
         ),
@@ -2813,32 +2868,75 @@ class _CoveringStep extends StatefulWidget {
 
 class _CoveringStepState extends State<_CoveringStep> {
   late final TextEditingController _maxGlassFieldWidth;
+  String? _maxGlassFieldErrorText;
   int? _selectedModuleIndex;
 
   @override
   void initState() {
     super.initState();
     _maxGlassFieldWidth = TextEditingController(
-      text: widget.draft.maxGlassFieldWidthMm?.toString() ?? '',
+      text: (widget.draft.maxGlassFieldWidthMm
+              ?? widget.selectedTemplate?.defaultMaxGlassFieldWidthMm
+              ?? 750)
+          .toString(),
     );
+    _maxGlassFieldErrorText = _maxGlassFieldValidationMessage(_maxGlassFieldWidth.text);
     _syncTemplateParameter();
   }
 
   @override
   void didUpdateWidget(covariant _CoveringStep oldWidget) {
     super.didUpdateWidget(oldWidget);
-    final nextText = widget.draft.maxGlassFieldWidthMm?.toString() ?? '';
+    final nextText = (widget.draft.maxGlassFieldWidthMm
+            ?? widget.selectedTemplate?.defaultMaxGlassFieldWidthMm
+            ?? 750)
+        .toString();
     if (_maxGlassFieldWidth.text != nextText) _maxGlassFieldWidth.text = nextText;
+    _maxGlassFieldErrorText = _maxGlassFieldValidationMessage(_maxGlassFieldWidth.text);
     _syncTemplateParameter();
   }
 
+  int _coveringMaxGlassFieldWidth([String? coveringCode]) =>
+      widget.selectedTemplate?.maxGlassFieldWidthFor(coveringCode ?? widget.draft.coveringCode) ?? 750;
+
+  int get _defaultMaxGlassFieldWidth =>
+      widget.selectedTemplate?.defaultMaxGlassFieldWidthMm ?? 750;
+
+  String? _maxGlassFieldValidationMessage(String value, [String? coveringCode]) {
+    final parsed = int.tryParse(value.trim());
+    final maximum = _coveringMaxGlassFieldWidth(coveringCode);
+    if (parsed == null || parsed <= 0) return 'Enter 1–$maximum mm';
+    if (parsed > maximum) return 'Maximum $maximum mm for selected glass';
+    return null;
+  }
+
   void _syncTemplateParameter() {
-    final templateValue = widget.selectedTemplate?.defaultMaxGlassFieldWidthMm;
-    if (widget.draft.maxGlassFieldWidthMm == templateValue) return;
+    final maximum = _coveringMaxGlassFieldWidth();
+    final current = widget.draft.maxGlassFieldWidthMm;
+    final target = math.min(current ?? _defaultMaxGlassFieldWidth, maximum).toInt();
+    if (current == target) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      widget.notifier.setMaxGlassFieldWidthValue(templateValue);
+      widget.notifier.setMaxGlassFieldWidthValue(target);
     });
+  }
+
+  void _onMaxGlassFieldWidthChanged(String value) {
+    final error = _maxGlassFieldValidationMessage(value);
+    if (_maxGlassFieldErrorText != error) setState(() => _maxGlassFieldErrorText = error);
+    final parsed = int.tryParse(value.trim());
+    if (parsed == null || parsed <= 0 || error != null) return;
+    widget.notifier.setMaxGlassFieldWidthValue(parsed);
+  }
+
+  void _onCoveringChanged(String? value) {
+    widget.notifier.setCovering(value);
+    final maximum = _coveringMaxGlassFieldWidth(value);
+    final current = widget.draft.maxGlassFieldWidthMm ?? _defaultMaxGlassFieldWidth;
+    final target = math.min(current, maximum).toInt();
+    _maxGlassFieldWidth.text = target.toString();
+    setState(() => _maxGlassFieldErrorText = null);
+    widget.notifier.setMaxGlassFieldWidthValue(target);
   }
 
   @override
@@ -2863,12 +2961,15 @@ class _CoveringStepState extends State<_CoveringStep> {
               'For TDS/SkyView Glas the existing reference domain tds_glass_covering is used. Poly options should be moved into a dedicated domain or template schema.',
           value: widget.draft.coveringCode,
           options: widget.options,
-          onChanged: widget.notifier.setCovering,
+          onChanged: _onCoveringChanged,
           emptyLabel: '— Covering not selected —',
         ),
         const SizedBox(height: 16),
         _CoveringCalculationParamsCard(
           maxGlassFieldWidthController: _maxGlassFieldWidth,
+          maximumWidthMm: _coveringMaxGlassFieldWidth(),
+          errorText: _maxGlassFieldErrorText,
+          onChanged: _onMaxGlassFieldWidthChanged,
         ),
         if (roofCalculation.modules.isNotEmpty) ...[
           const SizedBox(height: 16),
@@ -8168,12 +8269,16 @@ class _NumberField extends StatelessWidget {
     required this.controller,
     required this.onChanged,
     this.readOnly = false,
+    this.suffixText = 'mm',
+    this.errorText,
   });
 
   final String label;
   final TextEditingController controller;
   final ValueChanged<String> onChanged;
   final bool readOnly;
+  final String suffixText;
+  final String? errorText;
 
   @override
   Widget build(BuildContext context) {
@@ -8183,7 +8288,11 @@ class _NumberField extends StatelessWidget {
         controller: controller,
         readOnly: readOnly,
         keyboardType: TextInputType.number,
-        decoration: InputDecoration(labelText: label, suffixText: 'mm'),
+        decoration: InputDecoration(
+          labelText: label,
+          suffixText: suffixText,
+          errorText: errorText,
+        ),
         onChanged: onChanged,
       ),
     );

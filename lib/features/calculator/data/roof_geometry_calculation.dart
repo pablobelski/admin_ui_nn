@@ -209,11 +209,15 @@ RoofGeometryCalculation calculateRoofGeometryForDraft({
       .fold<int?>(null, (maxValue, value) => maxValue == null || value > maxValue ? value : maxValue);
   final effectiveDepth = maxDepthMm ?? draft.depthMm;
   final rearHeight = draft.roofRearHeightMm ?? draft.heightMm;
-  final angle = draft.roofAngleDeg ?? (
+  final rawAngle = draft.roofAngleDeg ?? (
     rearHeight != null && draft.roofFrontHeightMm != null && effectiveDepth != null && effectiveDepth > 0
         ? (math.atan((rearHeight - draft.roofFrontHeightMm!) / effectiveDepth) * 180 / math.pi).round()
         : null
   );
+  final angle = rawAngle?.clamp(
+    template?.minRoofAngleDeg ?? 2,
+    template?.maxRoofAngleDeg ?? 14,
+  ).toInt();
   final frontHeight = draft.roofFrontHeightMm ?? (
     rearHeight != null && effectiveDepth != null && effectiveDepth > 0 && angle != null
         ? (rearHeight - math.tan(angle * math.pi / 180) * effectiveDepth).round()
@@ -225,7 +229,11 @@ RoofGeometryCalculation calculateRoofGeometryForDraft({
 
   final modelCode = model?.code.trim().toUpperCase() ?? draft.modelCode?.trim().toUpperCase() ?? '';
   final offsets = _glassOffsets(params, modelCode, _optionMetadata(model));
-  final maxGlassWidth = draft.maxGlassFieldWidthMm ?? defaultMaxGlassWidth;
+  final coveringMaxGlassWidth = template?.maxGlassFieldWidthFor(draft.coveringCode) ?? defaultMaxGlassWidth;
+  final maxGlassWidth = math.min(
+    draft.maxGlassFieldWidthMm ?? defaultMaxGlassWidth,
+    coveringMaxGlassWidth,
+  ).toInt();
   final calculated = <RoofModuleCalculation>[];
 
   for (var index = 0; index < orderedTabs.length; index++) {
