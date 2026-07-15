@@ -59,6 +59,7 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
   var _isSavingQuote = false;
   SavedQuote? _savedQuote;
   int? _highlightedModuleIndex;
+  int? _highlightedGlassFieldIndex;
 
   @override
   Widget build(BuildContext context) {
@@ -133,7 +134,11 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
                             canCalculate: canCalculate,
                             roofModelState: roofModelState,
                             isLoadedCalculation: loadedQuote != null,
-                            onModuleFocusChanged: (value) => setState(() => _highlightedModuleIndex = value),
+                            onModuleFocusChanged: (value) => setState(() {
+                              _highlightedModuleIndex = value;
+                              _highlightedGlassFieldIndex = null;
+                            }),
+                            onGlassFieldFocusChanged: (value) => setState(() => _highlightedGlassFieldIndex = value),
                           ),
                         ),
                         const SizedBox(width: 16),
@@ -146,6 +151,7 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
                             roofModelState: roofModelState,
                             selectedStep: _selectedStep,
                             highlightedModuleIndex: _highlightedModuleIndex,
+                            highlightedGlassFieldIndex: _highlightedGlassFieldIndex,
                             mediaRepository: ref.read(resourceRepositoryProvider),
                             loadedQuote: loadedQuote,
                             savedQuote: _savedQuote,
@@ -172,7 +178,11 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
                             canCalculate: canCalculate,
                             roofModelState: roofModelState,
                             isLoadedCalculation: loadedQuote != null,
-                            onModuleFocusChanged: (value) => setState(() => _highlightedModuleIndex = value),
+                            onModuleFocusChanged: (value) => setState(() {
+                              _highlightedModuleIndex = value;
+                              _highlightedGlassFieldIndex = null;
+                            }),
+                            onGlassFieldFocusChanged: (value) => setState(() => _highlightedGlassFieldIndex = value),
                           ),
                         ),
                         const SizedBox(height: 12),
@@ -185,6 +195,7 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
                             roofModelState: roofModelState,
                             selectedStep: _selectedStep,
                             highlightedModuleIndex: _highlightedModuleIndex,
+                            highlightedGlassFieldIndex: _highlightedGlassFieldIndex,
                             mediaRepository: ref.read(resourceRepositoryProvider),
                             loadedQuote: loadedQuote,
                             savedQuote: _savedQuote,
@@ -208,6 +219,9 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
     final key = _steps[index].key;
     setState(() {
       _selectedStep = index;
+      if (key != 'set_contents') {
+        _highlightedGlassFieldIndex = null;
+      }
       if (!{'dimensions', 'set_contents', 'covering'}.contains(key)) {
         _highlightedModuleIndex = null;
       }
@@ -744,6 +758,7 @@ class _StepCard extends ConsumerWidget {
     required this.roofModelState,
     required this.isLoadedCalculation,
     required this.onModuleFocusChanged,
+    required this.onGlassFieldFocusChanged,
   });
 
   final int selectedStep;
@@ -757,6 +772,7 @@ class _StepCard extends ConsumerWidget {
   final _RoofModelStepState roofModelState;
   final bool isLoadedCalculation;
   final ValueChanged<int?> onModuleFocusChanged;
+  final ValueChanged<int?> onGlassFieldFocusChanged;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -825,7 +841,7 @@ class _StepCard extends ConsumerWidget {
       builder: (dialogContext) => AlertDialog(
         title: const Text('Update set contents?'),
         content: const Text(
-          'Calculated segments will be rebuilt from the current roof geometry. Existing overrides, excluded segments, manual components and derived-accessory overrides are reapplied by their stable segment IDs.',
+          'Calculated segments will be rebuilt from the current roof geometry. Only real manual changes, excluded segments, manual components and derived-accessory overrides are reapplied by their stable segment IDs.',
         ),
         actions: [
           TextButton(
@@ -945,6 +961,7 @@ class _StepCard extends ConsumerWidget {
           mediaRepository: ref.read(resourceRepositoryProvider),
           weights: result?.weights ?? const {},
           onModuleFocusChanged: onModuleFocusChanged,
+          onGlassFieldFocusChanged: onGlassFieldFocusChanged,
           onUpdateFromDefaults: () => _confirmAndReloadSetContents(context, ref, notifier),
           onOpenRuleSet: (id) => ref
               .read(selectedResourceProvider.notifier)
@@ -3059,38 +3076,63 @@ class _CalculatedGlassCard extends StatelessWidget {
                               : 1,
                         ),
                       ),
-                      child: Row(
+                      child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          SizedBox(
-                            width: 110,
-                            child: Text(
-                              _moduleDisplayLabel(module.role, module.moduleIndex),
-                              style: Theme.of(context).textTheme.labelLarge,
-                            ),
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              SizedBox(
+                                width: 110,
+                                child: Text(
+                                  _moduleDisplayLabel(module.role, module.moduleIndex),
+                                  style: Theme.of(context).textTheme.labelLarge,
+                                ),
+                              ),
+                              Expanded(
+                                child: Wrap(
+                                  spacing: 8,
+                                  runSpacing: 6,
+                                  children: [
+                                    _CalculationValueChip(label: 'Type', value: coveringCode ?? '—'),
+                                    _CalculationValueChip(label: 'Quantity', value: '${module.glassCount}'),
+                                    _CalculationValueChip(
+                                      label: 'Size',
+                                      value: '${module.glassWidthMm} × ${module.glassLengthMm} mm',
+                                    ),
+                                    _CalculationValueChip(
+                                      label: 'Area',
+                                      value: '${module.glassAreaM2.toStringAsFixed(1)} m²',
+                                    ),
+                                    _CalculationValueChip(
+                                      label: 'Weight',
+                                      value: '${_glassWeightKg(module.glassAreaM2, coveringCode).toStringAsFixed(1)} kg',
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
                           ),
-                          Expanded(
-                            child: Wrap(
-                              spacing: 8,
-                              runSpacing: 6,
-                              children: [
-                                _CalculationValueChip(label: 'Type', value: coveringCode ?? '—'),
-                                _CalculationValueChip(label: 'Quantity', value: '${module.glassCount}'),
-                                _CalculationValueChip(
-                                  label: 'Size',
-                                  value: '${module.glassWidthMm} × ${module.glassLengthMm} mm',
-                                ),
-                                _CalculationValueChip(
-                                  label: 'Area',
-                                  value: '${module.glassAreaM2.toStringAsFixed(1)} m²',
-                                ),
-                                _CalculationValueChip(
-                                  label: 'Weight',
-                                  value: '${_glassWeightKg(module.glassAreaM2, coveringCode).toStringAsFixed(1)} kg',
-                                ),
-                              ],
+                          if (module.glassDepthFieldCount > 1) ...[
+                            const SizedBox(height: 8),
+                            Padding(
+                              padding: const EdgeInsets.only(left: 110),
+                              child: Wrap(
+                                spacing: 8,
+                                runSpacing: 6,
+                                children: [
+                                  for (var fieldIndex = 1;
+                                      fieldIndex <= module.glassDepthFieldCount;
+                                      fieldIndex++)
+                                    _CalculationValueChip(
+                                      label: 'Glass field $fieldIndex/${module.glassDepthFieldCount}',
+                                      value:
+                                          '${(module.glassCount / module.glassDepthFieldCount).round()} sheets · ${module.glassWidthMm} × ${module.glassLengthMm} mm',
+                                    ),
+                                ],
+                              ),
                             ),
-                          ),
+                          ],
                         ],
                       ),
                     ),
@@ -3548,6 +3590,7 @@ class _SetContentsStep extends StatefulWidget {
     required this.mediaRepository,
     required this.weights,
     required this.onModuleFocusChanged,
+    required this.onGlassFieldFocusChanged,
     required this.onUpdateFromDefaults,
     required this.onOpenRuleSet,
     required this.onOpenRuleMatrix,
@@ -3561,6 +3604,7 @@ class _SetContentsStep extends StatefulWidget {
   final AdminResourceRepository mediaRepository;
   final Map<String, dynamic> weights;
   final ValueChanged<int?> onModuleFocusChanged;
+  final ValueChanged<int?> onGlassFieldFocusChanged;
   final Future<void> Function() onUpdateFromDefaults;
   final ValueChanged<String> onOpenRuleSet;
   final void Function(String matrixId, String? ruleSetId) onOpenRuleMatrix;
@@ -3571,6 +3615,7 @@ class _SetContentsStep extends StatefulWidget {
 
 class _SetContentsStepState extends State<_SetContentsStep> {
   int _selectedModuleTabIndex = 0;
+  final Map<int, int> _selectedGlassFieldByTab = <int, int>{};
 
   @override
   void initState() {
@@ -3607,19 +3652,7 @@ class _SetContentsStepState extends State<_SetContentsStep> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text('Set contents / Calculated segments', style: Theme.of(context).textTheme.titleMedium),
-            ),
-            const SizedBox(width: 12),
-            FilledButton.tonalIcon(
-              onPressed: widget.draft.templateId == null ? null : widget.onUpdateFromDefaults,
-              icon: const Icon(Icons.refresh),
-              label: const Text('Recalculate'),
-            ),
-          ],
-        ),
+        Text('Set contents / Calculated segments', style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 8),
         const Text(
           'The module structure is fixed by the selected roof model. Calculated profile segments describe the physical construction and are not added to the price as ordinary options. Use Override only for a deliberate production correction; add separate manual components when required.',
@@ -3680,15 +3713,35 @@ class _SetContentsStepState extends State<_SetContentsStep> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                TabBar(
-                  isScrollable: true,
-                  onTap: (index) {
-                    widget.onModuleFocusChanged(index == 0 ? _selectedModuleTabIndex + 1 : null);
-                  },
-                  tabs: const [
-                    Tab(text: 'Modules set'),
-                    Tab(text: 'Standard set'),
-                    Tab(text: 'Current set delta'),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TabBar(
+                        isScrollable: true,
+                        tabAlignment: TabAlignment.start,
+                        onTap: (index) {
+                          if (index == 0) {
+                            final fieldIndex = _selectedGlassFieldByTab[_selectedModuleTabIndex] ?? 0;
+                            widget.onModuleFocusChanged(_selectedModuleTabIndex + 1);
+                            widget.onGlassFieldFocusChanged(fieldIndex == 0 ? null : fieldIndex);
+                          } else {
+                            widget.onModuleFocusChanged(null);
+                            widget.onGlassFieldFocusChanged(null);
+                          }
+                        },
+                        tabs: const [
+                          Tab(text: 'Modules set'),
+                          Tab(text: 'Standard set'),
+                          Tab(text: 'Current set delta'),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    FilledButton.tonalIcon(
+                      onPressed: widget.draft.templateId == null ? null : widget.onUpdateFromDefaults,
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Recalculate'),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 10),
@@ -3742,6 +3795,8 @@ class _SetContentsStepState extends State<_SetContentsStep> {
             onTap: (index) {
               setState(() => _selectedModuleTabIndex = index);
               widget.onModuleFocusChanged(index + 1);
+              final fieldIndex = _selectedGlassFieldByTab[index] ?? 0;
+              widget.onGlassFieldFocusChanged(fieldIndex == 0 ? null : fieldIndex);
             },
             tabs: [for (final tab in tabs) Tab(text: tab.label)],
           ),
@@ -3762,6 +3817,12 @@ class _SetContentsStepState extends State<_SetContentsStep> {
                     onOverrideChanged: (itemIndex, enabled) => widget.notifier.setSetContentItemOverride(tabIndex, itemIndex, enabled),
                     onResetItem: (itemIndex) => widget.notifier.resetSetContentItemOverride(tabIndex, itemIndex),
                     onAddManual: () => _showAddManualComponent(tabIndex),
+                    selectedGlassFieldIndex: _selectedGlassFieldByTab[tabIndex] ?? 0,
+                    onGlassFieldSelected: (fieldIndex) {
+                      setState(() => _selectedGlassFieldByTab[tabIndex] = fieldIndex ?? 0);
+                      widget.onModuleFocusChanged(tabIndex + 1);
+                      widget.onGlassFieldFocusChanged(fieldIndex);
+                    },
                   ),
               ],
             ),
@@ -4502,6 +4563,8 @@ class _SetContentTabTable extends StatefulWidget {
     required this.onOverrideChanged,
     required this.onResetItem,
     required this.onAddManual,
+    required this.selectedGlassFieldIndex,
+    required this.onGlassFieldSelected,
   });
 
   static const _mediaWidth = 48.0;
@@ -4509,7 +4572,7 @@ class _SetContentTabTable extends StatefulWidget {
   static const _qtyWidth = 88.0;
   static const _unitWidth = 58.0;
   static const _lengthWidth = 116.0;
-  static const _stateWidth = 112.0;
+  static const _stateWidth = 132.0;
   static const _actionsWidth = 88.0;
   static const _columnGap = 12.0;
 
@@ -4524,6 +4587,8 @@ class _SetContentTabTable extends StatefulWidget {
   final void Function(int itemIndex, bool enabled) onOverrideChanged;
   final void Function(int itemIndex) onResetItem;
   final VoidCallback onAddManual;
+  final int selectedGlassFieldIndex;
+  final ValueChanged<int?> onGlassFieldSelected;
 
   @override
   State<_SetContentTabTable> createState() => _SetContentTabTableState();
@@ -4533,6 +4598,17 @@ class _SetContentTabTableState extends State<_SetContentTabTable> {
   final _scrollController = ScrollController();
 
   @override
+  void didUpdateWidget(covariant _SetContentTabTable oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final fieldCount = widget.tab.geometryInt('glass_depth_field_count') ?? 1;
+    if (widget.selectedGlassFieldIndex > fieldCount) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) widget.onGlassFieldSelected(null);
+      });
+    }
+  }
+
+  @override
   void dispose() {
     _scrollController.dispose();
     super.dispose();
@@ -4540,7 +4616,20 @@ class _SetContentTabTableState extends State<_SetContentTabTable> {
 
   @override
   Widget build(BuildContext context) {
-    final rows = _visibleSetContentRows(widget.contextData, widget.tab);
+    final allRows = _visibleSetContentRows(widget.contextData, widget.tab);
+    final fieldCount = widget.tab.geometryInt('glass_depth_field_count') ?? 1;
+    final selectedGlassFieldIndex = widget.selectedGlassFieldIndex <= fieldCount
+        ? widget.selectedGlassFieldIndex
+        : 0;
+    final rows = selectedGlassFieldIndex == 0
+        ? allRows
+        : allRows
+            .where(
+              (row) =>
+                  row.item.glassFieldIndex == selectedGlassFieldIndex ||
+                  row.item.cutGroupIndex == selectedGlassFieldIndex,
+            )
+            .toList(growable: false);
     return Card(
       margin: EdgeInsets.zero,
       child: Column(
@@ -4556,10 +4645,31 @@ class _SetContentTabTableState extends State<_SetContentTabTable> {
                     style: Theme.of(context).textTheme.titleSmall,
                   ),
                 ),
-                FilledButton.tonalIcon(
+                if (fieldCount > 1) ...[
+                  const SizedBox(width: 12),
+                  SizedBox(
+                    width: 390,
+                    child: DropdownButtonFormField<int>(
+                      key: ValueKey('glass-field-filter-${widget.tabIndex}-$fieldCount-$selectedGlassFieldIndex'),
+                      initialValue: selectedGlassFieldIndex,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Production split by depth',
+                        isDense: true,
+                      ),
+                      items: _glassFieldOptions(fieldCount),
+                      onChanged: (value) {
+                        final next = value ?? 0;
+                        widget.onGlassFieldSelected(next == 0 ? null : next);
+                      },
+                    ),
+                  ),
+                ],
+                const SizedBox(width: 8),
+                IconButton.filledTonal(
                   onPressed: widget.onAddManual,
+                  tooltip: 'Manual component',
                   icon: const Icon(Icons.add, size: 18),
-                  label: const Text('Manual component'),
                 ),
               ],
             ),
@@ -4568,7 +4678,15 @@ class _SetContentTabTableState extends State<_SetContentTabTable> {
           SizedBox(height: 34, child: _header(context)),
           const Divider(height: 1),
           if (rows.isEmpty)
-            const Expanded(child: Center(child: Text('No calculated or manual profile segments in this module.')))
+            Expanded(
+              child: Center(
+                child: Text(
+                  selectedGlassFieldIndex == 0
+                      ? 'No calculated or manual profile segments in this module.'
+                      : 'No component segments are assigned to Glass field or cut group $selectedGlassFieldIndex/$fieldCount.',
+                ),
+              ),
+            )
           else
             Expanded(
               child: Scrollbar(
@@ -4602,9 +4720,9 @@ class _SetContentTabTableState extends State<_SetContentTabTable> {
             _gap(),
             _fixed(context, const Text('Unit'), _SetContentTabTable._unitWidth, true),
             _gap(),
-            _fixed(context, const Text('Length'), _SetContentTabTable._lengthWidth, true),
+            _fixed(context, const Text('Cut length'), _SetContentTabTable._lengthWidth, true),
             _gap(),
-            _fixed(context, const Text('State / price'), _SetContentTabTable._stateWidth, true),
+            _fixed(context, const Text('Stock / state'), _SetContentTabTable._stateWidth, true),
             _gap(),
             const SizedBox(width: _SetContentTabTable._actionsWidth),
           ],
@@ -4626,6 +4744,11 @@ class _SetContentTabTableState extends State<_SetContentTabTable> {
                 ? 'Calculated · overridden'
                 : 'Calculated · automatic')
         : 'Manual component';
+    final productionLabel = item.glassFieldIndex != null && item.glassFieldCount != null
+        ? 'Glass field ${item.glassFieldIndex}/${item.glassFieldCount}'
+        : item.cutGroupIndex != null && (item.cutGroupCount ?? 1) > 1
+            ? 'Cut group ${item.cutGroupIndex}/${item.cutGroupCount}'
+            : null;
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 140),
@@ -4652,7 +4775,7 @@ class _SetContentTabTableState extends State<_SetContentTabTable> {
               children: [
                 Text(item.name ?? 'Component', maxLines: 1, overflow: TextOverflow.ellipsis),
                 Text(
-                  [sourceLabel, if (item.segmentId != null) item.segmentId!].join(' · '),
+                  [sourceLabel, if (productionLabel != null) productionLabel, if (item.segmentId != null) item.segmentId!].join(' · '),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(color: colorScheme.onSurfaceVariant),
@@ -4693,7 +4816,16 @@ class _SetContentTabTableState extends State<_SetContentTabTable> {
           _gap(),
           _fixed(
             context,
-            Text(item.isCalculated ? 'Base / delta' : (amount != 0 ? _moneyFormat.format(amount) : 'Manual')),
+            item.isCalculated
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(item.stockLengthMm == null ? 'Stock —' : 'Stock ${item.stockLengthMm} mm'),
+                      Text('Base / delta', style: Theme.of(context).textTheme.labelSmall),
+                    ],
+                  )
+                : Text(amount != 0 ? _moneyFormat.format(amount) : 'Manual'),
             _SetContentTabTable._stateWidth,
           ),
           _gap(),
@@ -4726,6 +4858,33 @@ class _SetContentTabTableState extends State<_SetContentTabTable> {
   }
 
   Widget _gap() => const SizedBox(width: _SetContentTabTable._columnGap);
+
+  List<DropdownMenuItem<int>> _glassFieldOptions(int fieldCount) {
+    final totalGlassCount = widget.tab.geometryInt('glass_count') ?? 0;
+    final glassCountAcrossWidth = widget.tab.geometryInt('glass_count_across_width') ??
+        (fieldCount > 0 ? (totalGlassCount / fieldCount).round() : totalGlassCount);
+    final glassWidthMm = widget.tab.geometryInt('glass_width_mm');
+    final glassLengthMm = widget.tab.geometryInt('glass_length_mm');
+    final sizeText = '${glassWidthMm ?? '—'} × ${glassLengthMm ?? '—'} mm';
+
+    return [
+      DropdownMenuItem<int>(
+        value: 0,
+        child: Text(
+          'All fields · $fieldCount fields · $totalGlassCount sheets',
+          overflow: TextOverflow.ellipsis,
+        ),
+      ),
+      for (var fieldIndex = 1; fieldIndex <= fieldCount; fieldIndex++)
+        DropdownMenuItem<int>(
+          value: fieldIndex,
+          child: Text(
+            'Glass field $fieldIndex/$fieldCount · $glassCountAcrossWidth sheets · $sizeText',
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+    ];
+  }
 
   Widget _fixed(BuildContext context, Widget child, double width, [bool header = false]) => SizedBox(
         width: width,
@@ -4798,7 +4957,7 @@ class _AccessoryStep extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         const Text(
-          'Required accessories are recalculated from the effective profile BOM after segment overrides: PVC fittings from PVC pipes, stopplates from beams, wall seal from wall-profile metres and glass seal from twice the effective beam-profile metres. Manual accessory items remain separate.',
+          'Required accessories are recalculated from the effective profile BOM after segment overrides: PVC fittings from PVC pipes, stopplates from beams, wall seal from wall-profile metres and glass seal from beam, glass-list, side-list, gutter and wall-profile lengths. Manual accessory items remain separate.',
         ),
         const SizedBox(height: 12),
         if (lines.isEmpty)
@@ -6581,6 +6740,7 @@ class _ResultPanel extends StatelessWidget {
     required this.roofModelState,
     required this.selectedStep,
     required this.highlightedModuleIndex,
+    required this.highlightedGlassFieldIndex,
     required this.mediaRepository,
     required this.onSaveQuote,
     required this.onPrint,
@@ -6597,6 +6757,7 @@ class _ResultPanel extends StatelessWidget {
   final _RoofModelStepState roofModelState;
   final int selectedStep;
   final int? highlightedModuleIndex;
+  final int? highlightedGlassFieldIndex;
   final AdminResourceRepository mediaRepository;
   final LoadedQuote? loadedQuote;
   final VoidCallback onSaveQuote;
@@ -6670,6 +6831,7 @@ class _ResultPanel extends StatelessWidget {
                                   savedInput: loadedQuote?.input,
                                   calculationNumber: calculationNumber,
                                   highlightedModuleIndex: highlightedModuleIndex,
+                                  highlightedGlassFieldIndex: highlightedGlassFieldIndex,
                                 ),
                                 _noCalculationTab(),
                               ],
@@ -6737,6 +6899,7 @@ class _ResultPanel extends StatelessWidget {
                                   savedInput: loadedQuote?.input,
                                   calculationNumber: calculationNumber,
                                   highlightedModuleIndex: highlightedModuleIndex,
+                                  highlightedGlassFieldIndex: highlightedGlassFieldIndex,
                                 ),
                               _LinesTab(result: result),
                               _BomTab(result: result),
@@ -6815,6 +6978,7 @@ class _ResultPanel extends StatelessWidget {
                             mediaRepository: mediaRepository,
                             calculationNumber: calculationNumber,
                             highlightedModuleIndex: highlightedModuleIndex,
+                            highlightedGlassFieldIndex: highlightedGlassFieldIndex,
                           ),
                         const Center(child: Text('No price lines were generated because calculation failed.')),
                         const Center(child: Text('No BOM lines were generated because calculation failed.')),
@@ -6924,6 +7088,7 @@ class _GeometryPreviewTab extends StatelessWidget {
     this.savedInput,
     this.calculationNumber,
     this.highlightedModuleIndex,
+    this.highlightedGlassFieldIndex,
   });
 
   final CalculatorDraft draft;
@@ -6934,6 +7099,7 @@ class _GeometryPreviewTab extends StatelessWidget {
   final Map<String, dynamic>? savedInput;
   final String? calculationNumber;
   final int? highlightedModuleIndex;
+  final int? highlightedGlassFieldIndex;
 
   @override
   Widget build(BuildContext context) {
@@ -7022,6 +7188,7 @@ class _GeometryPreviewTab extends StatelessWidget {
               coveringName: coveringName,
               quoteNotes: draft.externalNotes,
               highlightedModuleIndex: highlightedModuleIndex,
+              highlightedGlassFieldIndex: highlightedGlassFieldIndex,
               roofAngleDeg: draft.roofAngleDeg,
               rearHeightMm: draft.roofRearHeightMm ?? draft.heightMm,
               frontHeightMm: draft.roofFrontHeightMm,

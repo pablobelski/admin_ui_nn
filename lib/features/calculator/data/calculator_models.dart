@@ -645,7 +645,7 @@ class CalculatorSetContentTab {
       'id': id,
       'label': label,
       if (geometryKey.isNotEmpty) 'geometry_key': geometryKey,
-      'items': items.map((entry) => entry.toCalculationJson()).toList(),
+      'items': items.where((entry) => entry.shouldPersist).map((entry) => entry.toCalculationJson()).toList(),
     };
   }
 
@@ -654,7 +654,7 @@ class CalculatorSetContentTab {
       'id': id,
       'label': label,
       if (geometryKey.isNotEmpty) 'geometry_key': geometryKey,
-      'items': items.map((entry) => entry.toJson()).toList(),
+      'items': items.where((entry) => entry.shouldPersist).map((entry) => entry.toJson()).toList(),
     };
   }
 }
@@ -736,12 +736,22 @@ class CalculatorSetContentItem {
   String get overrideState => _nullableString(sourceComponent['override_state'] ?? sourceComponent['overrideState']) ?? 'automatic';
   num? get calculatedQuantity => _numOrNull(sourceComponent['calculated_quantity'] ?? sourceComponent['calculatedQuantity']);
   int? get calculatedLengthMm => _intOrNull(sourceComponent['calculated_length_mm'] ?? sourceComponent['calculatedLengthMm']);
+  bool get overrideApplied => sourceComponent['override_applied'] == true || sourceComponent['overrideApplied'] == true;
+  int? get stockLengthMm => _intOrNull(sourceComponent['catalog_variant_length_mm'] ?? sourceComponent['catalogVariantLengthMm']);
+  int? get glassFieldIndex => _intOrNull(sourceComponent['glass_field_index'] ?? sourceComponent['glassFieldIndex']);
+  int? get glassFieldCount => _intOrNull(sourceComponent['glass_field_count'] ?? sourceComponent['glassFieldCount']);
+  int? get cutGroupIndex => _intOrNull(sourceComponent['cut_group_index'] ?? sourceComponent['cutGroupIndex']);
+  int? get cutGroupCount => _intOrNull(sourceComponent['cut_group_count'] ?? sourceComponent['cutGroupCount']);
   bool get isCalculated => sourceType == 'calculated';
   bool get isManual => sourceType == 'manual' || sourceType == 'legacy';
   bool get isDerivedOverride => sourceType == 'derived_accessory_override' || sourceType == 'derived';
-  bool get isOverridden => ['overridden', 'excluded'].contains(overrideState) ||
+  bool get hasCalculatedValueOverride =>
       (calculatedQuantity != null && calculatedQuantity != quantity) ||
       (calculatedLengthMm != null && calculatedLengthMm != lengthMm);
+  bool get isOverridden => overrideState == 'excluded' ||
+      hasCalculatedValueOverride ||
+      (overrideState == 'overridden' && !overrideApplied);
+  bool get shouldPersist => !isCalculated || !enabled || isOverridden;
 
   CalculatorSetContentItem copyWith({
     String? catalogItemId,

@@ -573,6 +573,7 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
           ? Map<String, dynamic>.from(item.raw['source_component'] as Map)
           : const <String, dynamic>{}),
       'override_state': stateCode,
+      'override_applied': false,
     };
     return item.copyWith(raw: {...item.raw, 'source_component': source});
   }

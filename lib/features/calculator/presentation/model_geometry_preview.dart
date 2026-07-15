@@ -39,6 +39,7 @@ class ModelGeometryPreview extends ConsumerStatefulWidget {
     this.coveringName,
     this.quoteNotes,
     this.highlightedModuleIndex,
+    this.highlightedGlassFieldIndex,
     this.roofAngleDeg,
     this.rearHeightMm,
     this.frontHeightMm,
@@ -68,6 +69,7 @@ class ModelGeometryPreview extends ConsumerStatefulWidget {
   final String? coveringName;
   final String? quoteNotes;
   final int? highlightedModuleIndex;
+  final int? highlightedGlassFieldIndex;
   final int? roofAngleDeg;
   final int? rearHeightMm;
   final int? frontHeightMm;
@@ -179,6 +181,7 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
             accentColor: colorScheme.primary,
             surfaceColor: colorScheme.surface,
             highlightedModuleIndex: clearHighlight ? null : widget.highlightedModuleIndex,
+            highlightedGlassFieldIndex: clearHighlight ? null : widget.highlightedGlassFieldIndex,
             roofAngleDeg: widget.roofAngleDeg,
             rearHeightMm: widget.rearHeightMm,
             frontHeightMm: widget.frontHeightMm,
@@ -753,6 +756,7 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     required this.accentColor,
     required this.surfaceColor,
     required this.highlightedModuleIndex,
+    required this.highlightedGlassFieldIndex,
     required this.roofAngleDeg,
     required this.rearHeightMm,
     required this.frontHeightMm,
@@ -775,6 +779,7 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
   final Color accentColor;
   final Color surfaceColor;
   final int? highlightedModuleIndex;
+  final int? highlightedGlassFieldIndex;
   final int? roofAngleDeg;
   final int? rearHeightMm;
   final int? frontHeightMm;
@@ -859,6 +864,7 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     _drawGroundShadow(canvas, s, layout, shadowPaint);
     _drawRoofFill(canvas, s, layout, roofFillPaint);
     _drawHighlightedModule(canvas, s, layout);
+    _drawGlassDepthSplits(canvas, s, layout);
 
     _drawWallGuides(canvas, s, layout, guidePaint);
 
@@ -1270,10 +1276,22 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     }
     if (area == null || area.corners.length < 3) return;
 
+    var corners = area.corners;
+    final fieldIndex = highlightedGlassFieldIndex;
+    final calculation = _calculatedModuleFor(index);
+    final fieldCount = calculation?.glassDepthFieldCount ?? 1;
+    if (fieldIndex != null &&
+        fieldCount > 1 &&
+        fieldIndex >= 1 &&
+        fieldIndex <= fieldCount &&
+        area.corners.length == 4) {
+      corners = _glassFieldCorners(area.corners, fieldIndex, fieldCount);
+    }
+
     final path = Path();
-    final first = s(area.corners.first.dx, area.corners.first.dy, layout.heightMm);
+    final first = s(corners.first.dx, corners.first.dy, layout.heightMm);
     path.moveTo(first.dx, first.dy);
-    for (final point in area.corners.skip(1)) {
+    for (final point in corners.skip(1)) {
       final projected = s(point.dx, point.dy, layout.heightMm);
       path.lineTo(projected.dx, projected.dy);
     }
@@ -1292,6 +1310,54 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.2,
     );
+  }
+
+  void _drawGlassDepthSplits(
+    Canvas canvas,
+    Offset Function(double, double, double) s,
+    _RoofLayout layout,
+  ) {
+    final paint = Paint()
+      ..color = lineColor.withValues(alpha: 0.72)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.0
+      ..strokeCap = StrokeCap.round;
+
+    for (final area in layout.moduleAreas) {
+      if (area.corners.length != 4) continue;
+      final fieldCount = _calculatedModuleFor(area.index)?.glassDepthFieldCount ?? 1;
+      if (fieldCount <= 1) continue;
+      for (var splitIndex = 1; splitIndex < fieldCount; splitIndex++) {
+        final t = splitIndex / fieldCount;
+        final left = Offset.lerp(area.corners[0], area.corners[3], t)!;
+        final right = Offset.lerp(area.corners[1], area.corners[2], t)!;
+        canvas.drawLine(
+          s(left.dx, left.dy, layout.heightMm),
+          s(right.dx, right.dy, layout.heightMm),
+          paint,
+        );
+      }
+    }
+  }
+
+  RoofModuleCalculation? _calculatedModuleFor(int moduleIndex) => calculatedModules
+      .where((entry) => entry.moduleIndex == moduleIndex)
+      .cast<RoofModuleCalculation?>()
+      .firstOrNull;
+
+  List<Offset> _glassFieldCorners(
+    List<Offset> corners,
+    int fieldIndex,
+    int fieldCount,
+  ) {
+    final start = (fieldIndex - 1) / fieldCount;
+    final end = fieldIndex / fieldCount;
+    return [
+      Offset.lerp(corners[0], corners[3], start)!,
+      Offset.lerp(corners[1], corners[2], start)!,
+      Offset.lerp(corners[1], corners[2], end)!,
+      Offset.lerp(corners[0], corners[3], end)!,
+    ];
   }
 
   void _drawRoofFrame(
@@ -1924,6 +1990,7 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
         oldDelegate.accentColor != accentColor ||
         oldDelegate.surfaceColor != surfaceColor ||
         oldDelegate.highlightedModuleIndex != highlightedModuleIndex ||
+        oldDelegate.highlightedGlassFieldIndex != highlightedGlassFieldIndex ||
         oldDelegate.roofAngleDeg != roofAngleDeg ||
         oldDelegate.rearHeightMm != rearHeightMm ||
         oldDelegate.frontHeightMm != frontHeightMm ||
