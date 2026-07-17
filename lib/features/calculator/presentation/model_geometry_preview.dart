@@ -1444,7 +1444,9 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
   ) {
     for (final x in _effectiveRafterX(layout)) {
       final y1 = _yAt(layout.front, x);
-      final y2 = _yAt(layout.back, x);
+      final y2 = _usesSharedModuleBeams
+          ? _sharedModuleBackY(layout, x)
+          : _yAt(layout.back, x);
       if ((y2 - y1).abs() < 40) continue;
       _drawBeam(canvas, s(x, y1, layout.heightMm), s(x, y2, layout.heightMm), k, isRafter: true);
     }
@@ -1934,6 +1936,39 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
   }
 
 
+  bool get _usesSharedModuleBeams => const {
+        'LWTR',
+        'LWTL',
+        'UWTM',
+        'TWTM',
+      }.contains(modelCode?.trim().toUpperCase());
+
+  int _visualBeamCount(RoofModuleCalculation calculation) => math.max(
+        2,
+        calculation.beamCount + calculation.glassCountOffset + 1,
+      ).toInt();
+
+  double _sharedModuleBackY(_RoofLayout layout, double x) {
+    final candidates = <double>[];
+    for (final area in layout.moduleAreas) {
+      if (area.corners.length != 4) continue;
+      final xs = area.corners.map((point) => point.dx).toList(growable: false);
+      final minX = xs.reduce((a, b) => math.min(a, b).toDouble());
+      final maxX = xs.reduce((a, b) => math.max(a, b).toDouble());
+      if (x < minX - 1 || x > maxX + 1) continue;
+      final left = area.corners[3];
+      final right = area.corners[2];
+      if ((right.dx - left.dx).abs() < 1e-6) {
+        candidates.add(math.max(left.dy, right.dy).toDouble());
+      } else {
+        final t = ((x - left.dx) / (right.dx - left.dx)).clamp(0.0, 1.0).toDouble();
+        candidates.add(left.dy + (right.dy - left.dy) * t);
+      }
+    }
+    if (candidates.isEmpty) return _yAt(layout.back, x);
+    return candidates.reduce((a, b) => math.max(a, b).toDouble());
+  }
+
   List<double> _effectiveRafterX(_RoofLayout layout) {
     if (calculatedModules.isEmpty || layout.moduleAreas.isEmpty) return layout.rafterX;
     final values = <double>[];
@@ -1949,10 +1984,19 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
       final span = maxX - minX;
       if (span <= 0 || calculation.widthMm <= 0) continue;
 
-      // Draw the module's own Träger count, exactly as calculated by Konfig.
-      // The profile centres are inset by half a beam width. At a shared module
-      // boundary each module therefore keeps its own edge beam, so neighbouring
-      // beams remain visible as a close double pair instead of being merged.
+      if (_usesSharedModuleBeams) {
+        // The module keeps its calculated physical beam quantity, while the
+        // visual count also includes boundary beams shared with neighbours.
+        // Exact boundary coordinates merge the common profile into one line.
+        final visualCount = _visualBeamCount(calculation);
+        for (var i = 0; i < visualCount; i++) {
+          values.add(minX + span * i / (visualCount - 1));
+        }
+        continue;
+      }
+
+      // Split-gutter L models intentionally keep two adjacent profiles at the
+      // module joint, therefore their profile centres remain independently inset.
       final beamWidthMm = (
         calculation.widthMm -
         (calculation.beamCount - 1) * calculation.beamStepMm
@@ -1966,7 +2010,13 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     }
     if (values.isEmpty) return layout.rafterX;
     values.sort();
-    return values;
+    final unique = <double>[];
+    for (final value in values) {
+      if (!_usesSharedModuleBeams || unique.isEmpty || (unique.last - value).abs() >= 1) {
+        unique.add(value);
+      }
+    }
+    return unique;
   }
 
   List<double> _rafterPositions(double width, List<double> fixed, {List<double> blocked = const []}) {
