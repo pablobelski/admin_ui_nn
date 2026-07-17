@@ -921,6 +921,7 @@ class _StepCard extends ConsumerWidget {
           draft: draft,
           mediaRepository: ref.read(resourceRepositoryProvider),
           onChanged: notifier.setModel,
+          onWallMountedChanged: notifier.setWallMounted,
         );
       case 'dimensions':
         return _DimensionsStep(
@@ -2652,12 +2653,14 @@ class _ModelStep extends StatelessWidget {
     required this.draft,
     required this.mediaRepository,
     required this.onChanged,
+    required this.onWallMountedChanged,
   });
 
   final _RoofModelStepState roofModelState;
   final CalculatorDraft draft;
   final AdminResourceRepository mediaRepository;
   final ValueChanged<String?> onChanged;
+  final ValueChanged<bool> onWallMountedChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -2691,12 +2694,63 @@ class _ModelStep extends StatelessWidget {
           onChanged: onChanged,
           emptyLabel: '— Model not selected —',
         ),
+        const SizedBox(height: 16),
+        _ModelCalculationParamsCard(
+          wallMounted: draft.wallMounted,
+          onWallMountedChanged: onWallMountedChanged,
+        ),
         const SizedBox(height: 20),
         _RoofModelMediaPreview(
           model: roofModelState.selectedForCode(draft.modelCode),
           repository: mediaRepository,
         ),
       ],
+    );
+  }
+}
+
+
+class _ModelCalculationParamsCard extends StatelessWidget {
+  const _ModelCalculationParamsCard({
+    required this.wallMounted,
+    required this.onWallMountedChanged,
+  });
+
+  final bool wallMounted;
+  final ValueChanged<bool> onWallMountedChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      child: Card(
+        margin: EdgeInsets.zero,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Calculation parameters', style: Theme.of(context).textTheme.labelLarge),
+              const SizedBox(height: 4),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Transform.scale(
+                    scale: 0.82,
+                    alignment: Alignment.centerLeft,
+                    child: Switch(
+                      value: wallMounted,
+                      onChanged: onWallMountedChanged,
+                    ),
+                  ),
+                  const SizedBox(width: 2),
+                  Text('Wandmontage', style: Theme.of(context).textTheme.bodySmall),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -3348,35 +3402,6 @@ class _ColorStepState extends State<_ColorStep> {
   void _setColor(String? value) {
     final normalized = _normalizeRalCode(value);
     widget.notifier.setColor(normalized);
-    _syncPaintOption(normalized);
-  }
-
-  void _syncPaintOption(String? normalizedColorCode) {
-    final paintItem = widget.contextData.customPaintCatalogItem;
-    if (paintItem == null) return;
-
-    final paintIndexes = <int>[];
-    for (var index = 0; index < widget.draft.options.length; index += 1) {
-      if (widget.draft.options[index].catalogItemId == paintItem.id) {
-        paintIndexes.add(index);
-      }
-    }
-
-    final needsPaint = normalizedColorCode != null && !_standardColorCodes.contains(normalizedColorCode);
-    if (needsPaint) {
-      if (paintIndexes.isEmpty) {
-        widget.notifier.addCatalogOption(
-          catalogItemId: paintItem.id,
-          quantity: 1,
-          salesUnitCode: paintItem.defaultSalesUnitCode ?? paintItem.measureTypeCode,
-        );
-      }
-      return;
-    }
-
-    for (final index in paintIndexes.reversed) {
-      widget.notifier.removeOptionAt(index);
-    }
   }
 
   Color? _colorForCode(String? rawCode) {
@@ -3412,7 +3437,6 @@ class _ColorStepState extends State<_ColorStep> {
     ];
     final dropdownValue = customMode ? _customRalOptionCode : selectedCode;
     final customColor = _colorForCode(selectedCode);
-    final paintItem = widget.contextData.customPaintCatalogItem;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -3420,7 +3444,7 @@ class _ColorStepState extends State<_ColorStep> {
         Text('Frame color', style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 8),
         Text(
-          'Стандартные цвета берутся из reference domain colors. Полный справочник RAL берется из ral_colors. Для нестандартного цвета добавляется позиция из domain Lackierung.',
+          'Стандартные цвета берутся из reference domain colors. Для нестандартного RAL надбавка рассчитывается по окрашиваемым погонным метрам алюминиевых профилей.',
           style: Theme.of(context).textTheme.bodyMedium,
         ),
         const SizedBox(height: 20),
@@ -3511,9 +3535,7 @@ class _ColorStepState extends State<_ColorStep> {
           ),
           const SizedBox(height: 8),
           Text(
-            paintItem == null
-                ? 'Для нестандартного цвета не найдена активная позиция в domain Lackierung.'
-                : 'Для нестандартного цвета будет добавлена строка “${paintItem.name}”.',
+            'Sonderfarbe рассчитывается отдельно и не получает скидку организации.',
             style: Theme.of(context).textTheme.bodySmall,
           ),
         ],
@@ -3833,12 +3855,11 @@ class _SetContentsStepState extends State<_SetContentsStep> {
   }
 
   Future<void> _showAddManualComponent(int tabIndex) async {
-    final standardBom = widget.preview.asData?.value.standardBom ?? const <Map<String, dynamic>>[];
-    final candidates = _catalogItemsForBomLines(widget.contextData, standardBom);
+    final candidates = widget.contextData.templateSetCatalogItemsFor(widget.draft.templateId);
     if (candidates.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('No Catalog Items from the matched Standard set are available for manual selection.'),
+          content: Text('No Catalog Items are configured in the selected template set.'),
         ),
       );
       return;
@@ -3847,8 +3868,8 @@ class _SetContentsStepState extends State<_SetContentsStep> {
     final selection = await showDialog<_ManualComponentSelection>(
       context: context,
       builder: (_) => _ManualComponentDialog(
-        contextData: widget.contextData,
         candidates: candidates,
+        variants: widget.contextData.templateSetCatalogVariants,
         mediaRepository: widget.mediaRepository,
       ),
     );
@@ -3892,13 +3913,13 @@ class _ManualComponentSelection {
 
 class _ManualComponentDialog extends StatefulWidget {
   const _ManualComponentDialog({
-    required this.contextData,
     required this.candidates,
+    required this.variants,
     required this.mediaRepository,
   });
 
-  final CalculatorContext contextData;
   final List<CalculatorCatalogItemOption> candidates;
+  final List<CalculatorCatalogVariantOption> variants;
   final AdminResourceRepository mediaRepository;
 
   @override
@@ -3939,7 +3960,7 @@ class _ManualComponentDialogState extends State<_ManualComponentDialog> {
     final canAdd = item != null && (!requiresVariant || variant != null);
 
     return AlertDialog(
-      title: const Text('Add manual component from Standard set'),
+      title: const Text('Add manual component from template set'),
       content: SizedBox(
         width: 780,
         child: ConstrainedBox(
@@ -3949,11 +3970,11 @@ class _ManualComponentDialogState extends State<_ManualComponentDialog> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 const Text(
-                  'Only Catalog Items contained in the matched Standard set are available. Additional handling is intentionally not available here.',
+                  'All Catalog Items configured in the selected template set are available, independent of the current geometry conditions and filters. Additional handling is intentionally not available here.',
                 ),
                 const SizedBox(height: 14),
                 _SearchableOptionField<CalculatorCatalogItemOption>(
-                  label: 'Catalog item from Standard set',
+                  label: 'Catalog item from template set',
                   hintText: 'Type article number or name',
                   controller: _itemController,
                   focusNode: _itemFocusNode,
@@ -4066,12 +4087,12 @@ class _ManualComponentDialogState extends State<_ManualComponentDialog> {
       .cast<CalculatorCatalogItemOption?>()
       .firstOrNull;
 
-  CalculatorCatalogVariantOption? get _selectedVariant => widget.contextData.optionCatalogVariants
+  CalculatorCatalogVariantOption? get _selectedVariant => widget.variants
       .where((entry) => entry.id == _variantId)
       .cast<CalculatorCatalogVariantOption?>()
       .firstOrNull;
 
-  List<CalculatorCatalogVariantOption> _variantsFor(String itemId) => widget.contextData.optionCatalogVariants
+  List<CalculatorCatalogVariantOption> _variantsFor(String itemId) => widget.variants
       .where((entry) => entry.catalogItemId == itemId)
       .toList(growable: false);
 
@@ -4335,7 +4356,7 @@ class _BomSummaryListState extends State<_BomSummaryList> {
     if (segments.isEmpty) return '${source['source_type'] ?? 'standard_set'}';
     return segments.whereType<Map>().map((raw) {
       final segment = Map<String, dynamic>.from(raw);
-      return '${segment['module'] ?? 'main'}: ${segment['quantity'] ?? 0} × ${segment['length_mm'] ?? 0} mm';
+      return '${segment['module'] ?? 'main'}: ${segment['quantity'] ?? 0} × ${_formatLengthNumber(_num(segment['length_mm']))} mm';
     }).join(' · ');
   }
 }
@@ -4454,9 +4475,13 @@ CalculatorCatalogItemOption? _findCatalogItem(
   Iterable<String?> codes = const [],
 }) {
   final normalizedId = id?.trim();
+  final allCatalogItems = <CalculatorCatalogItemOption>[
+    ...contextData.optionCatalogItems,
+    ...contextData.templateSetCatalogItems,
+  ];
   CalculatorCatalogItemOption? idMatch;
   if (normalizedId != null && normalizedId.isNotEmpty) {
-    idMatch = contextData.optionCatalogItems
+    idMatch = allCatalogItems
         .where((entry) => entry.id == normalizedId)
         .cast<CalculatorCatalogItemOption?>()
         .firstOrNull;
@@ -4471,7 +4496,7 @@ CalculatorCatalogItemOption? _findCatalogItem(
 
   CalculatorCatalogItemOption? canonicalMatch;
   CalculatorCatalogItemOption? prefixedMatch;
-  for (final item in contextData.optionCatalogItems) {
+  for (final item in allCatalogItems) {
     final itemKeys = <String>{
       ..._catalogCodeKeys(item.profileNo),
       ..._catalogCodeKeys(item.baseCode),
@@ -4582,7 +4607,7 @@ class _SetContentTabTable extends StatefulWidget {
   final int tabIndex;
   final List<Map<String, dynamic>> diagnostics;
   final void Function(int itemIndex, num quantity) onQuantityChanged;
-  final void Function(int itemIndex, int? lengthMm) onLengthChanged;
+  final void Function(int itemIndex, num? lengthMm) onLengthChanged;
   final void Function(int itemIndex) onToggleItem;
   final void Function(int itemIndex, bool enabled) onOverrideChanged;
   final void Function(int itemIndex) onResetItem;
@@ -4804,11 +4829,14 @@ class _SetContentTabTableState extends State<_SetContentTabTable> {
             item.isProfile
                 ? TextFormField(
                     key: ValueKey('set-length-${widget.tabIndex}-$index-${item.lengthMm}-${item.overrideState}'),
-                    initialValue: item.lengthMm?.toString() ?? '',
+                    initialValue: item.lengthMm == null ? '' : _formatDecimalNumber(item.lengthMm!),
                     enabled: item.enabled && editable,
-                    keyboardType: TextInputType.number,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
                     decoration: const InputDecoration(isDense: true, suffixText: 'mm'),
-                    onChanged: (value) => widget.onLengthChanged(index, int.tryParse(value.trim())),
+                    onChanged: (value) => widget.onLengthChanged(
+                      index,
+                      num.tryParse(value.trim().replaceAll(',', '.')),
+                    ),
                   )
                 : Text(_formatLengthMm(item.lengthMm) ?? '—'),
             _SetContentTabTable._lengthWidth,
@@ -7186,6 +7214,8 @@ class _GeometryPreviewTab extends StatelessWidget {
               colorSwatchColor: colorPreview?.color,
               isSpecialColor: colorPreview != null && !colorPreview.isStandard,
               coveringName: coveringName,
+              wallMounted: draft.wallMounted,
+              postCount: roofCalculation.postCount,
               quoteNotes: draft.externalNotes,
               highlightedModuleIndex: highlightedModuleIndex,
               highlightedGlassFieldIndex: highlightedGlassFieldIndex,
@@ -7790,6 +7820,42 @@ class _LinesTab extends StatelessWidget {
   Widget build(BuildContext context) {
     if (result.visibleLines.isEmpty) return const Center(child: Text('No lines.'));
 
+    final sectionTitles = <String, String>{
+      'base_set': 'Base set price',
+      'set_delta': 'Set delta / Abzug',
+      'derived_accessories': 'Derived accessories',
+      'manual_components': 'Manual components',
+      'glass': 'Eindeckung',
+      'additional_articles': 'Zusätzliche Artikel',
+      'special_color': 'Sonderfarbe',
+      'options': 'Options / additional handling',
+    };
+    final hasSections = result.visibleLines.any((line) => '${line['section'] ?? ''}'.trim().isNotEmpty);
+    if (hasSections) {
+      final grouped = <String, List<Map<String, dynamic>>>{};
+      for (final line in result.visibleLines) {
+        final section = '${line['section'] ?? 'options'}'.trim();
+        grouped.putIfAbsent(section.isEmpty ? 'options' : section, () => []).add(line);
+      }
+      final orderedSections = <String>[
+        ...sectionTitles.keys.where(grouped.containsKey),
+        ...grouped.keys.where((section) => !sectionTitles.containsKey(section)),
+      ];
+      return ListView(
+        padding: const EdgeInsets.all(12),
+        children: [
+          for (final section in orderedSections) ...[
+            _sectionHeader(
+              context,
+              sectionTitles[section] ?? section,
+              '${grouped[section]!.length} line(s)',
+            ),
+            ..._lineTiles(grouped[section]!),
+          ],
+        ],
+      );
+    }
+
     final baseLines = result.visibleLines.take(1).toList(growable: false);
     var remaining = result.visibleLines.skip(baseLines.length).toList(growable: false);
     int pricedCount(List<Map<String, dynamic>> diagnostics) =>
@@ -7858,11 +7924,19 @@ class _LinesTab extends StatelessWidget {
 
   Widget _lineTile(Map<String, dynamic> line) {
     final unitPrice = _num(line['unitPrice']);
+    final netUnitPrice = line.containsKey('netUnitPrice') ? _num(line['netUnitPrice']) : unitPrice;
+    final grossAmount = _num(line['amount']);
+    final discountPct = _num(line['discountPct']);
+    final discountAmount = _num(line['discountAmount']);
+    final netAmount = line.containsKey('netAmount') ? _num(line['netAmount']) : grossAmount;
     final note = '${line['note'] ?? ''}'.trim();
     final unit = _formatUnitLabel('${line['unit'] ?? ''}');
     final subtitleParts = <String>[
       'Qty ${line['quantity'] ?? 1} $unit',
       if (unitPrice > 0) '${_moneyFormat.format(unitPrice)} / $unit',
+      if (discountPct > 0) 'Rabatt ${discountPct.toStringAsFixed(discountPct % 1 == 0 ? 0 : 2)} %',
+      if (discountPct > 0 && netUnitPrice > 0) 'nach Rabatt ${_moneyFormat.format(netUnitPrice)} / $unit',
+      if (discountAmount > 0) '−${_moneyFormat.format(discountAmount)}',
       if (note.isNotEmpty) note,
     ];
     return ListTile(
@@ -7870,7 +7944,7 @@ class _LinesTab extends StatelessWidget {
       contentPadding: const EdgeInsets.symmetric(horizontal: 8),
       title: Text('${line['label'] ?? 'Line'}', maxLines: 2, overflow: TextOverflow.ellipsis),
       subtitle: Text(subtitleParts.join(' · '), maxLines: 2, overflow: TextOverflow.ellipsis),
-      trailing: Text(_moneyFormat.format(_num(line['amount']))),
+      trailing: Text(_moneyFormat.format(netAmount)),
     );
   }
 }
@@ -7908,7 +7982,7 @@ class _BomTab extends StatelessWidget {
               contentPadding: const EdgeInsets.symmetric(horizontal: 8),
               title: Text('${row['module'] ?? 'module'} · ${row['glass_type_code'] ?? 'glass'}'),
               subtitle: Text(
-                '${row['quantity'] ?? 0} × ${row['width_mm'] ?? 0} × ${row['length_mm'] ?? 0} mm · '
+                '${row['quantity'] ?? 0} × ${_formatLengthNumber(_num(row['width_mm']))} × ${_formatLengthNumber(_num(row['length_mm']))} mm · '
                 '${row['area_m2'] ?? 0} m² · Article ${row['article_no'] ?? '—'} · '
                 'Unit price ${row['unit_price'] == null ? '—' : _moneyFormat.format(_num(row['unit_price']))}',
               ),
@@ -8003,8 +8077,8 @@ class _CalculatedBomTile extends StatelessWidget {
               padding: const EdgeInsets.only(bottom: 4),
               child: Text(
                 '${segment['module'] ?? 'module'}: ${segment['quantity'] ?? 0} × '
-                '${segment['length_mm'] ?? 0} mm'
-                '${_num(segment['split_count']) > 1 ? ' (split ${segment['split_count']} from ${segment['original_length_mm']} mm)' : ''}',
+                '${_formatLengthNumber(_num(segment['length_mm']))} mm'
+                '${_num(segment['split_count']) > 1 ? ' (split ${segment['split_count']} from ${_formatLengthNumber(_num(segment['original_length_mm']))} mm)' : ''}',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ),
@@ -8864,9 +8938,17 @@ String _normalize(String value) {
   return value.toLowerCase().replaceAll(RegExp(r'[^a-z0-9äöüß]+'), ' ').trim();
 }
 
-String? _formatLengthMm(int? value) {
+String _formatDecimalNumber(num value) {
+  if (value % 1 == 0) return value.toInt().toString();
+  final fixed = value.toStringAsFixed(3).replaceFirst(RegExp(r'0+$'), '').replaceFirst(RegExp(r'\.$'), '');
+  return fixed.replaceAll('.', ',');
+}
+
+String _formatLengthNumber(num value) => _formatDecimalNumber(value);
+
+String? _formatLengthMm(num? value) {
   if (value == null || value <= 1) return null;
-  return '$value mm';
+  return '${_formatLengthNumber(value)} mm';
 }
 
 num _num(dynamic value) {

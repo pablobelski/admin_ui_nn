@@ -37,6 +37,8 @@ class ModelGeometryPreview extends ConsumerStatefulWidget {
     this.colorSwatchColor,
     this.isSpecialColor = false,
     this.coveringName,
+    this.wallMounted = false,
+    this.postCount = 0,
     this.quoteNotes,
     this.highlightedModuleIndex,
     this.highlightedGlassFieldIndex,
@@ -67,6 +69,8 @@ class ModelGeometryPreview extends ConsumerStatefulWidget {
   final Color? colorSwatchColor;
   final bool isSpecialColor;
   final String? coveringName;
+  final bool wallMounted;
+  final int postCount;
   final String? quoteNotes;
   final int? highlightedModuleIndex;
   final int? highlightedGlassFieldIndex;
@@ -140,6 +144,20 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
                   : 'Select a model to show a schematic of the roof shape.',
               style: theme.textTheme.bodySmall?.copyWith(color: colorScheme.onSurfaceVariant),
             ),
+            if (widget.wallMounted) ...[
+              const SizedBox(height: 8),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.home_outlined, size: 16, color: colorScheme.primary),
+                  const SizedBox(width: 6),
+                  Text(
+                    'Wandmontage',
+                    style: theme.textTheme.labelMedium?.copyWith(color: colorScheme.primary),
+                  ),
+                ],
+              ),
+            ],
             const SizedBox(height: 12),
             SizedBox(
               height: 250,
@@ -186,6 +204,8 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
             rearHeightMm: widget.rearHeightMm,
             frontHeightMm: widget.frontHeightMm,
             calculatedModules: widget.calculatedModules,
+            wallMounted: widget.wallMounted,
+            postCount: widget.postCount,
           ),
         );
       },
@@ -271,6 +291,7 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
                                   colorCode: widget.colorCode,
                                   isSpecialColor: widget.isSpecialColor,
                                   coveringName: widget.coveringName,
+                                  wallMounted: widget.wallMounted,
                                   currentUser: currentUser,
                                 ),
                               ),
@@ -378,6 +399,7 @@ class _ExpandedPreviewInfo extends StatelessWidget {
     required this.colorCode,
     required this.isSpecialColor,
     required this.coveringName,
+    required this.wallMounted,
     required this.currentUser,
   });
 
@@ -399,6 +421,7 @@ class _ExpandedPreviewInfo extends StatelessWidget {
   final String? colorCode;
   final bool isSpecialColor;
   final String? coveringName;
+  final bool wallMounted;
   final String currentUser;
 
   @override
@@ -458,6 +481,8 @@ class _ExpandedPreviewInfo extends StatelessWidget {
               ),
             if (coveringName?.trim().isNotEmpty == true)
               _PreviewMetadataRow(label: 'Covering', value: coveringName!.trim()),
+            if (wallMounted)
+              const _PreviewMetadataRow(label: 'Montage', value: 'Wandmontage'),
             if ((deliveryName ?? '').trim().isNotEmpty || completionWeek != null)
               _PreviewMetadataRow(
                 label: 'Delivery',
@@ -761,6 +786,8 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     required this.rearHeightMm,
     required this.frontHeightMm,
     required this.calculatedModules,
+    required this.wallMounted,
+    required this.postCount,
   });
 
   final String? modelCode;
@@ -784,9 +811,12 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
   final int? rearHeightMm;
   final int? frontHeightMm;
   final List<RoofModuleCalculation> calculatedModules;
+  final bool wallMounted;
+  final int postCount;
 
   static const double _ddx = 0.52;
   static const double _ddy = 0.73;
+  static const double _depthProjectionScale = 0.88;
   static const double _defaultWidthMm = 5000;
   static const double _defaultDepthMm = 3000;
   static const double _defaultHeightMm = 2500;
@@ -814,8 +844,9 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     _drawPreviewSideBackground(canvas, sideRect);
 
     final leftReserveMm = humanGapMm + _humanMm * 0.55;
-    final projDx = profile.shape == _RoofShape.lFront ? (profile.mirrorView ? -0.42 : 0.58) : _ddx;
-    final projDy = profile.shape == _RoofShape.lFront ? 0.70 : _ddy;
+    final projDx = (profile.shape == _RoofShape.lFront ? (profile.mirrorView ? -0.42 : 0.58) : _ddx)
+        * _depthProjectionScale;
+    final projDy = (profile.shape == _RoofShape.lFront ? 0.70 : _ddy) * _depthProjectionScale;
     final projectionLeftMm = projDx < 0 ? -projDx * layout.depthMm : 0.0;
     final roofW = layout.widthMm + projDx.abs() * layout.depthMm;
     final roofTop = -layout.depthMm * projDy;
@@ -1415,7 +1446,7 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     _RoofLayout layout,
     double k,
   ) {
-    for (final point in layout.postPoints) {
+    for (final point in _effectivePostPoints(layout)) {
       _drawPost(canvas, s(point.dx, point.dy, layout.heightMm), s(point.dx, point.dy, 0), k);
     }
   }
@@ -1913,7 +1944,45 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
   }
 
   bool _hasPostAt(_RoofLayout layout, Offset point) {
-    return layout.postPoints.any((post) => (post - point).distance < 1);
+    return _effectivePostPoints(layout).any((post) => (post - point).distance < 1);
+  }
+
+  List<Offset> _effectivePostPoints(_RoofLayout layout) {
+    if (!wallMounted || postCount <= 0) return layout.postPoints;
+    return _evenlySpacedEdgePoints(layout.front, postCount);
+  }
+
+  List<Offset> _evenlySpacedEdgePoints(List<Offset> edge, int count) {
+    if (edge.isEmpty || count <= 0) return const [];
+    if (edge.length == 1 || count == 1) return [edge.first];
+
+    final segmentLengths = <double>[];
+    var totalLength = 0.0;
+    for (var index = 0; index < edge.length - 1; index++) {
+      final length = (edge[index + 1] - edge[index]).distance;
+      segmentLengths.add(length);
+      totalLength += length;
+    }
+    if (totalLength <= 0) return [edge.first];
+
+    final points = <Offset>[];
+    for (var pointIndex = 0; pointIndex < count; pointIndex++) {
+      final target = count == 1 ? 0.0 : totalLength * pointIndex / (count - 1);
+      var consumed = 0.0;
+      for (var segmentIndex = 0; segmentIndex < segmentLengths.length; segmentIndex++) {
+        final segmentLength = segmentLengths[segmentIndex];
+        final isLast = segmentIndex == segmentLengths.length - 1;
+        if (target <= consumed + segmentLength || isLast) {
+          final t = segmentLength <= 0
+              ? 0.0
+              : ((target - consumed) / segmentLength).clamp(0.0, 1.0).toDouble();
+          points.add(_lerp(edge[segmentIndex], edge[segmentIndex + 1], t));
+          break;
+        }
+        consumed += segmentLength;
+      }
+    }
+    return _uniquePoints(points);
   }
 
   List<Offset> _uniquePoints(List<Offset> points) {
@@ -1994,6 +2063,8 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
         oldDelegate.roofAngleDeg != roofAngleDeg ||
         oldDelegate.rearHeightMm != rearHeightMm ||
         oldDelegate.frontHeightMm != frontHeightMm ||
-        oldDelegate.calculatedModules != calculatedModules;
+        oldDelegate.calculatedModules != calculatedModules ||
+        oldDelegate.wallMounted != wallMounted ||
+        oldDelegate.postCount != postCount;
   }
 }

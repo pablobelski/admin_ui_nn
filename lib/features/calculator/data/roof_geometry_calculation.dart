@@ -31,6 +31,20 @@ const Map<String, Map<String, int>> _fallbackGlassOffsetsByModel = {
   'SRR': {'main': -1},
 };
 
+const Map<String, Map<String, int>> _fallbackBeamCountOffsetsByModel = {
+  'SR': {'main': -1},
+  'LRTR': {'main': -1, 'small': -1},
+  'LRTL': {'main': -1, 'small': -1},
+  'LWTR': {'main': -1, 'small': -1},
+  'LWTL': {'main': -1, 'small': -1},
+  'UWTM': {'left': -1, 'right': -1, 'middle': 1},
+  'TWTM': {'middle': -1, 'left': 0, 'right': 0},
+  'SWL': {'main': -1},
+  'SWR': {'main': -1},
+  'SRL': {'main': -1},
+  'SRR': {'main': -1},
+};
+
 class RoofModuleCalculation {
   const RoofModuleCalculation({
     required this.moduleIndex,
@@ -67,11 +81,13 @@ class RoofGeometryCalculation {
   const RoofGeometryCalculation({
     required this.angleDeg,
     required this.frontHeightMm,
+    required this.postCount,
     required this.modules,
   });
 
   final int? angleDeg;
   final int? frontHeightMm;
+  final int postCount;
   final List<RoofModuleCalculation> modules;
 }
 
@@ -149,6 +165,7 @@ RoofGeometryCalculation? roofGeometryCalculationFromSources(
   return RoofGeometryCalculation(
     angleDeg: _asInt(geometry['angle_deg'] ?? geometry['angleDeg']),
     frontHeightMm: _asInt(geometry['front_height_mm'] ?? geometry['frontHeightMm']),
+    postCount: _asInt(geometry['post_count'] ?? geometry['postCount']) ?? 0,
     modules: modules,
   );
 }
@@ -164,7 +181,14 @@ RoofGeometryCalculation calculateRoofGeometryForDraft({
   final frontOffsetMm = _number(params, 'frontOffsetMm', 'front_offset_mm');
   final glassFrontAddMm = _number(params, 'glassFrontAddMm', 'glass_front_add_mm');
   final glassOverlapMm = _number(params, 'glassOverlapMm', 'glass_overlap_mm');
+  final wallGutterBlendeClearanceMm = _number(
+        params,
+        'wallGutterBlendeClearanceMm',
+        'wall_gutter_blende_clearance_mm',
+      ) ??
+      0.5;
   final defaultGlassDepthFieldCount = _number(params, 'defaultGlassDepthFieldCount', 'default_glass_depth_field_count');
+  final maxPostSpanMm = _number(params, 'maxPostSpanMm', 'max_post_span_mm') ?? 4000;
   final glassDepthJointGapMm = _number(params, 'glassDepthJointGapMm', 'glass_depth_joint_gap_mm');
   final singleGlassFieldMaxBeamLengthMm = _number(
     params,
@@ -188,7 +212,7 @@ RoofGeometryCalculation calculateRoofGeometryForDraft({
     singleGlassFieldMaxBeamLengthMm,
     defaultMaxGlassFieldWidthMm,
   ].any((value) => value == null)) {
-    return const RoofGeometryCalculation(angleDeg: null, frontHeightMm: null, modules: []);
+    return const RoofGeometryCalculation(angleDeg: null, frontHeightMm: null, postCount: 0, modules: []);
   }
 
   final beamWidth = beamWidthMm!;
@@ -196,7 +220,6 @@ RoofGeometryCalculation calculateRoofGeometryForDraft({
   final frontOffset = frontOffsetMm!;
   final glassFrontAdd = glassFrontAddMm!;
   final glassOverlap = glassOverlapMm!;
-  final defaultGlassDepthFields = defaultGlassDepthFieldCount!.round();
   final glassDepthJointGap = glassDepthJointGapMm!;
   final singleGlassFieldMaxBeamLength = singleGlassFieldMaxBeamLengthMm!;
   final defaultMaxGlassWidth = defaultMaxGlassFieldWidthMm!.round();
@@ -234,12 +257,26 @@ RoofGeometryCalculation calculateRoofGeometryForDraft({
         ? (rearHeight - math.tan(angle * math.pi / 180) * effectiveDepth).round()
         : null
   );
+  final totalWidthMm = orderedTabs
+      .map((tab) => tab.moduleWidthMm)
+      .whereType<int>()
+      .fold<int>(0, (sum, value) => sum + math.max(0, value));
+  final postCount = totalWidthMm > 0
+      ? math.max(3, (totalWidthMm / math.max(1, maxPostSpanMm)).ceil()).toInt()
+      : 0;
   if (angle == null) {
-    return RoofGeometryCalculation(angleDeg: null, frontHeightMm: frontHeight, modules: const []);
+    return RoofGeometryCalculation(
+      angleDeg: null,
+      frontHeightMm: frontHeight,
+      postCount: postCount,
+      modules: const [],
+    );
   }
 
   final modelCode = model?.code.trim().toUpperCase() ?? draft.modelCode?.trim().toUpperCase() ?? '';
-  final offsets = _glassOffsets(params, modelCode, _optionMetadata(model));
+  final modelMetadata = _optionMetadata(model);
+  final offsets = _glassOffsets(params, modelCode, modelMetadata);
+  final beamCountOffsets = _beamCountOffsets(modelCode, modelMetadata);
   final coveringMaxGlassWidth = template?.maxGlassFieldWidthFor(draft.coveringCode) ?? defaultMaxGlassWidth;
   final maxGlassWidth = math.min(
     draft.maxGlassFieldWidthMm ?? defaultMaxGlassWidth,
@@ -257,25 +294,26 @@ RoofGeometryCalculation calculateRoofGeometryForDraft({
     if (width == null || depth == null || width <= 0 || depth <= 0) continue;
     final longLeg = depth - backOffset - frontOffset;
     if (longLeg <= 0) continue;
+    final glassCountOffset = offsets[role] ?? -1;
     final beamCount = _calculateBeamCount(
       width,
       beamWidth,
       glassOverlap,
       maxGlassWidth,
       draft.forceOddBeams,
+      beamCountOffsets[role] ?? -1,
     );
     final beamLength = (longLeg / math.cos(angle * math.pi / 180)).round();
-    final beamStep = (width - beamCount * beamWidth) / (beamCount - 1);
-    final glassCountOffset = offsets[role] ?? -1;
     final glassCountAcrossWidth = math.max(0, beamCount + glassCountOffset).toInt();
-    final glassWidth = beamStep.round() + glassOverlap.round();
+    if (glassCountAcrossWidth <= 0) continue;
+    final beamStep = (width - beamCount * beamWidth) / glassCountAcrossWidth;
+    final roundedBeamStep = (beamStep * 10).round() / 10;
+    final glassWidth = (roundedBeamStep - wallGutterBlendeClearanceMm + glassOverlap).ceil();
     final unsplitGlassLength = (beamLength + glassFrontAdd + _angleCorrection(angle)).round();
-    final glassDepthFieldCount = beamLength > singleGlassFieldMaxBeamLength
-        ? math.max(
-            defaultGlassDepthFields,
-            (beamLength / singleGlassFieldMaxBeamLength).ceil(),
-          ).toInt()
-        : 1;
+    final glassDepthFieldCount = math.max(
+      1,
+      (beamLength / singleGlassFieldMaxBeamLength).ceil(),
+    ).toInt();
     final totalGlassJointGap = glassDepthJointGap * math.max(0, glassDepthFieldCount - 1);
     final glassLength = ((unsplitGlassLength - totalGlassJointGap) / glassDepthFieldCount).round();
     final glassCount = glassCountAcrossWidth * glassDepthFieldCount;
@@ -290,7 +328,7 @@ RoofGeometryCalculation calculateRoofGeometryForDraft({
         depthMm: depth,
         beamCount: beamCount,
         beamLengthMm: beamLength,
-        beamStepMm: (beamStep * 10).round() / 10,
+        beamStepMm: roundedBeamStep,
         glassCountOffset: glassCountOffset,
         glassDepthFieldCount: glassDepthFieldCount,
         glassCount: glassCount,
@@ -304,6 +342,7 @@ RoofGeometryCalculation calculateRoofGeometryForDraft({
   return RoofGeometryCalculation(
     angleDeg: angle,
     frontHeightMm: frontHeight,
+    postCount: postCount,
     modules: calculated,
   );
 }
@@ -314,10 +353,13 @@ int _calculateBeamCount(
   double glassOverlapMm,
   int maxGlassFieldWidthMm,
   bool forceOdd,
+  int glassCountOffset,
 ) {
   for (var count = 2; count <= 52; count++) {
     if (forceOdd && count.isEven) continue;
-    final glassFieldWidth = ((widthMm - count * beamWidthMm) / (count - 1)) + glassOverlapMm;
+    final glassFieldCount = count + glassCountOffset;
+    if (glassFieldCount <= 0) continue;
+    final glassFieldWidth = ((widthMm - count * beamWidthMm) / glassFieldCount) + glassOverlapMm;
     if (glassFieldWidth <= maxGlassFieldWidthMm) return count;
   }
   return 52;
@@ -330,6 +372,22 @@ double _angleCorrection(int angleDeg) {
 }
 
 double _roundAreaUp(double value) => (value * 10 - 1e-9).ceil() / 10;
+
+Map<String, int> _beamCountOffsets(
+  String modelCode,
+  Map<String, dynamic> modelMetadata,
+) {
+  final raw = modelMetadata['beam_count_offset_by_module']
+      ?? modelMetadata['beamCountOffsetByModule'];
+  if (raw is Map) {
+    final resolved = {
+      for (final entry in raw.entries)
+        if (_asInt(entry.value) != null) '${entry.key}': _asInt(entry.value)!,
+    };
+    if (resolved.isNotEmpty) return resolved;
+  }
+  return _fallbackBeamCountOffsetsByModel[modelCode] ?? const {'main': -1};
+}
 
 Map<String, int> _glassOffsets(
   Map<String, dynamic> params,

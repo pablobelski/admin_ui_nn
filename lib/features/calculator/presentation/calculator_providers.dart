@@ -58,6 +58,7 @@ String _setContentsRequestSignature(CalculatorDraft draft) {
     'roof_rear_height_mm': draft.roofRearHeightMm,
     'roof_front_height_mm': draft.roofFrontHeightMm,
     'force_odd_beams': draft.forceOddBeams,
+    'wall_mounted': draft.wallMounted,
     'max_glass_field_width_mm': draft.maxGlassFieldWidthMm,
     'modules': [
       for (final tab in draft.setContents)
@@ -202,6 +203,8 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
       );
 
   void setForceOddBeams(bool value) => state = state.copyWith(forceOddBeams: value);
+
+  void setWallMounted(bool value) => state = state.copyWith(wallMounted: value);
 
   void setMaxGlassFieldWidthValue(int? value) => state = state.copyWith(
         maxGlassFieldWidthMm: value,
@@ -762,7 +765,7 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
     if (changed) state = state.copyWith(setContents: tabs);
   }
 
-  void updateSetContentItemLength(int tabIndex, int itemIndex, int? lengthMm) {
+  void updateSetContentItemLength(int tabIndex, int itemIndex, num? lengthMm) {
     if (tabIndex < 0 || tabIndex >= state.setContents.length) return;
     final tab = state.setContents[tabIndex];
     if (itemIndex < 0 || itemIndex >= tab.items.length) return;

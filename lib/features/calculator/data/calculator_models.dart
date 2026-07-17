@@ -13,6 +13,8 @@ class CalculatorContext {
     required this.optionItemTypes,
     required this.optionCatalogItems,
     required this.optionCatalogVariants,
+    required this.templateSetCatalogItems,
+    required this.templateSetCatalogVariants,
     required this.additionalHandlingByParentItemId,
     this.customPaintCatalogItem,
   });
@@ -45,6 +47,8 @@ class CalculatorContext {
       optionItemTypes: _list(json['optionItemTypes']).map(CalculatorOption.fromJson).toList(),
       optionCatalogItems: optionCatalogItems,
       optionCatalogVariants: _list(json['optionCatalogVariants']).map(CalculatorCatalogVariantOption.fromJson).toList(),
+      templateSetCatalogItems: _list(json['templateSetCatalogItems']).map(CalculatorCatalogItemOption.fromJson).toList(),
+      templateSetCatalogVariants: _list(json['templateSetCatalogVariants']).map(CalculatorCatalogVariantOption.fromJson).toList(),
       additionalHandlingByParentItemId: _additionalHandlingMap(json['additionalHandlingByParentItemId']),
       customPaintCatalogItem: customPaintCatalogItem,
     );
@@ -61,8 +65,20 @@ class CalculatorContext {
   final List<CalculatorOption> optionItemTypes;
   final List<CalculatorCatalogItemOption> optionCatalogItems;
   final List<CalculatorCatalogVariantOption> optionCatalogVariants;
+  final List<CalculatorCatalogItemOption> templateSetCatalogItems;
+  final List<CalculatorCatalogVariantOption> templateSetCatalogVariants;
   final Map<String, List<CalculatorAdditionalHandlingOption>> additionalHandlingByParentItemId;
   final CalculatorCatalogItemOption? customPaintCatalogItem;
+
+  List<CalculatorCatalogItemOption> templateSetCatalogItemsFor(String? templateId) {
+    final normalizedTemplateId = templateId?.trim() ?? '';
+    if (normalizedTemplateId.isEmpty) return const [];
+    return templateSetCatalogItems.where((item) {
+      final rawTemplateIds = item.raw['template_ids'];
+      if (rawTemplateIds is! List) return false;
+      return rawTemplateIds.any((value) => '$value' == normalizedTemplateId);
+    }).toList(growable: false);
+  }
 
   CalculatorBuyerContact buyerContactFor(CalculatorDraft draft) {
     CalculatorOption? option;
@@ -685,7 +701,7 @@ class CalculatorSetContentItem {
     }
 
     final itemTypeCode = metaString('item_type_code', 'itemTypeCode');
-    final lengthMm = _intOrNull(json['length_mm'] ?? sourceComponent['length_mm'] ?? sourceComponent['lengthMm']);
+    final lengthMm = _numOrNull(json['length_mm'] ?? sourceComponent['length_mm'] ?? sourceComponent['lengthMm']);
     final editable = json['editable_length'] == true
         || sourceComponent['editable_length'] == true
         || sourceComponent['editableLength'] == true
@@ -714,7 +730,7 @@ class CalculatorSetContentItem {
   final String? catalogVariantId;
   final num quantity;
   final String? salesUnitCode;
-  final int? lengthMm;
+  final num? lengthMm;
   final String? name;
   final String? itemTypeCode;
   final String? baseCode;
@@ -735,7 +751,7 @@ class CalculatorSetContentItem {
   String? get segmentId => _nullableString(sourceComponent['segment_id'] ?? sourceComponent['segmentId']);
   String get overrideState => _nullableString(sourceComponent['override_state'] ?? sourceComponent['overrideState']) ?? 'automatic';
   num? get calculatedQuantity => _numOrNull(sourceComponent['calculated_quantity'] ?? sourceComponent['calculatedQuantity']);
-  int? get calculatedLengthMm => _intOrNull(sourceComponent['calculated_length_mm'] ?? sourceComponent['calculatedLengthMm']);
+  num? get calculatedLengthMm => _numOrNull(sourceComponent['calculated_length_mm'] ?? sourceComponent['calculatedLengthMm']);
   bool get overrideApplied => sourceComponent['override_applied'] == true || sourceComponent['overrideApplied'] == true;
   int? get stockLengthMm => _intOrNull(sourceComponent['catalog_variant_length_mm'] ?? sourceComponent['catalogVariantLengthMm']);
   int? get glassFieldIndex => _intOrNull(sourceComponent['glass_field_index'] ?? sourceComponent['glassFieldIndex']);
@@ -761,7 +777,7 @@ class CalculatorSetContentItem {
     num? quantity,
     String? salesUnitCode,
     bool clearSalesUnit = false,
-    int? lengthMm,
+    num? lengthMm,
     bool clearLength = false,
     String? name,
     String? itemTypeCode,
@@ -839,6 +855,7 @@ class CalculatorDraft {
     this.roofRearHeightMm,
     this.roofFrontHeightMm,
     this.forceOddBeams = true,
+    this.wallMounted = false,
     this.maxGlassFieldWidthMm,
     this.coveringCode,
     this.colorCode,
@@ -883,6 +900,7 @@ class CalculatorDraft {
       roofRearHeightMm: _intOrNull(roof['rear_height_mm']),
       roofFrontHeightMm: _intOrNull(roof['front_height_mm']),
       forceOddBeams: roof['force_odd_beams'] is bool ? roof['force_odd_beams'] as bool : true,
+      wallMounted: roof['wall_mounted'] is bool ? roof['wall_mounted'] as bool : false,
       maxGlassFieldWidthMm: _intOrNull(roof['max_glass_field_width_mm']),
       coveringCode: _nullableString(json['covering_code']),
       colorCode: _nullableString(json['color_code']),
@@ -909,6 +927,7 @@ class CalculatorDraft {
   final int? roofRearHeightMm;
   final int? roofFrontHeightMm;
   final bool forceOddBeams;
+  final bool wallMounted;
   final int? maxGlassFieldWidthMm;
   final String? coveringCode;
   final String? colorCode;
@@ -944,6 +963,7 @@ class CalculatorDraft {
     int? roofFrontHeightMm,
     bool clearRoofFrontHeight = false,
     bool? forceOddBeams,
+    bool? wallMounted,
     int? maxGlassFieldWidthMm,
     bool clearMaxGlassFieldWidth = false,
     String? coveringCode,
@@ -978,6 +998,7 @@ class CalculatorDraft {
       roofRearHeightMm: clearRoofRearHeight ? null : roofRearHeightMm ?? this.roofRearHeightMm,
       roofFrontHeightMm: clearRoofFrontHeight ? null : roofFrontHeightMm ?? this.roofFrontHeightMm,
       forceOddBeams: forceOddBeams ?? this.forceOddBeams,
+      wallMounted: wallMounted ?? this.wallMounted,
       maxGlassFieldWidthMm: clearMaxGlassFieldWidth ? null : maxGlassFieldWidthMm ?? this.maxGlassFieldWidthMm,
       coveringCode: clearCovering ? null : coveringCode ?? this.coveringCode,
       colorCode: clearColor ? null : colorCode ?? this.colorCode,
@@ -1024,6 +1045,7 @@ class CalculatorDraft {
       if (roofRearHeightMm != null) 'rear_height_mm': roofRearHeightMm,
       if (roofFrontHeightMm != null) 'front_height_mm': roofFrontHeightMm,
       'force_odd_beams': forceOddBeams,
+      'wall_mounted': wallMounted,
       if (maxGlassFieldWidthMm != null) 'max_glass_field_width_mm': maxGlassFieldWidthMm,
       if (moduleJson.isNotEmpty) 'modules': moduleJson,
     };

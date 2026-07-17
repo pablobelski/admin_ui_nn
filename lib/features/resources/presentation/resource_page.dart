@@ -1629,6 +1629,8 @@ class _SavedQuoteGeometryPreviewTab extends StatelessWidget {
             colorCode: colorPreview?.displayCode,
             colorSwatchColor: colorPreview?.color,
             coveringName: coveringName,
+            wallMounted: draft.wallMounted,
+            postCount: roofCalculation?.postCount ?? 0,
             roofAngleDeg: roofCalculation?.angleDeg ?? slope.angleDeg,
             rearHeightMm: slope.rearHeightMm,
             frontHeightMm: roofCalculation?.frontHeightMm ?? slope.frontHeightMm,
