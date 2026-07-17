@@ -453,8 +453,8 @@ class _ExpandedPreviewInfo extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Roof geometry', style: theme.textTheme.titleLarge),
-            const SizedBox(height: 14),
+            //Text('Roof geometry', style: theme.textTheme.titleLarge),
+            //const SizedBox(height: 14),
             _PreviewMetadataRow(
               label: 'Besteller / Auftraggeber',
               value: buyerNameValue == null || buyerNameValue.isEmpty ? '—' : buyerNameValue,
@@ -736,6 +736,16 @@ class _RoofDimensionLine {
   final Offset end;
   final Offset offset;
   final double hAlign;
+}
+
+class _PostCornerGroups {
+  const _PostCornerGroups({
+    this.external = const [],
+    this.internal = const [],
+  });
+
+  final List<Offset> external;
+  final List<Offset> internal;
 }
 
 class _GeometryParamBag {
@@ -1446,6 +1456,13 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     _RoofLayout layout,
     double k,
   ) {
+    for (final point in _recommendedPostPoints(layout)) {
+      _drawRecommendedPost(
+        canvas,
+        s(point.dx, point.dy, layout.heightMm),
+        s(point.dx, point.dy, 0),
+      );
+    }
     for (final point in _effectivePostPoints(layout)) {
       _drawPost(canvas, s(point.dx, point.dy, layout.heightMm), s(point.dx, point.dy, 0), k);
     }
@@ -1494,6 +1511,41 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     canvas.drawLine(top + const Offset(1.1, 1.2), bottom + const Offset(1.1, 1.2), shadow);
     canvas.drawLine(top, bottom, body);
     canvas.drawLine(top - const Offset(0.4, 0), bottom - const Offset(0.4, 0), light);
+  }
+
+  void _drawRecommendedPost(Canvas canvas, Offset top, Offset bottom) {
+    final halo = Paint()
+      ..color = const Color(0xFF4F9FA4).withValues(alpha: 0.16)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 4.4
+      ..strokeCap = StrokeCap.round;
+    final body = Paint()
+      ..color = const Color(0xFF4F9FA4).withValues(alpha: 0.86)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.2
+      ..strokeCap = StrokeCap.round;
+    _drawDashedLine(canvas, top, bottom, halo, dashLength: 7, gapLength: 5);
+    _drawDashedLine(canvas, top, bottom, body, dashLength: 7, gapLength: 5);
+  }
+
+  void _drawDashedLine(
+    Canvas canvas,
+    Offset start,
+    Offset end,
+    Paint paint, {
+    required double dashLength,
+    required double gapLength,
+  }) {
+    final delta = end - start;
+    final distance = delta.distance;
+    if (distance <= 0) return;
+    final direction = delta / distance;
+    var position = 0.0;
+    while (position < distance) {
+      final dashEnd = _min(position + dashLength, distance);
+      canvas.drawLine(start + direction * position, start + direction * dashEnd, paint);
+      position += dashLength + gapLength;
+    }
   }
 
   Rect _previewSideRect(Size size, double pad) {
@@ -1944,18 +1996,94 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
   }
 
   bool _hasPostAt(_RoofLayout layout, Offset point) {
-    return _effectivePostPoints(layout).any((post) => (post - point).distance < 1);
+    return _effectivePostPoints(layout).any((post) => (post - point).distance < 1) ||
+        _canonicalPostPoints(layout).any((post) => (post - point).distance < 1);
   }
 
   List<Offset> _effectivePostPoints(_RoofLayout layout) {
-    if (!wallMounted || postCount <= 0) return layout.postPoints;
-    return _evenlySpacedEdgePoints(layout.front, postCount);
+    final canonical = _canonicalPostPoints(layout);
+    if (postCount <= 0) return canonical;
+
+    final points = <Offset>[];
+    void append(List<Offset> candidates) {
+      for (final point in candidates) {
+        if (points.length >= postCount) return;
+        if (!points.any((entry) => (entry - point).distance < 1)) points.add(point);
+      }
+    }
+
+    final front = _edgePostCorners(layout.front, isFront: true);
+    append(front.external);
+    append(front.internal);
+
+    if (!wallMounted) {
+      final back = _edgePostCorners(layout.back, isFront: false);
+      append(back.external);
+      append(back.internal);
+    }
+
+    if (points.length < postCount) {
+      append(_supplementalEdgePoints(layout.front));
+    }
+    if (!wallMounted && points.length < postCount) {
+      append(_supplementalEdgePoints(layout.back));
+    }
+
+    return points;
   }
 
-  List<Offset> _evenlySpacedEdgePoints(List<Offset> edge, int count) {
-    if (edge.isEmpty || count <= 0) return const [];
-    if (edge.length == 1 || count == 1) return [edge.first];
+  List<Offset> _recommendedPostPoints(_RoofLayout layout) {
+    final actual = _effectivePostPoints(layout);
+    return _canonicalPostPoints(layout)
+        .where((point) => !actual.any((post) => (post - point).distance < 1))
+        .toList();
+  }
 
+  List<Offset> _canonicalPostPoints(_RoofLayout layout) {
+    final points = <Offset>[];
+    final front = _edgePostCorners(layout.front, isFront: true);
+    points.addAll(front.external);
+    points.addAll(front.internal);
+    if (!wallMounted) {
+      final back = _edgePostCorners(layout.back, isFront: false);
+      points.addAll(back.external);
+      points.addAll(back.internal);
+    }
+    return _uniquePoints(points);
+  }
+
+  _PostCornerGroups _edgePostCorners(List<Offset> edge, {required bool isFront}) {
+    if (edge.isEmpty) return const _PostCornerGroups();
+    if (edge.length == 1) return _PostCornerGroups(external: [edge.first]);
+
+    final external = <Offset>[edge.first, edge.last];
+    final internal = <Offset>[];
+    for (var index = 1; index < edge.length - 1; index++) {
+      final before = edge[index] - edge[index - 1];
+      final after = edge[index + 1] - edge[index];
+      final cross = before.dx * after.dy - before.dy * after.dx;
+      if (cross.abs() < 1e-6) continue;
+      final isExternalCorner = isFront ? cross > 0 : cross < 0;
+      (isExternalCorner ? external : internal).add(edge[index]);
+    }
+    return _PostCornerGroups(
+      external: _uniquePoints(external),
+      internal: _uniquePoints(internal),
+    );
+  }
+
+  List<Offset> _supplementalEdgePoints(List<Offset> edge) {
+    if (edge.length < 2) return const [];
+    final points = <Offset>[];
+    for (var denominator = 2; denominator <= 64; denominator *= 2) {
+      for (var numerator = 1; numerator < denominator; numerator += 2) {
+        points.add(_pointAlongEdge(edge, numerator / denominator));
+      }
+    }
+    return _uniquePoints(points);
+  }
+
+  Offset _pointAlongEdge(List<Offset> edge, double fraction) {
     final segmentLengths = <double>[];
     var totalLength = 0.0;
     for (var index = 0; index < edge.length - 1; index++) {
@@ -1963,26 +2091,21 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
       segmentLengths.add(length);
       totalLength += length;
     }
-    if (totalLength <= 0) return [edge.first];
+    if (totalLength <= 0) return edge.first;
 
-    final points = <Offset>[];
-    for (var pointIndex = 0; pointIndex < count; pointIndex++) {
-      final target = count == 1 ? 0.0 : totalLength * pointIndex / (count - 1);
-      var consumed = 0.0;
-      for (var segmentIndex = 0; segmentIndex < segmentLengths.length; segmentIndex++) {
-        final segmentLength = segmentLengths[segmentIndex];
-        final isLast = segmentIndex == segmentLengths.length - 1;
-        if (target <= consumed + segmentLength || isLast) {
-          final t = segmentLength <= 0
-              ? 0.0
-              : ((target - consumed) / segmentLength).clamp(0.0, 1.0).toDouble();
-          points.add(_lerp(edge[segmentIndex], edge[segmentIndex + 1], t));
-          break;
-        }
-        consumed += segmentLength;
+    final target = totalLength * fraction.clamp(0.0, 1.0).toDouble();
+    var consumed = 0.0;
+    for (var index = 0; index < segmentLengths.length; index++) {
+      final segmentLength = segmentLengths[index];
+      if (target <= consumed + segmentLength || index == segmentLengths.length - 1) {
+        final t = segmentLength <= 0
+            ? 0.0
+            : ((target - consumed) / segmentLength).clamp(0.0, 1.0).toDouble();
+        return _lerp(edge[index], edge[index + 1], t);
       }
+      consumed += segmentLength;
     }
-    return _uniquePoints(points);
+    return edge.last;
   }
 
   List<Offset> _uniquePoints(List<Offset> points) {
