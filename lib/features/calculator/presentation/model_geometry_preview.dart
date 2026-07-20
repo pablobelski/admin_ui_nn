@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../../core/auth/auth_session.dart';
 import '../../../core/http/admin_resource_repository.dart';
@@ -332,6 +333,12 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
                                             12.0,
                                             constraints.maxWidth - sideRect.left + 9.0,
                                           );
+                                          final calculationNumber =
+                                              widget.calculationNumber?.trim();
+                                          final qrSize = math.min(
+                                            72.0,
+                                            sideRect.width - 16.0,
+                                          );
                                           return Stack(
                                             fit: StackFit.expand,
                                             children: [
@@ -484,6 +491,24 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
                                                               ),
                                                         ),
                                                     ],
+                                                  ),
+                                                ),
+                                              if (calculationNumber != null &&
+                                                  calculationNumber.isNotEmpty)
+                                                Positioned(
+                                                  left: sideRect.left +
+                                                      (sideRect.width - qrSize) /
+                                                          2,
+                                                  bottom: constraints.maxHeight -
+                                                      sideRect.bottom +
+                                                      8,
+                                                  child: QrImageView(
+                                                    data: calculationNumber,
+                                                    version: QrVersions.auto,
+                                                    size: qrSize,
+                                                    padding:
+                                                        const EdgeInsets.all(10),
+                                                    backgroundColor: Colors.white,
                                                   ),
                                                 ),
                                             ],
