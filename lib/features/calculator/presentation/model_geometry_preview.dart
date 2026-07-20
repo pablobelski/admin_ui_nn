@@ -903,15 +903,21 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     canvas.clipRect(Rect.fromLTWH(0, 0, sideRect.left - sideGap * 0.5, size.height));
 
     _drawGroundShadow(canvas, s, layout, shadowPaint);
+    _drawWallGuides(canvas, s, layout, guidePaint);
+
+    // Painter order creates the same visual overlap as a simple 3D scene:
+    // rear supports/edge, complete roof plane, then front supports/gutter.
+    _drawPostsForEdge(canvas, s, layout, layout.back, k);
+    _drawRoofEdge(canvas, s, layout.back, layout.heightMm, k);
+
     _drawRoofFill(canvas, s, layout, roofFillPaint);
     _drawHighlightedModule(canvas, s, layout);
     _drawGlassDepthSplits(canvas, s, layout);
-
-    _drawWallGuides(canvas, s, layout, guidePaint);
-
     _drawRafters(canvas, s, layout, k);
-    _drawRoofFrame(canvas, s, layout, k);
-    _drawPosts(canvas, s, layout, k);
+    _drawRoofSideEdges(canvas, s, layout, k);
+
+    _drawPostsForEdge(canvas, s, layout, layout.front, k);
+    _drawRoofEdge(canvas, s, layout.front, layout.heightMm, k, isGutter: true);
     _drawDimensions(canvas, s, params, layout, profile, dimensionPaint);
 
     final humanX = profile.mirrorView ? layout.widthMm : 0.0;
@@ -923,21 +929,44 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
 
   _RoofProfile _shapeFromText(String value) {
     final v = _normalize(value);
-    final isLeft = v.contains('links');
-    final mirrorView = isLeft;
-    if (v.contains('schrag')) {
-      final shape = v.contains('rinne') ? _RoofShape.angleFront : _RoofShape.angleBack;
-      return _RoofProfile(shape: shape, smallPartOnLeft: false, mirrorView: mirrorView);
+    final isLeft = v.contains('links') ||
+        v.contains('lrtl') ||
+        v.contains('lwtl') ||
+        v.contains('srl') ||
+        v.contains('swl');
+    if (v.contains('schrag') ||
+        v.contains('srl') ||
+        v.contains('srr') ||
+        v.contains('swl') ||
+        v.contains('swr')) {
+      final shape = v.contains('rinne') ||
+              v.contains('srl') ||
+              v.contains('srr')
+          ? _RoofShape.angleFront
+          : _RoofShape.angleBack;
+      return _RoofProfile(shape: shape, smallPartOnLeft: isLeft);
     }
-    if (v.contains('u geteilt') || v.contains('u wandprofil')) {
+    if (v.contains('u geteilt') ||
+        v.contains('u wandprofil') ||
+        v.contains('uwtm')) {
       return const _RoofProfile(shape: _RoofShape.uBack, smallPartOnLeft: false);
     }
-    if (v.contains('t geteilt') || v.contains('t wandprofil')) {
+    if (v.contains('t geteilt') ||
+        v.contains('t wandprofil') ||
+        v.contains('twtm')) {
       return const _RoofProfile(shape: _RoofShape.tBack, smallPartOnLeft: false);
     }
-    if (v.contains('l geteilt')) {
-      final shape = v.contains('rinne') ? _RoofShape.lFront : _RoofShape.lBack;
-      return _RoofProfile(shape: shape, smallPartOnLeft: false, mirrorView: mirrorView);
+    if (v.contains('l geteilt') ||
+        v.contains('lrtr') ||
+        v.contains('lrtl') ||
+        v.contains('lwtr') ||
+        v.contains('lwtl')) {
+      final shape = v.contains('rinne') ||
+              v.contains('lrtr') ||
+              v.contains('lrtl')
+          ? _RoofShape.lFront
+          : _RoofShape.lBack;
+      return _RoofProfile(shape: shape, smallPartOnLeft: isLeft);
     }
     return const _RoofProfile(shape: _RoofShape.rectangle, smallPartOnLeft: false);
   }
@@ -1097,8 +1126,8 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
         if (point.dx > 1 && point.dx < width - 1) point.dx,
     ];
 
-    final leftModuleIndex = profile.mirrorView ? 2 : 1;
-    final rightModuleIndex = profile.mirrorView ? 1 : 2;
+    final leftModuleIndex = profile.smallPartOnLeft ? 2 : 1;
+    final rightModuleIndex = profile.smallPartOnLeft ? 1 : 2;
     final leftModuleCorners = splitAtFront
         ? [leftWidthStart, leftWidthEnd, Offset(splitX, leftY), Offset(0, leftY)]
         : [Offset(0, 0), Offset(splitX, 0), leftWidthEnd, leftWidthStart];
@@ -1401,20 +1430,43 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     ];
   }
 
-  void _drawRoofFrame(
+  void _drawRoofEdge(
+    Canvas canvas,
+    Offset Function(double, double, double) s,
+    List<Offset> edge,
+    double heightMm,
+    double k, {
+    bool isGutter = false,
+  }) {
+    for (var i = 0; i < edge.length - 1; i++) {
+      _drawBeam(
+        canvas,
+        s(edge[i].dx, edge[i].dy, heightMm),
+        s(edge[i + 1].dx, edge[i + 1].dy, heightMm),
+        k,
+        isGutter: isGutter,
+      );
+    }
+  }
+
+  void _drawRoofSideEdges(
     Canvas canvas,
     Offset Function(double, double, double) s,
     _RoofLayout layout,
     double k,
   ) {
-    for (var i = 0; i < layout.front.length - 1; i++) {
-      _drawBeam(canvas, s(layout.front[i].dx, layout.front[i].dy, layout.heightMm), s(layout.front[i + 1].dx, layout.front[i + 1].dy, layout.heightMm), k, isGutter: true);
-    }
-    for (var i = 0; i < layout.back.length - 1; i++) {
-      _drawBeam(canvas, s(layout.back[i].dx, layout.back[i].dy, layout.heightMm), s(layout.back[i + 1].dx, layout.back[i + 1].dy, layout.heightMm), k);
-    }
-    _drawBeam(canvas, s(layout.front.first.dx, layout.front.first.dy, layout.heightMm), s(layout.back.first.dx, layout.back.first.dy, layout.heightMm), k);
-    _drawBeam(canvas, s(layout.front.last.dx, layout.front.last.dy, layout.heightMm), s(layout.back.last.dx, layout.back.last.dy, layout.heightMm), k);
+    _drawBeam(
+      canvas,
+      s(layout.front.first.dx, layout.front.first.dy, layout.heightMm),
+      s(layout.back.first.dx, layout.back.first.dy, layout.heightMm),
+      k,
+    );
+    _drawBeam(
+      canvas,
+      s(layout.front.last.dx, layout.front.last.dy, layout.heightMm),
+      s(layout.back.last.dx, layout.back.last.dy, layout.heightMm),
+      k,
+    );
   }
 
   void _drawWallGuides(
@@ -1452,22 +1504,41 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     }
   }
 
-  void _drawPosts(
+  void _drawPostsForEdge(
     Canvas canvas,
     Offset Function(double, double, double) s,
     _RoofLayout layout,
+    List<Offset> edge,
     double k,
   ) {
-    for (final point in _recommendedPostPoints(layout)) {
+    for (final point in _recommendedPostPoints(layout).where((point) => _pointOnEdge(point, edge))) {
       _drawRecommendedPost(
         canvas,
         s(point.dx, point.dy, layout.heightMm),
         s(point.dx, point.dy, 0),
       );
     }
-    for (final point in _effectivePostPoints(layout)) {
+    for (final point in _effectivePostPoints(layout).where((point) => _pointOnEdge(point, edge))) {
       _drawPost(canvas, s(point.dx, point.dy, layout.heightMm), s(point.dx, point.dy, 0), k);
     }
+  }
+
+  bool _pointOnEdge(Offset point, List<Offset> edge) {
+    for (var i = 0; i < edge.length - 1; i++) {
+      if (_distanceToSegment(point, edge[i], edge[i + 1]) < 1) return true;
+    }
+    return edge.length == 1 && (point - edge.first).distance < 1;
+  }
+
+  double _distanceToSegment(Offset point, Offset start, Offset end) {
+    final dx = end.dx - start.dx;
+    final dy = end.dy - start.dy;
+    final lengthSquared = dx * dx + dy * dy;
+    if (lengthSquared <= 1e-9) return (point - start).distance;
+    final t = (((point.dx - start.dx) * dx + (point.dy - start.dy) * dy) / lengthSquared)
+        .clamp(0.0, 1.0)
+        .toDouble();
+    return (point - Offset(start.dx + dx * t, start.dy + dy * t)).distance;
   }
 
   void _drawBeam(Canvas canvas, Offset a, Offset b, double _, {bool isGutter = false, bool isRafter = false}) {

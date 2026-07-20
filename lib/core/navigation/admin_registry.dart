@@ -4,7 +4,7 @@ import '../models/admin_resource.dart';
 
 const organizationLookup = AdminLookup(
   endpoint: '/api/admin/organizations',
-  labelKeys: ['display_name', 'legal_name', 'organization_type'],
+  labelKeys: ['display_name', 'customer_number', 'legal_name', 'organization_type'],
 );
 
 const userLookup = AdminLookup(
@@ -168,6 +168,15 @@ const contactTypeOptions = <AdminSelectOption>[
   AdminSelectOption(value: 'billing', label: 'Billing'),
   AdminSelectOption(value: 'delivery', label: 'Delivery'),
   AdminSelectOption(value: 'service', label: 'Service'),
+  AdminSelectOption(value: 'other', label: 'Other'),
+];
+
+const organizationAddressTypeOptions = <AdminSelectOption>[
+  AdminSelectOption(value: 'legal', label: 'Legal'),
+  AdminSelectOption(value: 'billing', label: 'Billing'),
+  AdminSelectOption(value: 'shipping', label: 'Shipping'),
+  AdminSelectOption(value: 'warehouse', label: 'Warehouse'),
+  AdminSelectOption(value: 'installation', label: 'Installation'),
   AdminSelectOption(value: 'other', label: 'Other'),
 ];
 
@@ -1880,6 +1889,7 @@ const adminNavGroups = <AdminNavGroup>[
         icon: Icons.domain_rounded,
         columns: [
           AdminColumn(key: 'display_name', label: 'Display name', isPrimary: true, flex: 2),
+          AdminColumn(key: 'customer_number', label: 'Kundennummer'),
           AdminColumn(key: 'legal_name', label: 'Legal name', flex: 2),
           AdminColumn(key: 'organization_type', label: 'Type'),
           AdminColumn(key: 'is_internal', label: 'Internal'),
@@ -1901,6 +1911,7 @@ const adminNavGroups = <AdminNavGroup>[
             helperText: 'Relation is stored in Organization Product Access.',
           ),
           AdminField(key: 'display_name', label: 'Display name'),
+          AdminField(key: 'customer_number', label: 'Kundennummer'),
           AdminField(key: 'legal_name', label: 'Legal name'),
           AdminField(key: 'organization_type', label: 'Organization type', options: organizationTypeOptions),
           AdminField(key: 'parent_organization_id', label: 'Parent organization id', lookup: organizationLookup),
@@ -1915,12 +1926,20 @@ const adminNavGroups = <AdminNavGroup>[
         ],
         listFilters: [
           AdminResourceFilter(key: 'id', label: 'Organization', lookup: organizationLookup),
+          AdminResourceFilter(key: 'customer_number', label: 'Kundennummer'),
           AdminResourceFilter(key: 'price_list_id', label: 'Price list', lookup: priceListLookup),
           AdminResourceFilter(key: 'parent_organization_id', label: 'Parent organization', lookup: organizationLookup),
           AdminResourceFilter(key: 'organization_type', label: 'Organization type', options: organizationTypeOptions),
           AdminResourceFilter(key: 'is_active', label: 'Active', options: activeFilterOptions),
         ],
         detailActions: [
+          AdminDetailAction(
+            label: 'Show addresses',
+            targetResourceKey: 'organization_addresses',
+            filterKey: 'organization_id',
+            sourceValueKey: 'id',
+            icon: Icons.location_on_outlined,
+          ),
           AdminDetailAction(
             label: 'Show contacts',
             targetResourceKey: 'organization_contacts',
@@ -2111,6 +2130,57 @@ const adminNavGroups = <AdminNavGroup>[
           AdminField(key: 'email_from_address', label: 'Email from address'),
           AdminField(key: 'branding_json', label: 'Branding JSON', type: AdminFieldType.json),
           AdminField(key: 'is_default', label: 'Default', type: AdminFieldType.boolType),
+          AdminField(key: 'is_active', label: 'Active', type: AdminFieldType.boolType),
+        ],
+        detailActions: [
+          AdminDetailAction(
+            label: 'Show organization',
+            targetResourceKey: 'organizations',
+            filterKey: 'id',
+            sourceValueKey: 'organization_id',
+            selectTargetRow: true,
+            icon: Icons.domain_rounded,
+          ),
+        ],
+      ),
+      AdminResourceDefinition(
+        key: 'organization_addresses',
+        title: 'Addresses',
+        endpoint: '/api/admin/organization-addresses',
+        icon: Icons.location_on_outlined,
+        columns: [
+          AdminColumn(key: 'label', label: 'Label', isPrimary: true, flex: 2),
+          AdminColumn(key: 'organization_id', label: 'Organization', flex: 2, lookup: organizationLookup),
+          AdminColumn(key: 'address_type', label: 'Type'),
+          AdminColumn(key: 'street', label: 'Street', flex: 2),
+          AdminColumn(key: 'zip', label: 'ZIP'),
+          AdminColumn(key: 'city', label: 'City'),
+          AdminColumn(key: 'country_code', label: 'Country'),
+          AdminColumn(key: 'is_primary', label: 'Primary'),
+          AdminColumn(key: 'is_active', label: 'Active'),
+        ],
+        listFilters: [
+          AdminResourceFilter(key: 'organization_id', label: 'Organization', lookup: organizationLookup),
+          AdminResourceFilter(key: 'address_type', label: 'Address type', options: organizationAddressTypeOptions),
+          AdminResourceFilter(key: 'country_code', label: 'Country code'),
+          AdminResourceFilter(key: 'is_primary', label: 'Primary', options: activeFilterOptions),
+          AdminResourceFilter(key: 'is_active', label: 'Active', options: activeFilterOptions),
+        ],
+        formFields: [
+          AdminField(key: 'organization_id', label: 'Organization', lookup: organizationLookup),
+          AdminField(key: 'address_type', label: 'Address type', options: organizationAddressTypeOptions),
+          AdminField(key: 'label', label: 'Label'),
+          AdminField(key: 'street', label: 'Street'),
+          AdminField(key: 'house_no', label: 'House no'),
+          AdminField(key: 'address_line_2', label: 'Address line 2'),
+          AdminField(key: 'zip', label: 'ZIP'),
+          AdminField(key: 'city', label: 'City'),
+          AdminField(key: 'state_region', label: 'State / region'),
+          AdminField(key: 'country_code', label: 'Country code'),
+          AdminField(key: 'latitude', label: 'Latitude', type: AdminFieldType.number),
+          AdminField(key: 'longitude', label: 'Longitude', type: AdminFieldType.number),
+          AdminField(key: 'is_primary', label: 'Primary', type: AdminFieldType.boolType),
+          AdminField(key: 'metadata_json', label: 'Metadata JSON', type: AdminFieldType.json),
           AdminField(key: 'is_active', label: 'Active', type: AdminFieldType.boolType),
         ],
         detailActions: [
