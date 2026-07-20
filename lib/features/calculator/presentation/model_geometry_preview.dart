@@ -12,6 +12,17 @@ import '../../../core/ui/media_file_actions.dart';
 import '../data/calculator_models.dart';
 import '../data/roof_geometry_calculation.dart';
 
+Rect _geometryPreviewSideRect(Size size, double pad) {
+  final targetWidth = math.min(122.0, math.max(104.0, size.width * 0.27));
+  final left = math.max(pad + 80.0, size.width - pad - targetWidth);
+  return Rect.fromLTWH(
+    left,
+    pad,
+    math.max(48.0, size.width - pad - left),
+    size.height - pad * 2,
+  );
+}
+
 class ModelGeometryPreview extends ConsumerStatefulWidget {
   const ModelGeometryPreview({
     super.key,
@@ -273,10 +284,8 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
                               SizedBox(
                                 width: 320,
                                 child: _ExpandedPreviewInfo(
-                                  date: exportDate,
                                   modelLabel: _modelDisplayLabel,
                                   modelCode: widget.modelCode,
-                                  calculationNumber: widget.calculationNumber,
                                   buyerName: widget.buyerName,
                                   buyerContactName: widget.buyerContactName,
                                   buyerEmail: widget.buyerEmail,
@@ -301,29 +310,100 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
                                   crossAxisAlignment: CrossAxisAlignment.stretch,
                                   children: [
                                     Expanded(
-                                      child: Stack(
-                                        fit: StackFit.expand,
-                                        children: [
-                                          _buildGeometryCanvas(colorScheme, clearHighlight: true),
-                                          if (widget.quoteNotes?.trim().isNotEmpty == true)
-                                            Positioned(
-                                              left: 12,
-                                              right: 12,
-                                              bottom: 8,
-                                              child: Text(
-                                                widget.quoteNotes!.trim(),
-                                                maxLines: 3,
-                                                overflow: TextOverflow.ellipsis,
-                                                style: Theme.of(dialogContext)
-                                                    .textTheme
-                                                    .bodySmall
-                                                    ?.copyWith(
-                                                      color: Colors.black,
-                                                      fontWeight: FontWeight.w500,
-                                                    ),
-                                              ),
+                                      child: LayoutBuilder(
+                                        builder: (context, constraints) {
+                                          final sideRect = _geometryPreviewSideRect(
+                                            Size(
+                                              constraints.maxWidth,
+                                              constraints.maxHeight,
                                             ),
-                                        ],
+                                            12,
+                                          );
+                                          final dateRightInset = math.max(
+                                            12.0,
+                                            constraints.maxWidth - sideRect.left + 9.0,
+                                          );
+                                          return Stack(
+                                            fit: StackFit.expand,
+                                            children: [
+                                              _buildGeometryCanvas(
+                                                colorScheme,
+                                                clearHighlight: true,
+                                              ),
+                                              Positioned(
+                                                left: 12,
+                                                right: dateRightInset,
+                                                top: 8,
+                                                child: Row(
+                                                  crossAxisAlignment:
+                                                      CrossAxisAlignment.start,
+                                                  children: [
+                                                    Expanded(
+                                                      child: Text(
+                                                        'Kommission: ${_expandedKommissionLabel(widget.calculationNumber)}',
+                                                        maxLines: 1,
+                                                        overflow:
+                                                            TextOverflow.ellipsis,
+                                                        style: Theme.of(
+                                                          dialogContext,
+                                                        )
+                                                            .textTheme
+                                                            .labelSmall
+                                                            ?.copyWith(
+                                                              color:
+                                                                  Colors.black87,
+                                                              fontWeight:
+                                                                  FontWeight.w600,
+                                                            ),
+                                                      ),
+                                                    ),
+                                                    const SizedBox(width: 16),
+                                                    Text(
+                                                      'Date: ${_displayDate(exportDate)}',
+                                                      maxLines: 1,
+                                                      style: Theme.of(
+                                                        dialogContext,
+                                                      )
+                                                          .textTheme
+                                                          .labelSmall
+                                                          ?.copyWith(
+                                                            color:
+                                                                Colors.black87,
+                                                            fontWeight:
+                                                                FontWeight.w600,
+                                                          ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                              if (widget.quoteNotes
+                                                      ?.trim()
+                                                      .isNotEmpty ==
+                                                  true)
+                                                Positioned(
+                                                  left: 12,
+                                                  right: 12,
+                                                  bottom: 8,
+                                                  child: Text(
+                                                    widget.quoteNotes!.trim(),
+                                                    maxLines: 3,
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                    style: Theme.of(
+                                                      dialogContext,
+                                                    )
+                                                        .textTheme
+                                                        .bodySmall
+                                                        ?.copyWith(
+                                                          color: Colors.black,
+                                                          fontWeight:
+                                                              FontWeight.w500,
+                                                        ),
+                                                  ),
+                                                ),
+                                            ],
+                                          );
+                                        },
                                       ),
                                     ),
                                     const SizedBox(height: 12),
@@ -381,10 +461,8 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
 
 class _ExpandedPreviewInfo extends StatelessWidget {
   const _ExpandedPreviewInfo({
-    required this.date,
     required this.modelLabel,
     required this.modelCode,
-    required this.calculationNumber,
     required this.buyerName,
     required this.buyerContactName,
     required this.buyerEmail,
@@ -403,10 +481,8 @@ class _ExpandedPreviewInfo extends StatelessWidget {
     required this.currentUser,
   });
 
-  final DateTime date;
   final String modelLabel;
   final String? modelCode;
-  final String? calculationNumber;
   final String? buyerName;
   final String? buyerContactName;
   final String? buyerEmail;
@@ -429,7 +505,6 @@ class _ExpandedPreviewInfo extends StatelessWidget {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final modelCodeValue = modelCode?.trim();
-    final calculationNumberValue = calculationNumber?.trim();
     final buyerNameValue = buyerName?.trim();
     final contactDetails = [buyerContactName, buyerEmail, buyerPhone]
         .map((value) => value?.trim() ?? '')
@@ -449,7 +524,7 @@ class _ExpandedPreviewInfo extends StatelessWidget {
         border: Border.all(color: colorScheme.outlineVariant),
       ),
       child: DefaultTextStyle(
-        style: theme.textTheme.bodyMedium ?? const TextStyle(),
+        style: theme.textTheme.bodySmall ?? const TextStyle(),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -461,13 +536,6 @@ class _ExpandedPreviewInfo extends StatelessWidget {
             ),
             if (contactDetails.isNotEmpty)
               _PreviewMetadataRow(label: 'Configurator contact', value: contactDetails),
-            _PreviewMetadataRow(label: 'Date', value: _displayDate(date)),
-            _PreviewMetadataRow(
-              label: 'Kommission',
-              value: calculationNumberValue == null || calculationNumberValue.isEmpty
-                  ? 'New calculation'
-                  : calculationNumberValue,
-            ),
             _PreviewMetadataRow(
               label: 'Roof type',
               value: modelCodeValue == null || modelCodeValue.isEmpty
@@ -571,13 +639,13 @@ class _PreviewMetadataRow extends StatelessWidget {
         children: [
           Text(
             label,
-            style: Theme.of(context).textTheme.labelMedium?.copyWith(
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
                   color: Theme.of(context).colorScheme.onSurfaceVariant,
                   fontWeight: FontWeight.w600,
                 ),
           ),
           const SizedBox(height: 2),
-          Text(value, style: Theme.of(context).textTheme.bodyMedium),
+          Text(value, style: Theme.of(context).textTheme.bodySmall),
         ],
       ),
     );
@@ -622,6 +690,11 @@ String _moduleLabel(String role, int index) {
 }
 
 String _dimensionValue(int? value) => value == null ? '—' : '$value';
+
+String _expandedKommissionLabel(String? value) {
+  final normalized = value?.trim();
+  return normalized == null || normalized.isEmpty ? 'New calculation' : normalized;
+}
 
 String _displayDate(DateTime value) {
   String two(int item) => item.toString().padLeft(2, '0');
@@ -1621,11 +1694,8 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     }
   }
 
-  Rect _previewSideRect(Size size, double pad) {
-    final targetWidth = _min(122, _max(104, size.width * 0.27));
-    final left = _max(pad + 80, size.width - pad - targetWidth);
-    return Rect.fromLTWH(left, pad, _max(48, size.width - pad - left), size.height - pad * 2);
-  }
+  Rect _previewSideRect(Size size, double pad) =>
+      _geometryPreviewSideRect(size, pad);
 
   void _drawPreviewSideBackground(Canvas canvas, Rect rect) {
     if (rect.width <= 0 || rect.height <= 0) return;
@@ -2144,10 +2214,26 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     }
 
     if (points.length < postCount) {
-      append(_supplementalEdgePoints(layout.front));
+      append(_segmentJointPostPoints(layout, layout.front, points));
     }
     if (!wallMounted && points.length < postCount) {
-      append(_supplementalEdgePoints(layout.back));
+      append(_segmentJointPostPoints(layout, layout.back, points));
+    }
+
+    if (points.length < postCount) {
+      final widestFrontGap = _widestGapBeamPoint(layout, layout.front, points);
+      if (widestFrontGap != null) append([widestFrontGap]);
+    }
+    if (!wallMounted && points.length < postCount) {
+      final widestBackGap = _widestGapBeamPoint(layout, layout.back, points);
+      if (widestBackGap != null) append([widestBackGap]);
+    }
+
+    if (points.length < postCount) {
+      append(_supplementalEdgePoints(layout, layout.front, points));
+    }
+    if (!wallMounted && points.length < postCount) {
+      append(_supplementalEdgePoints(layout, layout.back, points));
     }
 
     return points;
@@ -2193,15 +2279,158 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     );
   }
 
-  List<Offset> _supplementalEdgePoints(List<Offset> edge) {
+  List<Offset> _segmentJointPostPoints(
+    _RoofLayout layout,
+    List<Offset> edge,
+    List<Offset> occupied,
+  ) {
+    final boundaryX = <double>[];
+    for (final area in layout.moduleAreas) {
+      if (area.corners.isEmpty) continue;
+      final xs = area.corners.map((point) => point.dx).toList(growable: false);
+      final minX = xs.reduce((a, b) => math.min(a, b).toDouble());
+      final maxX = xs.reduce((a, b) => math.max(a, b).toDouble());
+      if (minX > 1 && minX < layout.widthMm - 1) boundaryX.add(minX);
+      if (maxX > 1 && maxX < layout.widthMm - 1) boundaryX.add(maxX);
+    }
+
+    final jointPoints = <Offset>[];
+    for (final x in boundaryX) {
+      final snapped = _snapToNearestBeamPoint(
+        layout,
+        edge,
+        Offset(x, _yAt(edge, x)),
+      );
+      if (snapped != null) jointPoints.add(snapped);
+    }
+    final remaining = _uniquePoints(jointPoints)
+        .where((point) => !occupied.any((entry) => (entry - point).distance < 1))
+        .toList();
+    final ordered = <Offset>[];
+    final spacingPoints = <Offset>[
+      ...occupied.where((point) => _pointOnEdge(point, edge)),
+    ];
+
+    while (remaining.isNotEmpty) {
+      remaining.sort((a, b) {
+        final scoreA = _minimumEdgeDistance(edge, a, spacingPoints);
+        final scoreB = _minimumEdgeDistance(edge, b, spacingPoints);
+        final bySpacing = scoreB.compareTo(scoreA);
+        if (bySpacing != 0) return bySpacing;
+        return _edgePosition(edge, a).compareTo(_edgePosition(edge, b));
+      });
+      final next = remaining.removeAt(0);
+      ordered.add(next);
+      spacingPoints.add(next);
+    }
+    return ordered;
+  }
+
+  Offset? _widestGapBeamPoint(
+    _RoofLayout layout,
+    List<Offset> edge,
+    List<Offset> occupied,
+  ) {
+    final pointsOnEdge = occupied.where((point) => _pointOnEdge(point, edge)).toList();
+    if (pointsOnEdge.isEmpty) return null;
+    final candidates = _beamIntersectionsOnEdge(layout, edge)
+        .where((point) => !occupied.any((entry) => (entry - point).distance < 1))
+        .toList();
+    if (candidates.isEmpty) return null;
+    candidates.sort((a, b) {
+      final scoreA = _minimumEdgeDistance(edge, a, pointsOnEdge);
+      final scoreB = _minimumEdgeDistance(edge, b, pointsOnEdge);
+      final bySpacing = scoreB.compareTo(scoreA);
+      if (bySpacing != 0) return bySpacing;
+      return _edgePosition(edge, a).compareTo(_edgePosition(edge, b));
+    });
+    return candidates.first;
+  }
+
+  List<Offset> _supplementalEdgePoints(
+    _RoofLayout layout,
+    List<Offset> edge,
+    List<Offset> occupied,
+  ) {
     if (edge.length < 2) return const [];
     final points = <Offset>[];
+    final unavailable = <Offset>[...occupied];
     for (var denominator = 2; denominator <= 64; denominator *= 2) {
       for (var numerator = 1; numerator < denominator; numerator += 2) {
-        points.add(_pointAlongEdge(edge, numerator / denominator));
+        final target = _pointAlongEdge(edge, numerator / denominator);
+        final snapped = _snapToNearestBeamPoint(
+          layout,
+          edge,
+          target,
+          excluded: [...unavailable, ...points],
+        );
+        if (snapped != null) points.add(snapped);
       }
     }
     return _uniquePoints(points);
+  }
+
+  Offset? _snapToNearestBeamPoint(
+    _RoofLayout layout,
+    List<Offset> edge,
+    Offset target, {
+    List<Offset> excluded = const [],
+  }) {
+    final candidates = _beamIntersectionsOnEdge(layout, edge)
+        .where((point) => !excluded.any((entry) => (entry - point).distance < 1))
+        .toList();
+    if (candidates.isEmpty) return null;
+    final targetPosition = _edgePosition(edge, target);
+    candidates.sort((a, b) {
+      final distanceA = (_edgePosition(edge, a) - targetPosition).abs();
+      final distanceB = (_edgePosition(edge, b) - targetPosition).abs();
+      return distanceA.compareTo(distanceB);
+    });
+    return candidates.first;
+  }
+
+  List<Offset> _beamIntersectionsOnEdge(_RoofLayout layout, List<Offset> edge) {
+    if (edge.length < 2) return const [];
+    final points = <Offset>[];
+    for (final x in _effectiveRafterX(layout)) {
+      final point = Offset(x, _yAt(edge, x));
+      if (_pointOnEdge(point, edge)) points.add(point);
+    }
+    return _uniquePoints(points);
+  }
+
+  double _minimumEdgeDistance(List<Offset> edge, Offset point, List<Offset> others) {
+    if (others.isEmpty) return double.infinity;
+    final position = _edgePosition(edge, point);
+    return others
+        .map((entry) => (_edgePosition(edge, entry) - position).abs())
+        .reduce((a, b) => math.min(a, b).toDouble());
+  }
+
+  double _edgePosition(List<Offset> edge, Offset point) {
+    var consumed = 0.0;
+    var bestPosition = 0.0;
+    var bestDistance = double.infinity;
+    for (var index = 0; index < edge.length - 1; index++) {
+      final start = edge[index];
+      final end = edge[index + 1];
+      final delta = end - start;
+      final lengthSquared = delta.dx * delta.dx + delta.dy * delta.dy;
+      final segmentLength = delta.distance;
+      final t = lengthSquared <= 1e-9
+          ? 0.0
+          : (((point.dx - start.dx) * delta.dx + (point.dy - start.dy) * delta.dy) / lengthSquared)
+              .clamp(0.0, 1.0)
+              .toDouble();
+      final projected = start + delta * t;
+      final distance = (point - projected).distance;
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestPosition = consumed + segmentLength * t;
+      }
+      consumed += segmentLength;
+    }
+    return bestPosition;
   }
 
   Offset _pointAlongEdge(List<Offset> edge, double fraction) {

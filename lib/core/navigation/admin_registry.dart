@@ -663,7 +663,7 @@ const adminNavGroups = <AdminNavGroup>[
         icon: Icons.request_quote_outlined,
         supportsCreate: false,
         supportsEdit: false,
-        supportsDelete: false,
+        supportsDelete: true,
         columns: [
           AdminColumn(key: 'created_at', label: 'Saved at', flex: 2),
           AdminColumn(key: 'quote_no', label: 'Quote no', isPrimary: true, flex: 2),
@@ -1967,6 +1967,13 @@ const adminNavGroups = <AdminNavGroup>[
             filterKey: 'organization_id',
             sourceValueKey: 'id',
             icon: Icons.request_quote_outlined,
+          ),
+          AdminDetailAction(
+            label: 'Show calculations',
+            targetResourceKey: 'quotes',
+            filterKey: 'buyer_organization_id',
+            sourceValueKey: 'id',
+            icon: Icons.calculate_outlined,
           ),
           AdminDetailAction(
             label: 'Show child relations',

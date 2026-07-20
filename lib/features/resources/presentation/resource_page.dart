@@ -361,6 +361,7 @@ class _ListCard extends ConsumerWidget {
   });
 
   static const double _previewColumnWidth = 64;
+  static const double _organizationCalculationActionWidth = 52;
   static const double _rowHorizontalPadding = 8;
   static const double _rowVerticalPadding = 6;
 
@@ -374,6 +375,7 @@ class _ListCard extends ConsumerWidget {
     final repository = ref.read(resourceRepositoryProvider);
     final useCompactLayout = _usesCompactListLayout(resource);
     final hasLeadingPreview = _hasLeadingPreviewColumn(resource);
+    final hasOrganizationCalculationAction = resource.key == 'organizations';
     final visibleColumns = resource.columns
         .where((column) => !_hideListColumn(resource, column))
         .toList(growable: false);
@@ -404,7 +406,8 @@ class _ListCard extends ConsumerWidget {
               useCompactLayout: useCompactLayout,
             );
             final fixedContentWidth = adminRowNumberColumnWidth +
-                (hasLeadingPreview ? _previewColumnWidth : 0);
+                (hasLeadingPreview ? _previewColumnWidth : 0) +
+                (hasOrganizationCalculationAction ? _organizationCalculationActionWidth : 0);
             final baseTableContentWidth = fixedContentWidth +
                 visibleColumns.fold<double>(
                   0,
@@ -462,6 +465,12 @@ class _ListCard extends ConsumerWidget {
                                           flex: useCompactLayout ? null : column.flex,
                                           align: TextAlign.left,
                                         ),
+                                      if (hasOrganizationCalculationAction)
+                                        const AdminTableHeaderCell(
+                                          label: 'Calc.',
+                                          width: _organizationCalculationActionWidth,
+                                          align: TextAlign.center,
+                                        ),
                                     ],
                                   ),
                                 );
@@ -499,6 +508,18 @@ class _ListCard extends ConsumerWidget {
                                           useCompactLayout: useCompactLayout,
                                           width: useCompactLayout ? columnWidths[column.key] : null,
                                         ),
+                                      if (hasOrganizationCalculationAction)
+                                        SizedBox(
+                                          width: _organizationCalculationActionWidth,
+                                          child: IconButton(
+                                            tooltip: 'Create calculation',
+                                            visualDensity: VisualDensity.compact,
+                                            onPressed: rowId == null || rowId.isEmpty
+                                                ? null
+                                                : () => _startCalculationForOrganization(ref, row),
+                                            icon: const Icon(Icons.calculate_outlined, size: 20),
+                                          ),
+                                        ),
                                     ],
                                   ),
                                 ),
@@ -533,6 +554,22 @@ class _ListCard extends ConsumerWidget {
       ),
     );
   }
+}
+
+void _startCalculationForOrganization(
+  WidgetRef ref,
+  Map<String, dynamic> organization,
+) {
+  final organizationId = organization['id']?.toString().trim() ?? '';
+  if (organizationId.isEmpty) return;
+
+  ref.read(loadedQuoteProvider.notifier).clear();
+  ref.read(calculatorDraftProvider.notifier)
+    ..reset()
+    ..setOrganization(organizationId);
+  ref.read(calculatorResultProvider.notifier).clear();
+  ref.invalidate(calculatorContextProvider);
+  ref.read(selectedResourceProvider.notifier).select('calculator_workspace');
 }
 
 Widget _buildListValueCell({

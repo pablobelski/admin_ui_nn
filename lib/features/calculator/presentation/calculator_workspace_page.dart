@@ -7153,6 +7153,12 @@ class _GeometryPreviewTab extends StatelessWidget {
     final roofCalculation = hasDraftGeometry
         ? localRoofCalculation
         : (serverRoofCalculation ?? localRoofCalculation);
+    // Keep local module geometry responsive while editing, but use the
+    // authoritative matrix/BOM post quantity when a calculation result exists.
+    final serverPostCount = serverRoofCalculation?.postCount ?? 0;
+    final previewPostCount = serverPostCount > 0
+        ? serverPostCount
+        : roofCalculation.postCount;
     final colorPreview = _colorPreviewDataFor(calculatorContext, draft.colorCode);
     final selectedCovering = (calculatorContext.references['tds_glass_covering'] ?? const [])
         .where((option) => option.code == draft.coveringCode || option.id == draft.coveringCode)
@@ -7215,7 +7221,7 @@ class _GeometryPreviewTab extends StatelessWidget {
               isSpecialColor: colorPreview != null && !colorPreview.isStandard,
               coveringName: coveringName,
               wallMounted: draft.wallMounted,
-              postCount: roofCalculation.postCount,
+              postCount: previewPostCount,
               quoteNotes: draft.externalNotes,
               highlightedModuleIndex: highlightedModuleIndex,
               highlightedGlassFieldIndex: highlightedGlassFieldIndex,
