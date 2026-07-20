@@ -867,6 +867,7 @@ class CalculatorDraft {
     this.branding = const {},
     this.options = const [],
     this.setContents = const [],
+    this.missingSetPieceAbzugArticleNos = const [],
   });
 
   factory CalculatorDraft.fromCalculationJson(Map<String, dynamic> json, {String? productFamilyId}) {
@@ -912,6 +913,10 @@ class CalculatorDraft {
       branding: _map(json['branding']),
       options: options,
       setContents: setContents,
+      missingSetPieceAbzugArticleNos: _stringList(
+        json['missing_set_piece_abzug_article_nos'] ??
+            json['missingSetPieceAbzugArticleNos'],
+      ),
     );
   }
 
@@ -939,6 +944,7 @@ class CalculatorDraft {
   final Map<String, dynamic> branding;
   final List<CalculatorSelectedOption> options;
   final List<CalculatorSetContentTab> setContents;
+  final List<String> missingSetPieceAbzugArticleNos;
 
   CalculatorDraft copyWith({
     String? organizationId,
@@ -984,6 +990,7 @@ class CalculatorDraft {
     bool clearBranding = false,
     List<CalculatorSelectedOption>? options,
     List<CalculatorSetContentTab>? setContents,
+    List<String>? missingSetPieceAbzugArticleNos,
   }) {
     return CalculatorDraft(
       organizationId: clearOrganization ? null : organizationId ?? this.organizationId,
@@ -1010,6 +1017,8 @@ class CalculatorDraft {
       branding: clearBranding ? const {} : branding ?? this.branding,
       options: options ?? this.options,
       setContents: setContents ?? this.setContents,
+      missingSetPieceAbzugArticleNos:
+          missingSetPieceAbzugArticleNos ?? this.missingSetPieceAbzugArticleNos,
     );
   }
 
@@ -1073,6 +1082,7 @@ class CalculatorDraft {
       if (branding.isNotEmpty) 'branding': branding,
       'options': options.map((entry) => entry.toJson()).toList(),
       'set_contents': setContentsJson,
+      'missing_set_piece_abzug_article_nos': missingSetPieceAbzugArticleNos,
       'language_code': 'de',
     };
   }

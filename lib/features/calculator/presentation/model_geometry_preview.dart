@@ -23,6 +23,13 @@ Rect _geometryPreviewSideRect(Size size, double pad) {
   );
 }
 
+String _firstSentence(String value) {
+  final text = value.trim().replaceAll(RegExp(r'\s+'), ' ');
+  if (text.isEmpty) return '';
+  final match = RegExp(r'^.*?[.!?](?:\s|$)').firstMatch(text);
+  return match?.group(0)?.trim() ?? text;
+}
+
 class ModelGeometryPreview extends ConsumerStatefulWidget {
   const ModelGeometryPreview({
     super.key,
@@ -51,6 +58,7 @@ class ModelGeometryPreview extends ConsumerStatefulWidget {
     this.wallMounted = false,
     this.postCount = 0,
     this.quoteNotes,
+    this.warnings = const [],
     this.highlightedModuleIndex,
     this.highlightedGlassFieldIndex,
     this.roofAngleDeg,
@@ -83,6 +91,7 @@ class ModelGeometryPreview extends ConsumerStatefulWidget {
   final bool wallMounted;
   final int postCount;
   final String? quoteNotes;
+  final List<String> warnings;
   final int? highlightedModuleIndex;
   final int? highlightedGlassFieldIndex;
   final int? roofAngleDeg;
@@ -376,29 +385,105 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
                                                   ],
                                                 ),
                                               ),
-                                              if (widget.quoteNotes
-                                                      ?.trim()
-                                                      .isNotEmpty ==
-                                                  true)
+                                              if (widget.warnings.isNotEmpty ||
+                                                  widget.quoteNotes
+                                                          ?.trim()
+                                                          .isNotEmpty ==
+                                                      true)
                                                 Positioned(
                                                   left: 12,
                                                   right: 12,
                                                   bottom: 8,
-                                                  child: Text(
-                                                    widget.quoteNotes!.trim(),
-                                                    maxLines: 3,
-                                                    overflow:
-                                                        TextOverflow.ellipsis,
-                                                    style: Theme.of(
-                                                      dialogContext,
-                                                    )
-                                                        .textTheme
-                                                        .bodySmall
-                                                        ?.copyWith(
-                                                          color: Colors.black,
-                                                          fontWeight:
-                                                              FontWeight.w500,
+                                                  child: Column(
+                                                    mainAxisSize:
+                                                        MainAxisSize.min,
+                                                    crossAxisAlignment:
+                                                        CrossAxisAlignment.start,
+                                                    children: [
+                                                      if (widget
+                                                          .warnings.isNotEmpty)
+                                                        Container(
+                                                          padding:
+                                                              const EdgeInsets
+                                                                  .symmetric(
+                                                            horizontal: 5,
+                                                            vertical: 3,
+                                                          ),
+                                                          decoration:
+                                                              BoxDecoration(
+                                                            color: colorScheme
+                                                                .surface
+                                                                .withValues(
+                                                                  alpha: 0.86,
+                                                                ),
+                                                            borderRadius:
+                                                                BorderRadius
+                                                                    .circular(4),
+                                                          ),
+                                                          child: Text(
+                                                            widget.warnings
+                                                                .map(
+                                                                  _firstSentence,
+                                                                )
+                                                                .where(
+                                                                  (message) =>
+                                                                      message
+                                                                          .isNotEmpty,
+                                                                )
+                                                                .toSet()
+                                                                .join('\n'),
+                                                            maxLines: 3,
+                                                            overflow:
+                                                                TextOverflow
+                                                                    .ellipsis,
+                                                            style: Theme.of(
+                                                              dialogContext,
+                                                            )
+                                                                .textTheme
+                                                                .labelSmall
+                                                                ?.copyWith(
+                                                                  fontSize: 9,
+                                                                  height: 1.15,
+                                                                  color:
+                                                                      colorScheme
+                                                                          .error,
+                                                                  fontWeight:
+                                                                      FontWeight
+                                                                          .w600,
+                                                                ),
+                                                          ),
                                                         ),
+                                                      if (widget.warnings
+                                                              .isNotEmpty &&
+                                                          widget.quoteNotes
+                                                                  ?.trim()
+                                                                  .isNotEmpty ==
+                                                              true)
+                                                        const SizedBox(height: 4),
+                                                      if (widget.quoteNotes
+                                                              ?.trim()
+                                                              .isNotEmpty ==
+                                                          true)
+                                                        Text(
+                                                          widget.quoteNotes!
+                                                              .trim(),
+                                                          maxLines: 3,
+                                                          overflow: TextOverflow
+                                                              .ellipsis,
+                                                          style: Theme.of(
+                                                            dialogContext,
+                                                          )
+                                                              .textTheme
+                                                              .bodySmall
+                                                              ?.copyWith(
+                                                                color:
+                                                                    Colors.black,
+                                                                fontWeight:
+                                                                    FontWeight
+                                                                        .w500,
+                                                              ),
+                                                        ),
+                                                    ],
                                                   ),
                                                 ),
                                             ],

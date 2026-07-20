@@ -3670,6 +3670,9 @@ class _SetContentsStepState extends State<_SetContentsStep> {
     final source = preview?.source ?? const <String, dynamic>{};
     final standardBom = preview?.standardBom ?? const <Map<String, dynamic>>[];
     final setDeltaBom = preview?.setDeltaBom ?? const <Map<String, dynamic>>[];
+    final hasMissingSetPieceAbzug = setDeltaBom.any(
+      _isMissingSetPieceAbzugCase,
+    );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -3776,7 +3779,12 @@ class _SetContentsStepState extends State<_SetContentsStep> {
                               title: 'No calculated segments',
                               text: 'Complete the model, dimensions and roof Parameters module first. A missing standard rule row does not prevent geometry BOM calculation, but it prevents set-delta pricing.',
                             )
-                          : _setContentTabs(context, tabs),
+                          : _setContentTabs(
+                              context,
+                              tabs,
+                              hasMissingSetPieceAbzug:
+                                  hasMissingSetPieceAbzug,
+                            ),
                       _BomSummaryList(
                         contextData: widget.contextData,
                         mediaRepository: widget.mediaRepository,
@@ -3793,6 +3801,13 @@ class _SetContentsStepState extends State<_SetContentsStep> {
                         emptyText: 'The current calculated set has no price-relevant differences from the standard set.',
                         lines: setDeltaBom,
                         showDeltaDirection: true,
+                        includedMissingSetPieceAbzugArticleNos: widget
+                            .draft.missingSetPieceAbzugArticleNos
+                            .toSet(),
+                        onSetMissingSetPieceAbzugForArticles: widget.notifier
+                            .setMissingSetPieceAbzugForArticles,
+                        onSetMissingSetPieceAbzugForArticle: widget.notifier
+                            .setMissingSetPieceAbzugForArticle,
                       ),
                     ],
                   ),
@@ -3805,22 +3820,91 @@ class _SetContentsStepState extends State<_SetContentsStep> {
     );
   }
 
-  Widget _setContentTabs(BuildContext context, List<CalculatorSetContentTab> tabs) {
+  Widget _setContentTabs(
+    BuildContext context,
+    List<CalculatorSetContentTab> tabs, {
+    required bool hasMissingSetPieceAbzug,
+  }) {
     return DefaultTabController(
       key: ValueKey('set-content-tabs-${tabs.map((tab) => tab.moduleRole).join('-')}'),
       length: tabs.length,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          TabBar(
-            isScrollable: true,
-            onTap: (index) {
-              setState(() => _selectedModuleTabIndex = index);
-              widget.onModuleFocusChanged(index + 1);
-              final fieldIndex = _selectedGlassFieldByTab[index] ?? 0;
-              widget.onGlassFieldFocusChanged(fieldIndex == 0 ? null : fieldIndex);
-            },
-            tabs: [for (final tab in tabs) Tab(text: tab.label)],
+          Row(
+            children: [
+              Expanded(
+                child: TabBar(
+                  isScrollable: true,
+                  tabAlignment: TabAlignment.start,
+                  onTap: (index) {
+                    setState(() => _selectedModuleTabIndex = index);
+                    widget.onModuleFocusChanged(index + 1);
+                    final fieldIndex =
+                        _selectedGlassFieldByTab[index] ?? 0;
+                    widget.onGlassFieldFocusChanged(
+                      fieldIndex == 0 ? null : fieldIndex,
+                    );
+                  },
+                  tabs: [for (final tab in tabs) Tab(text: tab.label)],
+                ),
+              ),
+              if (hasMissingSetPieceAbzug) ...[
+                const SizedBox(width: 10),
+                Flexible(
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: Tooltip(
+                      message:
+                          'At least one profile has fewer pieces than the matched standard set. Review Current set delta before pricing the Abzug.',
+                      child: Container(
+                        constraints: const BoxConstraints(maxWidth: 360),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 9,
+                          vertical: 5,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .errorContainer
+                              .withValues(alpha: 0.55),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.warning_amber_outlined,
+                              size: 15,
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onErrorContainer,
+                            ),
+                            const SizedBox(width: 5),
+                            Flexible(
+                              child: Text(
+                                'Set quantity Abzug requires review',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .labelSmall
+                                    ?.copyWith(
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onErrorContainer,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ],
           ),
           const SizedBox(height: 10),
           Expanded(
@@ -4249,6 +4333,22 @@ class _ManualComponentDialogState extends State<_ManualComponentDialog> {
   }
 }
 
+const _missingSetPieceAbzugArticleNos = {'15698', '15184', '15189'};
+
+String _bomArticleNo(Map<String, dynamic> line) {
+  return '${line['article_no'] ?? line['profile_no'] ?? ''}'.trim();
+}
+
+bool _isMissingSetPieceAbzugCase(Map<String, dynamic> line) {
+  final source = line['source'] is Map
+      ? Map<String, dynamic>.from(line['source'] as Map)
+      : const <String, dynamic>{};
+  if (source['legacy_missing_set_piece_abzug_case'] == true) return true;
+  return source['delta_kind'] == 'abzug' &&
+      _missingSetPieceAbzugArticleNos.contains(_bomArticleNo(line)) &&
+      _num(source['legacy_missing_standard_pieces']) > 0;
+}
+
 class _BomSummaryList extends StatefulWidget {
   const _BomSummaryList({
     required this.contextData,
@@ -4258,6 +4358,9 @@ class _BomSummaryList extends StatefulWidget {
     required this.emptyText,
     required this.lines,
     this.showDeltaDirection = false,
+    this.includedMissingSetPieceAbzugArticleNos = const {},
+    this.onSetMissingSetPieceAbzugForArticles,
+    this.onSetMissingSetPieceAbzugForArticle,
   });
 
   final CalculatorContext contextData;
@@ -4267,6 +4370,11 @@ class _BomSummaryList extends StatefulWidget {
   final String emptyText;
   final List<Map<String, dynamic>> lines;
   final bool showDeltaDirection;
+  final Set<String> includedMissingSetPieceAbzugArticleNos;
+  final void Function(Iterable<String> articleNos, bool included)?
+      onSetMissingSetPieceAbzugForArticles;
+  final void Function(String articleNo, bool included)?
+      onSetMissingSetPieceAbzugForArticle;
 
   @override
   State<_BomSummaryList> createState() => _BomSummaryListState();
@@ -4283,6 +4391,19 @@ class _BomSummaryListState extends State<_BomSummaryList> {
 
   @override
   Widget build(BuildContext context) {
+    final missingSetPieceCases = widget.lines
+        .where(_isMissingSetPieceAbzugCase)
+        .toList(growable: false);
+    final missingSetPieceArticles = missingSetPieceCases
+        .map(_bomArticleNo)
+        .where((article) => article.isNotEmpty)
+        .toSet();
+    final allMissingSetPieceAbzugIncluded =
+        missingSetPieceArticles.isNotEmpty &&
+        missingSetPieceArticles.every(
+          widget.includedMissingSetPieceAbzugArticleNos.contains,
+        );
+
     return Card(
       margin: EdgeInsets.zero,
       child: Column(
@@ -4293,13 +4414,67 @@ class _BomSummaryListState extends State<_BomSummaryList> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(widget.title, style: Theme.of(context).textTheme.titleSmall),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        widget.title,
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
+                    ),
+                    if (missingSetPieceArticles.isNotEmpty &&
+                        widget.onSetMissingSetPieceAbzugForArticles != null)
+                      Tooltip(
+                        message:
+                            'Include or exclude all Abzug positions where the calculated set contains fewer pieces than the matched standard set.',
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              'Include all set shortage Abzug',
+                              style: Theme.of(context).textTheme.labelSmall,
+                            ),
+                            const SizedBox(width: 4),
+                            Switch.adaptive(
+                              value: allMissingSetPieceAbzugIncluded,
+                              onChanged: (value) => widget
+                                  .onSetMissingSetPieceAbzugForArticles!(
+                                missingSetPieceArticles,
+                                value,
+                              ),
+                              materialTapTargetSize:
+                                  MaterialTapTargetSize.shrinkWrap,
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
                 const SizedBox(height: 3),
                 Text(widget.subtitle, style: Theme.of(context).textTheme.bodySmall),
               ],
             ),
           ),
           const Divider(height: 1),
+          if (missingSetPieceArticles.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 5, 11, 4),
+              child: Row(
+                children: [
+                  const Spacer(),
+                  Text(
+                    'Include in price',
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurfaceVariant,
+                        ),
+                  ),
+                  const SizedBox(width: 5),
+                  const SizedBox(width: 40),
+                ],
+              ),
+            ),
           if (widget.lines.isEmpty)
             Expanded(child: Center(child: Padding(padding: const EdgeInsets.all(16), child: Text(widget.emptyText))))
           else
@@ -4315,6 +4490,9 @@ class _BomSummaryListState extends State<_BomSummaryList> {
                   separatorBuilder: (_, __) => const Divider(height: 1),
                   itemBuilder: (context, index) {
                     final line = widget.lines[index];
+                    final articleNo = _bomArticleNo(line);
+                    final isMissingSetPieceCase =
+                        _isMissingSetPieceAbzugCase(line);
                     return ListTile(
                       dense: true,
                       leading: _CatalogNomenclatureMedia(
@@ -4326,6 +4504,23 @@ class _BomSummaryListState extends State<_BomSummaryList> {
                       trailing: _BomSummaryTrailing(
                         quantityText: '${_num(line['quantity'])} ${_formatUnitLabel('${line['unit_code'] ?? 'piece'}')}',
                         deltaKind: widget.showDeltaDirection ? _deltaKind(line) : null,
+                        includeMissingSetPieceAbzug:
+                            isMissingSetPieceCase
+                                ? widget
+                                    .includedMissingSetPieceAbzugArticleNos
+                                    .contains(articleNo)
+                                : null,
+                        onIncludeMissingSetPieceAbzugChanged:
+                            isMissingSetPieceCase &&
+                                    articleNo.isNotEmpty &&
+                                    widget.onSetMissingSetPieceAbzugForArticle !=
+                                        null
+                                ? (value) => widget
+                                    .onSetMissingSetPieceAbzugForArticle!(
+                                      articleNo,
+                                      value,
+                                    )
+                                : null,
                       ),
                     );
                   },
@@ -4365,16 +4560,22 @@ class _BomSummaryTrailing extends StatelessWidget {
   const _BomSummaryTrailing({
     required this.quantityText,
     required this.deltaKind,
+    this.includeMissingSetPieceAbzug,
+    this.onIncludeMissingSetPieceAbzugChanged,
   });
 
   final String quantityText;
   final String? deltaKind;
+  final bool? includeMissingSetPieceAbzug;
+  final ValueChanged<bool>? onIncludeMissingSetPieceAbzugChanged;
 
   @override
   Widget build(BuildContext context) {
     final isPositive = deltaKind == 'positive';
     final isAbzug = deltaKind == 'abzug';
-    if (!isPositive && !isAbzug) return Text(quantityText);
+    if (!isPositive && !isAbzug && includeMissingSetPieceAbzug == null) {
+      return Text(quantityText);
+    }
 
     final colorScheme = Theme.of(context).colorScheme;
     final icon = isPositive ? Icons.arrow_upward_rounded : Icons.arrow_downward_rounded;
@@ -4385,11 +4586,34 @@ class _BomSummaryTrailing extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(quantityText),
-        const SizedBox(width: 6),
-        Tooltip(
-          message: tooltip,
-          child: Icon(icon, size: 18, color: color),
-        ),
+        if (isPositive || isAbzug) ...[
+          const SizedBox(width: 6),
+          Tooltip(
+            message: tooltip,
+            child: Icon(icon, size: 18, color: color),
+          ),
+        ],
+        if (includeMissingSetPieceAbzug != null) ...[
+          const SizedBox(width: 10),
+          SizedBox(
+            width: 40,
+            child: Tooltip(
+              message: includeMissingSetPieceAbzug!
+                  ? 'This missing-set-quantity Abzug is included in price.'
+                  : 'This missing-set-quantity Abzug is excluded from price.',
+              child: Checkbox(
+                value: includeMissingSetPieceAbzug,
+                onChanged: onIncludeMissingSetPieceAbzugChanged == null
+                    ? null
+                    : (value) => onIncludeMissingSetPieceAbzugChanged!(
+                          value ?? false,
+                        ),
+                visualDensity: VisualDensity.compact,
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -7223,6 +7447,9 @@ class _GeometryPreviewTab extends StatelessWidget {
               wallMounted: draft.wallMounted,
               postCount: previewPostCount,
               quoteNotes: draft.externalNotes,
+              warnings: result == null
+                  ? const []
+                  : _resultWarningMessages(result!),
               highlightedModuleIndex: highlightedModuleIndex,
               highlightedGlassFieldIndex: highlightedGlassFieldIndex,
               roofAngleDeg: draft.roofAngleDeg,
@@ -7618,6 +7845,29 @@ class _SaveQuoteModeDialog extends StatelessWidget {
   }
 }
 
+List<String> _resultWarningMessages(CalculatorResult result) {
+  final missingOptionPriceCount = result.optionDiagnostics
+      .where((row) => row['price_found'] == false)
+      .length;
+  final nonOptionWarnings = result.warnings.where((warning) {
+    final code = '${warning['code'] ?? ''}';
+    return !code.startsWith('option_');
+  }).toList(growable: false);
+  final missingWeightItems =
+      (result.weights['missing_weight_items'] as List? ?? const [])
+          .map((item) => '$item'.trim())
+          .where((item) => item.isNotEmpty)
+          .toList(growable: false);
+  return [
+    if (missingOptionPriceCount > 0)
+      '$missingOptionPriceCount selected option(s) have no configured price. See Options tab.',
+    for (final warning in nonOptionWarnings)
+      '${warning['message'] ?? warning['code']}',
+    if (missingWeightItems.isNotEmpty)
+      'Weight is partial. Missing catalog weight data: ${missingWeightItems.join(', ')}',
+  ];
+}
+
 class _PriceHeader extends StatelessWidget {
   const _PriceHeader({
     required this.result,
@@ -7680,25 +7930,9 @@ class _PriceHeader extends StatelessWidget {
     final nonGlassWeight = _weightValue(result.weights, 'set_kg')
         + _weightValue(result.weights, 'accessories_kg')
         + _weightValue(result.weights, 'options_kg');
-    final missingOptionPriceCount = result.optionDiagnostics
-        .where((row) => row['price_found'] == false)
-        .length;
-    final nonOptionWarnings = result.warnings.where((warning) {
-      final code = '${warning['code'] ?? ''}';
-      return !code.startsWith('option_');
-    }).toList(growable: false);
-    final missingWeightItems = (result.weights['missing_weight_items'] as List? ?? const [])
-        .map((item) => '$item'.trim())
-        .where((item) => item.isNotEmpty)
+    final warningMessages = _resultWarningMessages(result)
+        .map((message) => '⚠ $message')
         .toList(growable: false);
-    final warningMessages = <String>[
-      if (missingOptionPriceCount > 0)
-        '⚠ $missingOptionPriceCount selected option(s) have no configured price. See Options tab.',
-      for (final warning in nonOptionWarnings)
-        '⚠ ${warning['message'] ?? warning['code']}',
-      if (missingWeightItems.isNotEmpty)
-        '⚠ Weight is partial. Missing catalog weight data: ${missingWeightItems.join(', ')}',
-    ];
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,

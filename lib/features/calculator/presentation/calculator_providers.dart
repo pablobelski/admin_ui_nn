@@ -60,6 +60,9 @@ String _setContentsRequestSignature(CalculatorDraft draft) {
     'force_odd_beams': draft.forceOddBeams,
     'wall_mounted': draft.wallMounted,
     'max_glass_field_width_mm': draft.maxGlassFieldWidthMm,
+    'missing_set_piece_abzug_article_nos': [
+      ...draft.missingSetPieceAbzugArticleNos,
+    ]..sort(),
     'modules': [
       for (final tab in draft.setContents)
         {
@@ -119,6 +122,7 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
       clearModel: true,
       clearMaxGlassFieldWidth: true,
       setContents: const [],
+      missingSetPieceAbzugArticleNos: const [],
     );
   }
 
@@ -132,6 +136,7 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
       clearModel: true,
       clearMaxGlassFieldWidth: true,
       setContents: const [],
+      missingSetPieceAbzugArticleNos: const [],
     );
   }
 
@@ -148,6 +153,7 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
       modelCode: nextValue,
       clearModel: nextValue == null,
       setContents: const [],
+      missingSetPieceAbzugArticleNos: const [],
     );
   }
 
@@ -319,6 +325,28 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
 
   void setSetContents(List<CalculatorSetContentTab> tabs) {
     state = state.copyWith(setContents: tabs);
+  }
+
+  void setMissingSetPieceAbzugForArticles(
+    Iterable<String> articleNos,
+    bool included,
+  ) {
+    final next = state.missingSetPieceAbzugArticleNos.toSet();
+    final normalized = articleNos
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .toSet();
+    if (included) {
+      next.addAll(normalized);
+    } else {
+      next.removeAll(normalized);
+    }
+    final sorted = next.toList()..sort();
+    state = state.copyWith(missingSetPieceAbzugArticleNos: sorted);
+  }
+
+  void setMissingSetPieceAbzugForArticle(String articleNo, bool included) {
+    setMissingSetPieceAbzugForArticles([articleNo], included);
   }
 
   void setSetContentsFromDefaults(List<CalculatorSetContentTab> defaults) {
