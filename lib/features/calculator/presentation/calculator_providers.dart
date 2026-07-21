@@ -97,7 +97,11 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
   CalculatorDraft build() => const CalculatorDraft();
 
   void loadQuote(LoadedQuote quote) {
-    state = CalculatorDraft.fromCalculationJson(quote.input, productFamilyId: quote.productFamilyId);
+    state = CalculatorDraft.fromCalculationJson(
+      quote.input,
+      productFamilyId: quote.productFamilyId,
+      resultJson: quote.resultJson,
+    );
   }
 
   void reset() {
@@ -145,15 +149,16 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
     state = state.copyWith(priceMode: value);
   }
 
-  void setModel(String? value) {
+  void setModel(String? value, {bool preserveSetContents = false}) {
     final normalized = value?.trim();
     final nextValue = normalized == null || normalized.isEmpty ? null : normalized;
     if (nextValue == state.modelCode) return;
     state = state.copyWith(
       modelCode: nextValue,
       clearModel: nextValue == null,
-      setContents: const [],
-      missingSetPieceAbzugArticleNos: const [],
+      setContents: preserveSetContents ? state.setContents : const [],
+      missingSetPieceAbzugArticleNos:
+          preserveSetContents ? state.missingSetPieceAbzugArticleNos : const [],
     );
   }
 
@@ -175,6 +180,11 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
     state = state.copyWith(
       depthMm: parsed,
       clearDepth: value.trim().isEmpty,
+      setContents: _syncFirstModuleDepth(
+        state.setContents,
+        previousTotal: state.depthMm,
+        nextTotal: parsed,
+      ),
     );
   }
 
@@ -313,13 +323,30 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
 
 
 
-  void seedSetContentsIfEmpty(List<CalculatorSetContentTab> tabs) {
+  void seedSetContentsIfEmpty(
+    List<CalculatorSetContentTab> tabs, {
+    bool preserveStructure = false,
+  }) {
     if (tabs.isEmpty) return;
     if (state.setContents.isEmpty) {
       state = state.copyWith(setContents: tabs);
       return;
     }
     if (state.setContents.any((tab) => tab.items.isNotEmpty)) return;
+    if (preserveStructure) {
+      state = state.copyWith(
+        setContents: [
+          for (var i = 0; i < state.setContents.length; i++)
+            state.setContents[i].copyWith(
+              items: (tabs.firstWhere(
+                (tab) => tab.moduleRole == state.setContents[i].moduleRole,
+                orElse: () => tabs[i < tabs.length ? i : 0],
+              )).items,
+            ),
+        ],
+      );
+      return;
+    }
     state = state.copyWith(setContents: _materializeSetContentDefaults(tabs, state.setContents));
   }
 
@@ -508,6 +535,19 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
     return tabs;
   }
 
+  List<CalculatorSetContentTab> _syncFirstModuleDepth(
+    List<CalculatorSetContentTab> source, {
+    required int? previousTotal,
+    required int? nextTotal,
+  }) {
+    if (source.isEmpty) return source;
+    final firstDepth = source.first.moduleDepthMm;
+    if (firstDepth != null && firstDepth != previousTotal) return source;
+
+    final tabs = [...source];
+    tabs[0] = tabs[0].withGeometryValue('depth_mm', nextTotal);
+    return tabs;
+  }
 
   void setSetContentItemsEnabled(List<({int tabIndex, int itemIndex})> refs, bool enabled) {
     if (refs.isEmpty) return;

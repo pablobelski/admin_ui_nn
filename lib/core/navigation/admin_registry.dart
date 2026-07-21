@@ -721,6 +721,14 @@ const adminNavGroups = <AdminNavGroup>[
             sourceValueKey: 'id',
             icon: Icons.picture_as_pdf_outlined,
           ),
+          AdminDetailAction(
+            label: 'Show buyer organization',
+            targetResourceKey: 'organizations',
+            filterKey: 'id',
+            sourceValueKey: 'buyer_organization_id',
+            selectTargetRow: true,
+            icon: Icons.business_outlined,
+          ),
         ],
       ),
       AdminResourceDefinition(
@@ -762,6 +770,24 @@ const adminNavGroups = <AdminNavGroup>[
           AdminField(key: 'amount', label: 'Amount', type: AdminFieldType.number, readOnly: true),
           AdminField(key: 'meta_json', label: 'Meta JSON', type: AdminFieldType.json, readOnly: true),
         ],
+        detailActions: [
+          AdminDetailAction(
+            label: 'Show quote',
+            targetResourceKey: 'quotes',
+            filterKey: 'id',
+            sourceValueKey: 'quote_id',
+            selectTargetRow: true,
+            icon: Icons.request_quote_outlined,
+          ),
+          AdminDetailAction(
+            label: 'Show organization',
+            targetResourceKey: 'organizations',
+            filterKey: 'id',
+            sourceValueKey: 'quote_organization_id',
+            selectTargetRow: true,
+            icon: Icons.business_outlined,
+          ),
+        ],
       ),
       AdminResourceDefinition(
         key: 'quote_events',
@@ -799,7 +825,7 @@ const adminNavGroups = <AdminNavGroup>[
         icon: Icons.picture_as_pdf_outlined,
         supportsCreate: false,
         supportsEdit: false,
-        supportsDelete: false,
+        supportsDelete: true,
         columns: [
           AdminColumn(key: 'quote_id', label: 'Quote', flex: 2, lookup: quoteLookup),
           AdminColumn(key: 'document_type_code', label: 'Type', isPrimary: true),
@@ -836,6 +862,14 @@ const adminNavGroups = <AdminNavGroup>[
             sourceValueKey: 'quote_id',
             selectTargetRow: true,
             icon: Icons.request_quote_outlined,
+          ),
+          AdminDetailAction(
+            label: 'Show organization',
+            targetResourceKey: 'organizations',
+            filterKey: 'id',
+            sourceValueKey: 'quote_organization_id',
+            selectTargetRow: true,
+            icon: Icons.business_outlined,
           ),
           AdminDetailAction(
             label: 'Show document template',

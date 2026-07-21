@@ -58,6 +58,8 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
   var _selectedStep = 0;
   var _isSavingQuote = false;
   SavedQuote? _savedQuote;
+  CalculatorResult? _calculatedResult;
+  String? _calculatedPriceSignature;
   int? _highlightedModuleIndex;
   int? _highlightedGlassFieldIndex;
 
@@ -69,6 +71,14 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
     final loadedQuote = ref.watch(loadedQuoteProvider);
     final quoteNumberPreview = ref.watch(calculatorQuoteNumberPreviewProvider);
     final isWide = MediaQuery.sizeOf(context).width >= 1280;
+    final currentResult = resultAsync.asData?.value;
+    final calculatedPriceSignature = _priceSignatureForResult(
+      currentResult,
+      loadedQuote,
+    );
+    final needsRecalculation = currentResult != null &&
+        calculatedPriceSignature != null &&
+        _priceSignature(draft) != calculatedPriceSignature;
 
     return contextAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
@@ -112,7 +122,11 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
               onRefresh: () {
                 ref.invalidate(calculatorContextProvider);
                 ref.read(calculatorResultProvider.notifier).clear();
-                setState(() => _savedQuote = null);
+                setState(() {
+                  _savedQuote = null;
+                  _calculatedResult = null;
+                  _calculatedPriceSignature = null;
+                });
               },
             ),
             const SizedBox(height: 16),
@@ -131,6 +145,7 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
                             onNext: () => _moveStep(disabledStepKeys, 1),
                             onBack: () => _moveStep(disabledStepKeys, -1),
                             onCalculate: () => _calculate(context),
+                            onModelChanged: (value) => _changeModel(context, value),
                             canCalculate: canCalculate,
                             roofModelState: roofModelState,
                             isLoadedCalculation: loadedQuote != null,
@@ -157,6 +172,7 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
                             savedQuote: _savedQuote,
                             calculationNumber: calculationNumber,
                             isCalculationSaved: isCalculationSaved,
+                            needsRecalculation: needsRecalculation,
                             isSavingQuote: _isSavingQuote,
                             onSaveQuote: () => _showSaveQuoteDialog(context),
                             onPrint: () => _showPrintDialog(context),
@@ -175,6 +191,7 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
                             onNext: () => _moveStep(disabledStepKeys, 1),
                             onBack: () => _moveStep(disabledStepKeys, -1),
                             onCalculate: () => _calculate(context),
+                            onModelChanged: (value) => _changeModel(context, value),
                             canCalculate: canCalculate,
                             roofModelState: roofModelState,
                             isLoadedCalculation: loadedQuote != null,
@@ -201,6 +218,7 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
                             savedQuote: _savedQuote,
                             calculationNumber: calculationNumber,
                             isCalculationSaved: isCalculationSaved,
+                            needsRecalculation: needsRecalculation,
                             isSavingQuote: _isSavingQuote,
                             onSaveQuote: () => _showSaveQuoteDialog(context),
                             onPrint: () => _showPrintDialog(context),
@@ -246,6 +264,86 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
     _selectStep(next);
   }
 
+  String? _priceSignatureForResult(
+    CalculatorResult? result,
+    LoadedQuote? loadedQuote,
+  ) {
+    if (result == null) return null;
+    if (identical(result, _calculatedResult) && _calculatedPriceSignature != null) {
+      return _calculatedPriceSignature;
+    }
+    if (loadedQuote != null) {
+      return _priceSignature(
+        CalculatorDraft.fromCalculationJson(
+          loadedQuote.input,
+          productFamilyId: loadedQuote.productFamilyId,
+        ),
+      );
+    }
+
+    final rawInput = result.raw['input'];
+    if (rawInput is! Map) return null;
+    return _priceSignature(
+      CalculatorDraft.fromCalculationJson(
+        Map<String, dynamic>.from(rawInput),
+      ),
+    );
+  }
+
+  Future<void> _changeModel(BuildContext context, String? value) async {
+    final draft = ref.read(calculatorDraftProvider);
+    final normalized = value?.trim();
+    final nextModel = normalized == null || normalized.isEmpty ? null : normalized;
+    if (nextModel == draft.modelCode) return;
+
+    final currentResult = ref.read(calculatorResultProvider).asData?.value;
+    final hasSetContents = draft.setContents.any((tab) => tab.items.isNotEmpty);
+    final hasAccessories = currentResult?.derivedAccessories.isNotEmpty == true;
+    final notifier = ref.read(calculatorDraftProvider.notifier);
+    if (!hasSetContents && !hasAccessories) {
+      notifier.setModel(nextModel);
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Change model and recalculate?'),
+        content: const Text(
+          'The existing Set contents and Accessory result depend on the selected model. '
+          'After the change, Set contents will be recalculated first and then the full calculation will run.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Recalculate'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+
+    notifier.setModel(nextModel, preserveSetContents: nextModel != null);
+    if (nextModel == null) return;
+
+    try {
+      ref.read(calculatorSetContentsRefreshTickProvider.notifier).bump();
+      final preview = await ref.read(calculatorSetContentsProvider.future);
+      notifier.setSetContents(preview.tabs);
+      if (!context.mounted) return;
+      await _calculate(context);
+    } catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Model recalculation failed: $error')),
+      );
+    }
+  }
+
   Future<void> _confirmNewCalculation(BuildContext context) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -277,6 +375,8 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
     setState(() {
       _selectedStep = 0;
       _savedQuote = null;
+      _calculatedResult = null;
+      _calculatedPriceSignature = null;
     });
 
     ScaffoldMessenger.of(context).showSnackBar(
@@ -304,11 +404,18 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
       return;
     }
 
-    setState(() => _savedQuote = null);
+    final priceSignature = _priceSignature(draft);
+    setState(() {
+      _savedQuote = null;
+      _calculatedResult = null;
+      _calculatedPriceSignature = null;
+    });
     final resultNotifier = ref.read(calculatorResultProvider.notifier);
     resultNotifier.setLoading();
     try {
       final result = await ref.read(calculatorRepositoryProvider).calculate(draft);
+      _calculatedResult = result;
+      _calculatedPriceSignature = priceSignature;
       resultNotifier.setData(result);
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -391,8 +498,17 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
           ? null
           : CalculatorResult.fromJson(savedLoadedQuote.resultJson!);
       if (loadedResult == null) {
+        _calculatedResult = null;
+        _calculatedPriceSignature = null;
         ref.read(calculatorResultProvider.notifier).clear();
       } else {
+        _calculatedResult = loadedResult;
+        _calculatedPriceSignature = _priceSignature(
+          CalculatorDraft.fromCalculationJson(
+            savedLoadedQuote.input,
+            productFamilyId: savedLoadedQuote.productFamilyId,
+          ),
+        );
         ref.read(calculatorResultProvider.notifier).setData(loadedResult);
       }
 
@@ -754,6 +870,7 @@ class _StepCard extends ConsumerWidget {
     required this.onNext,
     required this.onBack,
     required this.onCalculate,
+    required this.onModelChanged,
     required this.canCalculate,
     required this.roofModelState,
     required this.isLoadedCalculation,
@@ -768,6 +885,7 @@ class _StepCard extends ConsumerWidget {
   final VoidCallback onNext;
   final VoidCallback onBack;
   final VoidCallback onCalculate;
+  final ValueChanged<String?> onModelChanged;
   final bool canCalculate;
   final _RoofModelStepState roofModelState;
   final bool isLoadedCalculation;
@@ -895,6 +1013,7 @@ class _StepCard extends ConsumerWidget {
         return _ProductStep(
           contextData: calculatorContext,
           draft: draft,
+          isLoadedCalculation: isLoadedCalculation,
           mediaRepository: ref.read(resourceRepositoryProvider),
           onOrganizationChanged: notifier.setOrganization,
           onProductFamilyChanged: notifier.setProductFamily,
@@ -920,7 +1039,7 @@ class _StepCard extends ConsumerWidget {
           roofModelState: roofModelState,
           draft: draft,
           mediaRepository: ref.read(resourceRepositoryProvider),
-          onChanged: notifier.setModel,
+          onChanged: onModelChanged,
           onWallMountedChanged: notifier.setWallMounted,
         );
       case 'dimensions':
@@ -939,6 +1058,7 @@ class _StepCard extends ConsumerWidget {
           selectedRoofModel: roofModelState.selectedForCode(draft.modelCode),
           notifier: notifier,
           options: calculatorContext.references['tds_glass_covering'] ?? const [],
+          isLoadedCalculation: isLoadedCalculation,
           onModuleFocusChanged: onModuleFocusChanged,
         );
       case 'color':
@@ -958,6 +1078,7 @@ class _StepCard extends ConsumerWidget {
           draft: draft,
           notifier: notifier,
           preview: preview,
+          isLoadedCalculation: isLoadedCalculation,
           diagnostics: result?.manualComponentDiagnostics ?? const [],
           mediaRepository: ref.read(resourceRepositoryProvider),
           weights: result?.weights ?? const {},
@@ -1024,6 +1145,10 @@ class _StepCard extends ConsumerWidget {
           draft: draft,
           selectedTemplate: selectedTemplate,
           selectedRoofModel: roofModelState.selectedForCode(draft.modelCode),
+          coveringName: _coveringDisplayName(
+            calculatorContext.references['tds_glass_covering'] ?? const [],
+            draft.coveringCode,
+          ),
         );
     }
   }
@@ -1033,6 +1158,7 @@ class _ProductStep extends StatefulWidget {
   const _ProductStep({
     required this.contextData,
     required this.draft,
+    required this.isLoadedCalculation,
     required this.mediaRepository,
     required this.onOrganizationChanged,
     required this.onProductFamilyChanged,
@@ -1047,6 +1173,7 @@ class _ProductStep extends StatefulWidget {
 
   final CalculatorContext contextData;
   final CalculatorDraft draft;
+  final bool isLoadedCalculation;
   final AdminResourceRepository mediaRepository;
   final ValueChanged<String?> onOrganizationChanged;
   final ValueChanged<String?> onProductFamilyChanged;
@@ -1112,7 +1239,7 @@ class _ProductStepState extends State<_ProductStep> {
 
   void _scheduleBrandingSync() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
+      if (!mounted || widget.isLoadedCalculation) return;
       final relatedCustomers = widget.contextData.relatedCustomersFor(widget.draft.organizationId);
       final canUseRelatedCustomer = relatedCustomers.isNotEmpty;
       final shouldUseRelatedBranding = _byRelatedCustomer && canUseRelatedCustomer;
@@ -1944,14 +2071,19 @@ class _DimensionsStepState extends State<_DimensionsStep> {
             (widget.draft.depthMm != null && firstModule.moduleDepthMm == null));
     final rawDefaultAngle = _defaultAngleFor(widget.selectedRoofModel);
     final defaultAngle = rawDefaultAngle == null ? null : _clampRoofAngle(rawDefaultAngle);
-    final needsAngleSeed = widget.draft.roofAngleDeg == null && defaultAngle != null;
+    final needsAngleSeed = !widget.isLoadedCalculation &&
+        widget.draft.roofAngleDeg == null &&
+        defaultAngle != null;
     final rearHeight = _effectiveRearHeight(widget.draft);
     final frontHeight = widget.draft.roofFrontHeightMm;
-    final needsFrontHeightCorrection = rearHeight != null && frontHeight != null && frontHeight > rearHeight;
+    final needsFrontHeightCorrection = !widget.isLoadedCalculation &&
+        rearHeight != null &&
+        frontHeight != null &&
+        frontHeight > rearHeight;
     if (!needsModuleSeed && !needsDimensionSeed && !needsAngleSeed && !needsFrontHeightCorrection) return;
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
+      if (!mounted || widget.isLoadedCalculation) return;
       if (needsModuleSeed || needsDimensionSeed) widget.notifier.setSetContentModuleRoles(roles);
       if (needsAngleSeed) {
         widget.notifier.setRoofAngleValue(defaultAngle);
@@ -2920,6 +3052,17 @@ String? _firstString(Object? first, [Object? second, Object? third]) {
   return null;
 }
 
+String? _coveringDisplayName(
+  List<CalculatorOption> options,
+  String? coveringCode,
+) {
+  return options
+          .where((option) => option.code == coveringCode || option.id == coveringCode)
+          .firstOrNull
+          ?.label ??
+      coveringCode;
+}
+
 class _CoveringStep extends StatefulWidget {
   const _CoveringStep({
     required this.draft,
@@ -2927,6 +3070,7 @@ class _CoveringStep extends StatefulWidget {
     required this.selectedRoofModel,
     required this.notifier,
     required this.options,
+    required this.isLoadedCalculation,
     required this.onModuleFocusChanged,
   });
 
@@ -2935,6 +3079,7 @@ class _CoveringStep extends StatefulWidget {
   final CalculatorOption? selectedRoofModel;
   final CalculatorDraftNotifier notifier;
   final List<CalculatorOption> options;
+  final bool isLoadedCalculation;
   final ValueChanged<int?> onModuleFocusChanged;
 
   @override
@@ -2986,12 +3131,13 @@ class _CoveringStepState extends State<_CoveringStep> {
   }
 
   void _syncTemplateParameter() {
+    if (widget.isLoadedCalculation) return;
     final maximum = _coveringMaxGlassFieldWidth();
     final current = widget.draft.maxGlassFieldWidthMm;
     final target = math.min(current ?? _defaultMaxGlassFieldWidth, maximum).toInt();
     if (current == target) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
+      if (!mounted || widget.isLoadedCalculation) return;
       widget.notifier.setMaxGlassFieldWidthValue(target);
     });
   }
@@ -3027,6 +3173,10 @@ class _CoveringStepState extends State<_CoveringStep> {
       template: widget.selectedTemplate,
       model: widget.selectedRoofModel,
     );
+    final coveringName = _coveringDisplayName(
+      widget.options,
+      widget.draft.coveringCode,
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -3051,6 +3201,7 @@ class _CoveringStepState extends State<_CoveringStep> {
           _CalculatedGlassCard(
             modules: roofCalculation.modules,
             coveringCode: widget.draft.coveringCode,
+            coveringName: coveringName,
             selectedModuleIndex: _selectedModuleIndex,
             onModuleSelected: (index) {
               setState(() => _selectedModuleIndex = index);
@@ -3075,12 +3226,14 @@ class _CalculatedGlassCard extends StatelessWidget {
   const _CalculatedGlassCard({
     required this.modules,
     required this.coveringCode,
+    required this.coveringName,
     required this.selectedModuleIndex,
     required this.onModuleSelected,
   });
 
   final List<RoofModuleCalculation> modules;
   final String? coveringCode;
+  final String? coveringName;
   final int? selectedModuleIndex;
   final ValueChanged<int> onModuleSelected;
 
@@ -3148,7 +3301,7 @@ class _CalculatedGlassCard extends StatelessWidget {
                                   spacing: 8,
                                   runSpacing: 6,
                                   children: [
-                                    _CalculationValueChip(label: 'Type', value: coveringCode ?? '—'),
+                                    _CalculationValueChip(label: 'Type', value: coveringName ?? '—'),
                                     _CalculationValueChip(label: 'Quantity', value: '${module.glassCount}'),
                                     _CalculationValueChip(
                                       label: 'Size',
@@ -3608,6 +3761,7 @@ class _SetContentsStep extends StatefulWidget {
     required this.draft,
     required this.notifier,
     required this.preview,
+    required this.isLoadedCalculation,
     required this.diagnostics,
     required this.mediaRepository,
     required this.weights,
@@ -3622,6 +3776,7 @@ class _SetContentsStep extends StatefulWidget {
   final CalculatorDraft draft;
   final CalculatorDraftNotifier notifier;
   final AsyncValue<CalculatorSetContentsPreview> preview;
+  final bool isLoadedCalculation;
   final List<Map<String, dynamic>> diagnostics;
   final AdminResourceRepository mediaRepository;
   final Map<String, dynamic> weights;
@@ -3657,7 +3812,10 @@ class _SetContentsStepState extends State<_SetContentsStep> {
       if (needsSeed && preview.tabs.isNotEmpty) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (!mounted) return;
-          widget.notifier.seedSetContentsIfEmpty(preview.tabs);
+          widget.notifier.seedSetContentsIfEmpty(
+            preview.tabs,
+            preserveStructure: widget.isLoadedCalculation,
+          );
         });
       }
     });
@@ -4585,16 +4743,7 @@ class _BomSummaryTrailing extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(quantityText),
-        if (isPositive || isAbzug) ...[
-          const SizedBox(width: 6),
-          Tooltip(
-            message: tooltip,
-            child: Icon(icon, size: 18, color: color),
-          ),
-        ],
         if (includeMissingSetPieceAbzug != null) ...[
-          const SizedBox(width: 10),
           SizedBox(
             width: 40,
             child: Tooltip(
@@ -4612,6 +4761,15 @@ class _BomSummaryTrailing extends StatelessWidget {
                 materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
               ),
             ),
+          ),
+          const SizedBox(width: 10),
+        ],
+        Text(quantityText),
+        if (isPositive || isAbzug) ...[
+          const SizedBox(width: 6),
+          Tooltip(
+            message: tooltip,
+            child: Icon(icon, size: 18, color: color),
           ),
         ],
       ],
@@ -6926,11 +7084,13 @@ class _SummaryStep extends StatelessWidget {
     required this.draft,
     required this.selectedTemplate,
     required this.selectedRoofModel,
+    required this.coveringName,
   });
 
   final CalculatorDraft draft;
   final CalculatorTemplateOption? selectedTemplate;
   final CalculatorOption? selectedRoofModel;
+  final String? coveringName;
 
   @override
   Widget build(BuildContext context) {
@@ -6952,7 +7112,7 @@ class _SummaryStep extends StatelessWidget {
           if (draft.depthMm != null) '${draft.depthMm} mm D',
           if (draft.heightMm != null) '${draft.heightMm} mm H',
         ].join(' × ')),
-        _SummaryRow('Covering', draft.coveringCode ?? '—'),
+        _SummaryRow('Covering', coveringName ?? '—'),
         _SummaryRow('Color', draft.colorCode ?? '—'),
         _SummaryRow(
           'Delivery',
@@ -6999,6 +7159,7 @@ class _ResultPanel extends StatelessWidget {
     required this.isSavingQuote,
     required this.calculationNumber,
     required this.isCalculationSaved,
+    required this.needsRecalculation,
     this.loadedQuote,
     this.savedQuote,
   });
@@ -7017,16 +7178,21 @@ class _ResultPanel extends StatelessWidget {
   final bool isSavingQuote;
   final String? calculationNumber;
   final bool isCalculationSaved;
+  final bool needsRecalculation;
   final SavedQuote? savedQuote;
 
   bool get _showPreviewTab {
     final modelIndex = _steps.indexWhere((step) => step.key == 'model');
-    return roofModelState.required && modelIndex >= 0 && selectedStep >= modelIndex;
+    return loadedQuote != null ||
+        (roofModelState.required && modelIndex >= 0 && selectedStep >= modelIndex);
   }
 
   @override
   Widget build(BuildContext context) {
     final showPreviewTab = _showPreviewTab;
+    final resultTabsKey = loadedQuote == null
+        ? const ValueKey<String>('calculator-result-tabs')
+        : ObjectKey(loadedQuote);
 
     return Card(
       clipBehavior: Clip.antiAlias,
@@ -7059,6 +7225,7 @@ class _ResultPanel extends StatelessWidget {
               children: [
                 Expanded(
                   child: DefaultTabController(
+                    key: resultTabsKey,
                     length: 2,
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -7113,6 +7280,7 @@ class _ResultPanel extends StatelessWidget {
             children: [
               Expanded(
                 child: DefaultTabController(
+                  key: resultTabsKey,
                   length: showPreviewTab ? 6 : 5,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -7123,6 +7291,7 @@ class _ResultPanel extends StatelessWidget {
                           result: result,
                           calculationNumber: calculationNumber ?? 'new quote',
                           isCalculationSaved: isCalculationSaved,
+                          needsRecalculation: needsRecalculation,
                         ),
                       ),
                       TabBar(
@@ -7384,11 +7553,10 @@ class _GeometryPreviewTab extends StatelessWidget {
         ? serverPostCount
         : roofCalculation.postCount;
     final colorPreview = _colorPreviewDataFor(calculatorContext, draft.colorCode);
-    final selectedCovering = (calculatorContext.references['tds_glass_covering'] ?? const [])
-        .where((option) => option.code == draft.coveringCode || option.id == draft.coveringCode)
-        .cast<CalculatorOption?>()
-        .firstOrNull;
-    final coveringName = selectedCovering?.label ?? draft.coveringCode;
+    final coveringName = _coveringDisplayName(
+      calculatorContext.references['tds_glass_covering'] ?? const [],
+      draft.coveringCode,
+    );
     final buyerContact = calculatorContext.buyerContactFor(draft);
     final draftHandoverTypeCode = draft.handoverTypeCode?.trim();
     final savedHandoverTypeCode = (savedInput?['handover_type_code'] ?? savedInput?['handoverTypeCode'])
@@ -7873,11 +8041,13 @@ class _PriceHeader extends StatelessWidget {
     required this.result,
     required this.calculationNumber,
     required this.isCalculationSaved,
+    required this.needsRecalculation,
   });
 
   final CalculatorResult result;
   final String calculationNumber;
   final bool isCalculationSaved;
+  final bool needsRecalculation;
 
   List<String> _discounts() {
     final labels = <String>[];
@@ -7947,7 +8117,11 @@ class _PriceHeader extends StatelessWidget {
                     TextSpan(text: 'Net / gross price: ', style: Theme.of(context).textTheme.labelLarge),
                     TextSpan(
                       text: '${_moneyFormat.format(net)} / ${_moneyFormat.format(gross)}',
-                      style: Theme.of(context).textTheme.headlineSmall,
+                      style: needsRecalculation
+                          ? Theme.of(context).textTheme.headlineSmall?.copyWith(
+                                color: Theme.of(context).colorScheme.error,
+                              )
+                          : Theme.of(context).textTheme.headlineSmall,
                     ),
                   ],
                 ),
@@ -7973,8 +8147,18 @@ class _PriceHeader extends StatelessWidget {
             const SizedBox(width: 8),
             Chip(
               visualDensity: VisualDensity.compact,
-              avatar: Icon(result.status == 'valid' ? Icons.check_circle : Icons.warning_amber_rounded),
-              label: Text(result.status),
+              avatar: Icon(
+                needsRecalculation
+                    ? Icons.error_outline
+                    : result.status == 'valid'
+                        ? Icons.check_circle
+                        : Icons.warning_amber_rounded,
+                color: needsRecalculation ? Theme.of(context).colorScheme.error : null,
+              ),
+              label: Text(needsRecalculation ? 'recalculate' : result.status),
+              backgroundColor: needsRecalculation
+                  ? Theme.of(context).colorScheme.errorContainer
+                  : null,
             ),
           ],
         ),
@@ -8220,9 +8404,9 @@ class _BomTab extends StatelessWidget {
             ListTile(
               dense: true,
               contentPadding: const EdgeInsets.symmetric(horizontal: 8),
-              title: Text('${row['module'] ?? 'module'} · ${row['glass_type_code'] ?? 'glass'}'),
+              title: Text('${row['module'] ?? 'module'} · ${row['catalog_name'] ?? row['glass_type_code'] ?? 'glass'}'),
               subtitle: Text(
-                '${row['quantity'] ?? 0} × ${_formatLengthNumber(_num(row['width_mm']))} × ${_formatLengthNumber(_num(row['length_mm']))} mm · '
+                '${_glassDimensions(row)} · '
                 '${row['area_m2'] ?? 0} m² · Article ${row['article_no'] ?? '—'} · '
                 'Unit price ${row['unit_price'] == null ? '—' : _moneyFormat.format(_num(row['unit_price']))}',
               ),
@@ -8261,6 +8445,12 @@ class _BomTab extends StatelessWidget {
         ),
       ],
     );
+  }
+
+  String _glassDimensions(Map<String, dynamic> row) {
+    final saved = '${row['dimensions'] ?? ''}'.trim();
+    if (saved.isNotEmpty) return saved;
+    return '${row['quantity'] ?? 0}x${_formatLengthNumber(_num(row['width_mm']))}x${_formatLengthNumber(_num(row['length_mm']))} mm';
   }
 }
 
@@ -9023,6 +9213,33 @@ String? _roofModelString(dynamic value) {
   if (value == null) return null;
   final text = '$value'.trim();
   return text.isEmpty ? null : text;
+}
+
+String _priceSignature(CalculatorDraft draft) {
+  final input = Map<String, dynamic>.from(draft.toCalculationJson())
+    ..remove('quote_no_external')
+    ..remove('external_notes')
+    ..remove('branding')
+    ..remove('language_code');
+  return jsonEncode(_stablePriceValue(input));
+}
+
+dynamic _stablePriceValue(dynamic value) {
+  if (value is Map) {
+    final entries = value.entries
+        .map((entry) => MapEntry(entry.key.toString(), entry.value))
+        .toList()
+      ..sort((a, b) => a.key.compareTo(b.key));
+    return {
+      for (final entry in entries)
+        if (entry.value != null) entry.key: _stablePriceValue(entry.value),
+    };
+  }
+  if (value is List) return value.map(_stablePriceValue).toList();
+  if (value is num && value.toDouble().isFinite && value == value.roundToDouble()) {
+    return value.toInt();
+  }
+  return value;
 }
 
 bool _isStepComplete(String key, CalculatorDraft draft) {

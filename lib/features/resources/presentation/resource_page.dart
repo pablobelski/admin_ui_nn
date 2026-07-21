@@ -1076,6 +1076,9 @@ class _DetailsCardState extends ConsumerState<_DetailsCard> {
         final rootCatalogItemId = _catalogItemTreeRootId(resource.key, data, browserState.selectedId);
         final rootOrganizationId = _organizationTreeRootId(resource.key, data, browserState.selectedId);
         final mediaFiles = _mediaFileRefsFor(resource, data);
+        final generatedDocumentAction = resource.key == 'generated_documents'
+            ? _quoteDocumentMenuAction(data)
+            : null;
         final detailLookupLabelsByKey = _detailLookupLabelsByKey(ref, resource);
         final enrichedData = _withReadableRelationFields(resource, data, detailLookupLabelsByKey);
         final quotePreviewContext = resource.key == 'quotes' ? ref.watch(calculatorContextProvider) : null;
@@ -1202,7 +1205,21 @@ class _DetailsCardState extends ConsumerState<_DetailsCard> {
                               : Icons.account_tree_outlined,
                         ),
                       ),
-                    if (!_hasDetailImageButton(resource) && mediaFiles.isNotEmpty)
+                    if (resource.key == 'generated_documents')
+                      IconButton(
+                        tooltip: 'View document',
+                        onPressed: generatedDocumentAction == null
+                            ? null
+                            : () => _openQuoteGeneratedDocument(
+                                  context,
+                                  repository,
+                                  generatedDocumentAction,
+                                ),
+                        icon: const Icon(Icons.picture_as_pdf_outlined),
+                      ),
+                    if (resource.key != 'generated_documents' &&
+                        !_hasDetailImageButton(resource) &&
+                        mediaFiles.isNotEmpty)
                       IconButton(
                         tooltip: 'Preview media',
                         onPressed: () => _showMediaPreview(context, repository, mediaFiles),
@@ -1406,6 +1423,40 @@ class _ResourceDetailsContent extends StatelessWidget {
       );
     }
 
+    if (resource.key == 'generated_documents') {
+      return DefaultTabController(
+        length: 2,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const TabBar(
+              isScrollable: true,
+              tabs: [
+                Tab(text: 'Details'),
+                Tab(text: 'Payload JSON'),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Expanded(
+              child: TabBarView(
+                children: [
+                  _generatedDocumentDetailsView(context),
+                  ListView(
+                    children: [
+                      JsonViewCard(
+                        title: 'Payload JSON',
+                        data: _mapFromJsonLike(data['payload_json'] ?? data['payloadJson']),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     return ListView(
       children: [
         _MainFieldsCard(
@@ -1431,7 +1482,13 @@ class _ResourceDetailsContent extends StatelessWidget {
           lookupLabels: lookupLabelsByKey['buyer_organization_id'],
         ),
       ),
-      _DetailRowData('Quote date', data['quote_date'] ?? data['quoteDate']),
+      _DetailRowData(
+        'Quote date',
+        data['created_at'] ??
+            data['createdAt'] ??
+            data['quote_date'] ??
+            data['quoteDate'],
+      ),
       _DetailRowData('Quote type', data['order_type_code'] ?? data['orderTypeCode']),
       _DetailRowData('Amount EUR', _quoteAmountEurDisplay(data)),
     ];
@@ -1445,6 +1502,23 @@ class _ResourceDetailsContent extends StatelessWidget {
           data: data,
           lookupLabelsByKey: lookupLabelsByKey,
         ),
+      ],
+    );
+  }
+
+  Widget _generatedDocumentDetailsView(BuildContext context) {
+    final metadata = _mapFromJsonLike(data['metadata_json'] ?? data['metadataJson']);
+    return ListView(
+      children: [
+        _MainFieldsCard(
+          resource: resource,
+          data: data,
+          lookupLabelsByKey: lookupLabelsByKey,
+        ),
+        if (metadata.isNotEmpty) ...[
+          const SizedBox(height: 16),
+          JsonViewCard(title: 'Metadata JSON', data: metadata),
+        ],
       ],
     );
   }
@@ -2486,6 +2560,7 @@ Map<String, Map<String, String>> _detailLookupLabelsByKey(
 bool _usesReadableDetails(AdminResourceDefinition resource) {
   return resource.key == 'quotes' ||
       resource.key == 'quote_lines' ||
+      resource.key == 'generated_documents' ||
       resource.key == 'roof_models' ||
       resource.key == 'organization_relations';
 }

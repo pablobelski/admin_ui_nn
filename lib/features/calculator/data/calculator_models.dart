@@ -870,7 +870,11 @@ class CalculatorDraft {
     this.missingSetPieceAbzugArticleNos = const [],
   });
 
-  factory CalculatorDraft.fromCalculationJson(Map<String, dynamic> json, {String? productFamilyId}) {
+  factory CalculatorDraft.fromCalculationJson(
+    Map<String, dynamic> json, {
+    String? productFamilyId,
+    Map<String, dynamic>? resultJson,
+  }) {
     final dimensions = _map(json['dimensions']);
     final roof = _map(json['roof']);
     final options = json['options'] is List
@@ -879,12 +883,19 @@ class CalculatorDraft {
             .map((entry) => CalculatorSelectedOption.fromJson(Map<String, dynamic>.from(entry)))
             .toList()
         : <CalculatorSelectedOption>[];
-    final savedSetContents = json['set_contents'] is List
+    final inputSetContents = json['set_contents'] is List
         ? (json['set_contents'] as List)
             .whereType<Map>()
             .map((entry) => CalculatorSetContentTab.fromJson(Map<String, dynamic>.from(entry)))
             .toList()
         : <CalculatorSetContentTab>[];
+    final resultSetContents = _list(
+      resultJson?['setContents'] ?? resultJson?['set_contents'],
+    ).map(CalculatorSetContentTab.fromJson).toList();
+    final savedSetContents = _restoreSetContentItems(
+      inputSetContents,
+      resultSetContents,
+    );
     final roofModules = _list(roof['modules']);
     final setContents = _restoreRoofModuleGeometry(savedSetContents, roofModules);
 
@@ -1389,6 +1400,25 @@ enum SaveQuoteMode {
         return 'As Option';
     }
   }
+}
+
+List<CalculatorSetContentTab> _restoreSetContentItems(
+  List<CalculatorSetContentTab> inputTabs,
+  List<CalculatorSetContentTab> resultTabs,
+) {
+  if (resultTabs.isEmpty) return inputTabs;
+  if (inputTabs.isEmpty) return resultTabs;
+
+  return [
+    for (var index = 0; index < inputTabs.length; index++)
+      inputTabs[index].copyWith(
+        items: resultTabs.firstWhere(
+          (tab) => inputTabs[index].moduleRole.isNotEmpty &&
+              tab.moduleRole == inputTabs[index].moduleRole,
+          orElse: () => resultTabs[index < resultTabs.length ? index : 0],
+        ).items,
+      ),
+  ];
 }
 
 List<CalculatorSetContentTab> _restoreRoofModuleGeometry(
