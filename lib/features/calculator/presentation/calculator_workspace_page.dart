@@ -1999,9 +1999,9 @@ class _DimensionsStepState extends State<_DimensionsStep> {
   late final TextEditingController _width;
   late final TextEditingController _depth;
   late final TextEditingController _height;
-  late final TextEditingController _rearHeight;
   late final TextEditingController _frontHeight;
   late final TextEditingController _angle;
+  late final FocusNode _frontHeightFocus;
   String? _angleErrorText;
 
   @override
@@ -2010,9 +2010,9 @@ class _DimensionsStepState extends State<_DimensionsStep> {
     _width = TextEditingController(text: widget.draft.widthMm?.toString() ?? '');
     _depth = TextEditingController(text: widget.draft.depthMm?.toString() ?? '');
     _height = TextEditingController(text: widget.draft.heightMm?.toString() ?? '');
-    _rearHeight = TextEditingController(text: _effectiveRearHeight(widget.draft)?.toString() ?? '');
     _frontHeight = TextEditingController(text: widget.draft.roofFrontHeightMm?.toString() ?? '');
     _angle = TextEditingController(text: _effectiveAngle(widget.draft)?.toString() ?? '');
+    _frontHeightFocus = FocusNode()..addListener(_onFrontHeightFocusChanged);
     _angleErrorText = _angleValidationMessage(_angle.text);
     _syncModelDrivenState();
   }
@@ -2023,7 +2023,6 @@ class _DimensionsStepState extends State<_DimensionsStep> {
     _sync(_width, widget.draft.widthMm);
     _sync(_depth, widget.draft.depthMm);
     _sync(_height, widget.draft.heightMm);
-    _sync(_rearHeight, _effectiveRearHeight(widget.draft));
     _sync(_frontHeight, widget.draft.roofFrontHeightMm);
     _sync(_angle, _effectiveAngle(widget.draft));
     _angleErrorText = _angleValidationMessage(_angle.text);
@@ -2037,10 +2036,11 @@ class _DimensionsStepState extends State<_DimensionsStep> {
 
   @override
   void dispose() {
+    _frontHeightFocus.removeListener(_onFrontHeightFocusChanged);
+    _frontHeightFocus.dispose();
     _width.dispose();
     _depth.dispose();
     _height.dispose();
-    _rearHeight.dispose();
     _frontHeight.dispose();
     _angle.dispose();
     super.dispose();
@@ -2160,8 +2160,22 @@ class _DimensionsStepState extends State<_DimensionsStep> {
     if (rear == null || depth == null || depth <= 0) return;
     final rawAngle = (math.atan((rear - front) / depth) * 180 / math.pi).round();
     final angle = _clampRoofAngle(rawAngle);
+    _sync(_angle, angle);
+    if (_angleErrorText != null) setState(() => _angleErrorText = null);
     widget.notifier.setRoofAngleValue(angle);
-    if (rawAngle != angle) _recalculateFrontHeightFromAngle(angle, rearHeight: rear, depthMm: depth);
+  }
+
+  void _onFrontHeightFocusChanged() {
+    if (_frontHeightFocus.hasFocus) return;
+    final front = int.tryParse(_frontHeight.text.trim());
+    final rear = _effectiveRearHeight(widget.draft);
+    final depth = _effectiveDepth(widget.draft);
+    if (front == null || rear == null || depth == null || depth <= 0) return;
+    final rawAngle = (math.atan((rear - front) / depth) * 180 / math.pi).round();
+    final angle = _clampRoofAngle(rawAngle);
+    if (rawAngle != angle) {
+      _recalculateFrontHeightFromAngle(angle, rearHeight: rear, depthMm: depth);
+    }
   }
 
   void _recalculateFrontHeightFromAngle(int? angle, {int? rearHeight, int? depthMm}) {
@@ -2170,7 +2184,9 @@ class _DimensionsStepState extends State<_DimensionsStep> {
     if (angle == null || rear == null || depth == null || depth <= 0) return;
     final calculatedFront = (rear - math.tan(angle * math.pi / 180) * depth).round();
     final front = calculatedFront > rear ? rear : calculatedFront;
-    widget.notifier.setRoofFrontHeightValue(front > 0 ? front : null);
+    final effectiveFront = front > 0 ? front : null;
+    _sync(_frontHeight, effectiveFront);
+    widget.notifier.setRoofFrontHeightValue(effectiveFront);
   }
 
   void _updateModulesFromModel() {
@@ -2198,10 +2214,38 @@ class _DimensionsStepState extends State<_DimensionsStep> {
         Wrap(
           spacing: 16,
           runSpacing: 16,
+          crossAxisAlignment: WrapCrossAlignment.start,
           children: [
-            _NumberField(label: 'Width mm', controller: _width, onChanged: widget.notifier.setWidth),
-            _NumberField(label: 'Depth mm', controller: _depth, onChanged: _onDepthChanged),
-            _NumberField(label: 'Height mm', controller: _height, onChanged: _onHeightChanged),
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _NumberField(label: 'Width mm', controller: _width, onChanged: widget.notifier.setWidth),
+                const SizedBox(height: 16),
+                _NumberField(label: 'Depth mm', controller: _depth, onChanged: _onDepthChanged),
+              ],
+            ),
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _NumberField(label: 'Höhe UKW', controller: _height, onChanged: _onHeightChanged),
+                const SizedBox(height: 16),
+                _NumberField(
+                  label: 'Höhe UKR',
+                  controller: _frontHeight,
+                  focusNode: _frontHeightFocus,
+                  onChanged: _onFrontHeightChanged,
+                ),
+              ],
+            ),
+            _NumberField(
+              label: 'Roof angle',
+              controller: _angle,
+              onChanged: _onAngleChanged,
+              suffixText: '°',
+              errorText: _angleErrorText,
+            ),
           ],
         ),
         const SizedBox(height: 24),
@@ -2220,17 +2264,6 @@ class _DimensionsStepState extends State<_DimensionsStep> {
           onModuleGeometryChanged: widget.notifier.updateSetContentModuleGeometry,
           onModuleFocusChanged: widget.onModuleFocusChanged,
           calculatedModules: roofCalculation.modules,
-        ),
-        const SizedBox(height: 16),
-        _RoofSlopeControls(
-          rearHeightController: _rearHeight,
-          frontHeightController: _frontHeight,
-          angleController: _angle,
-          minAngleDeg: _minRoofAngleDeg,
-          maxAngleDeg: _maxRoofAngleDeg,
-          angleErrorText: _angleErrorText,
-          onFrontHeightChanged: _onFrontHeightChanged,
-          onAngleChanged: _onAngleChanged,
         ),
       ],
     );
@@ -2579,64 +2612,6 @@ class _ModuleDimensionFieldState extends State<_ModuleDimensionField> {
         ),
         onTap: widget.onTap,
         onChanged: widget.onChanged,
-      ),
-    );
-  }
-}
-
-class _RoofSlopeControls extends StatelessWidget {
-  const _RoofSlopeControls({
-    required this.rearHeightController,
-    required this.frontHeightController,
-    required this.angleController,
-    required this.minAngleDeg,
-    required this.maxAngleDeg,
-    required this.angleErrorText,
-    required this.onFrontHeightChanged,
-    required this.onAngleChanged,
-  });
-
-  final TextEditingController rearHeightController;
-  final TextEditingController frontHeightController;
-  final TextEditingController angleController;
-  final int minAngleDeg;
-  final int maxAngleDeg;
-  final String? angleErrorText;
-  final ValueChanged<String> onFrontHeightChanged;
-  final ValueChanged<String> onAngleChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      margin: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Roof slope / angle', style: Theme.of(context).textTheme.titleSmall),
-            const SizedBox(height: 4),
-            Text(
-              'Rear height follows the global Height value. Front height and angle keep each other in sync. Allowed angle: $minAngleDeg–$maxAngleDeg°.',
-            ),
-            const SizedBox(height: 14),
-            Wrap(
-              spacing: 16,
-              runSpacing: 16,
-              children: [
-                _NumberField(label: 'Rear height, mm', controller: rearHeightController, onChanged: (_) {}, readOnly: true),
-                _NumberField(label: 'Front height, mm', controller: frontHeightController, onChanged: onFrontHeightChanged),
-                _NumberField(
-                  label: 'Roof angle',
-                  controller: angleController,
-                  onChanged: onAngleChanged,
-                  suffixText: '°',
-                  errorText: angleErrorText,
-                ),
-              ],
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -8943,6 +8918,7 @@ class _NumberField extends StatelessWidget {
     required this.label,
     required this.controller,
     required this.onChanged,
+    this.focusNode,
     this.readOnly = false,
     this.suffixText = 'mm',
     this.errorText,
@@ -8951,6 +8927,7 @@ class _NumberField extends StatelessWidget {
   final String label;
   final TextEditingController controller;
   final ValueChanged<String> onChanged;
+  final FocusNode? focusNode;
   final bool readOnly;
   final String suffixText;
   final String? errorText;
@@ -8961,6 +8938,7 @@ class _NumberField extends StatelessWidget {
       width: 220,
       child: TextField(
         controller: controller,
+        focusNode: focusNode,
         readOnly: readOnly,
         keyboardType: TextInputType.number,
         decoration: InputDecoration(

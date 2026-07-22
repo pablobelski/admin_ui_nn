@@ -1010,10 +1010,12 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
   static const double _ddx = 0.52;
   static const double _ddy = 0.73;
   static const double _depthProjectionScale = 0.88;
+  static const double _planRotationDeg = 8;
   static const double _defaultWidthMm = 5000;
   static const double _defaultDepthMm = 3000;
   static const double _defaultHeightMm = 2500;
   static const double _humanMm = 1800;
+  static const double _depthDimensionOffsetScale = 1 / 3;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -1036,17 +1038,43 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     final sideRect = _previewSideRect(size, pad);
     _drawPreviewSideBackground(canvas, sideRect);
 
-    final leftReserveMm = humanGapMm + _humanMm * 0.55;
     final projDx = (profile.shape == _RoofShape.lFront ? (profile.mirrorView ? -0.42 : 0.58) : _ddx)
         * _depthProjectionScale;
     final projDy = (profile.shape == _RoofShape.lFront ? 0.70 : _ddy) * _depthProjectionScale;
-    final projectionLeftMm = projDx < 0 ? -projDx * layout.depthMm : 0.0;
-    final roofW = layout.widthMm + projDx.abs() * layout.depthMm;
-    final roofTop = -layout.depthMm * projDy;
-    final humanTop = layout.heightMm - _humanMm;
-    final top = roofTop < humanTop ? roofTop : humanTop;
-    final contentW = leftReserveMm + projectionLeftMm + roofW;
-    final contentH = layout.heightMm - top;
+    final rotationRad = _planRotationDeg * math.pi / 180;
+    final rotationCos = math.cos(rotationRad);
+    final rotationSin = math.sin(rotationRad);
+
+    Offset projectPlan(double xMm, double yMm) {
+      final viewX = profile.mirrorView ? layout.widthMm - xMm : xMm;
+      final rotatedX = viewX * rotationCos + yMm * rotationSin;
+      final rotatedY = -viewX * rotationSin + yMm * rotationCos;
+      return Offset(
+        rotatedX + rotatedY * projDx,
+        -rotatedY * projDy,
+      );
+    }
+
+    final projectedRoofPoints = [
+      ...layout.front,
+      ...layout.back,
+    ].map((point) => projectPlan(point.dx, point.dy)).toList(growable: false);
+    final minProjectedX = projectedRoofPoints.map((point) => point.dx).reduce(_min);
+    final maxProjectedX = projectedRoofPoints.map((point) => point.dx).reduce(_max);
+    final minProjectedY = projectedRoofPoints.map((point) => point.dy).reduce(_min);
+    final maxProjectedY = projectedRoofPoints.map((point) => point.dy).reduce(_max);
+    final humanX = profile.mirrorView ? layout.widthMm : 0.0;
+    final humanY = _yAt(layout.front, humanX);
+    final humanPlan = projectPlan(humanX, humanY);
+    final humanDisplayHeightMm = _humanDisplayHeightMm(
+      layout,
+      Offset(humanX, humanY),
+    );
+    final leftReserveMm = humanGapMm + humanDisplayHeightMm * 0.55;
+    final top = _min(minProjectedY, humanPlan.dy + layout.heightMm - humanDisplayHeightMm);
+    final bottom = maxProjectedY + layout.heightMm;
+    final contentW = leftReserveMm + maxProjectedX - minProjectedX;
+    final contentH = bottom - top;
     // Keep a real visual guard between the full roof drawing (including
     // dimension arrows/text and beam strokes) and the separated right inset.
     // The model bounds are in millimetres, but some labels/offsets are drawn
@@ -1055,14 +1083,14 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     final availW = _max(40, sideRect.left - pad - sideGap - mainRightGuard);
     final availH = size.height - pad - labelBottom;
     final k = _min(availW / contentW, availH / contentH);
-    final ox = pad + (availW - contentW * k) / 2 + leftReserveMm * k + projectionLeftMm * k;
+    final ox = pad + (availW - contentW * k) / 2 + leftReserveMm * k - minProjectedX * k;
     final oy = pad - top * k + (availH - contentH * k) / 2;
 
     Offset s(double xMm, double yMm, double zMm) {
-      final viewX = profile.mirrorView ? layout.widthMm - xMm : xMm;
+      final projected = projectPlan(xMm, yMm);
       return Offset(
-        ox + (viewX + yMm * projDx) * k,
-        oy + (-yMm * projDy + (layout.heightMm - zMm)) * k,
+        ox + projected.dx * k,
+        oy + (projected.dy + layout.heightMm - zMm) * k,
       );
     }
 
@@ -1103,8 +1131,7 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     _drawRoofEdge(canvas, s, layout.front, layout.heightMm, k, isGutter: true);
     _drawDimensions(canvas, s, params, layout, profile, dimensionPaint);
 
-    final humanX = profile.mirrorView ? layout.widthMm : 0.0;
-    _drawHuman(canvas, s(humanX, _yAt(layout.front, humanX), 0), _humanMm * k, humanGapMm * k);
+    _drawHuman(canvas, s(humanX, humanY, 0), humanDisplayHeightMm * k, humanGapMm * k);
     canvas.restore();
 
     _drawPlanInset(canvas, sideRect, layout, profile, params);
@@ -1831,6 +1858,31 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     _RoofProfile profile,
     Paint paint,
   ) {
+    final roofGroundPoints = <Offset>[
+      ...layout.front.map((point) => s(point.dx, point.dy, 0)),
+      ...layout.back.map((point) => s(point.dx, point.dy, 0)),
+    ];
+    final roofGroundCenter = Offset(
+      roofGroundPoints.map((point) => point.dx).reduce((sum, value) => sum + value) /
+          roofGroundPoints.length,
+      roofGroundPoints.map((point) => point.dy).reduce((sum, value) => sum + value) /
+          roofGroundPoints.length,
+    );
+    _RoofDimensionLine? leftmostDepthDimension;
+    var leftmostDepthX = double.infinity;
+    for (final dim in layout.dimensions) {
+      if (dim.code == 'H' || _isWidthDimensionCode(dim.code)) continue;
+      final midpoint = _lerp(
+        s(dim.start.dx, dim.start.dy, 0),
+        s(dim.end.dx, dim.end.dy, 0),
+        0.5,
+      );
+      if (midpoint.dx < roofGroundCenter.dx && midpoint.dx < leftmostDepthX) {
+        leftmostDepthDimension = dim;
+        leftmostDepthX = midpoint.dx;
+      }
+    }
+
     for (final dim in layout.dimensions) {
       if (dim.code == 'H') continue;
       if (_isWidthDimensionCode(dim.code)) {
@@ -1844,20 +1896,25 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
           start = startRaw + shift;
           end = endRaw + shift;
         } else {
+          final isRectangleWidth = normalized == 'B' && profile.shape == _RoofShape.rectangle;
           final isSchraegWidth = normalized == 'B' &&
               (profile.shape == _RoofShape.angleFront || profile.shape == _RoofShape.angleBack);
           final useDimensionY = normalized.startsWith('BW') &&
               (dim.start.dy.abs() > 1e-6 || dim.end.dy.abs() > 1e-6);
           final dimYStart = useDimensionY
               ? dim.start.dy
-              : (isSchraegWidth
-                  ? (profile.shape == _RoofShape.angleFront ? layout.depthMm : 0.0)
-                  : layout.depthMm);
+              : isRectangleWidth
+                  ? _yAt(layout.front, dim.start.dx)
+                  : isSchraegWidth
+                      ? (profile.shape == _RoofShape.angleFront ? layout.depthMm : 0.0)
+                      : layout.depthMm;
           final dimYEnd = useDimensionY
               ? dim.end.dy
-              : (isSchraegWidth
-                  ? (profile.shape == _RoofShape.angleFront ? layout.depthMm : 0.0)
-                  : layout.depthMm);
+              : isRectangleWidth
+                  ? _yAt(layout.front, dim.end.dx)
+                  : isSchraegWidth
+                      ? (profile.shape == _RoofShape.angleFront ? layout.depthMm : 0.0)
+                      : layout.depthMm;
           final startRaw = s(dim.start.dx, dimYStart, 0);
           final endRaw = s(dim.end.dx, dimYEnd, 0);
           final oppositeMid = isSchraegWidth
@@ -1882,11 +1939,30 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
         _dimLine(canvas, start, end, paint);
         _drawText(canvas, _paramText(params, dim.code, null), _lerp(start, end, 0.5) + const Offset(0, 10), lineColor, 10.5, isBold: true, hAlign: 0.5);
       } else {
-        final start = s(dim.start.dx, dim.start.dy, layout.heightMm) + dim.offset;
-        final end = s(dim.end.dx, dim.end.dy, layout.heightMm) + dim.offset;
+        final startRaw = s(dim.start.dx, dim.start.dy, 0);
+        final endRaw = s(dim.end.dx, dim.end.dy, 0);
+        var offset = dim.offset * _depthDimensionOffsetScale;
+        var textAlign = dim.hAlign;
+        if (identical(dim, leftmostDepthDimension)) {
+          final direction = endRaw - startRaw;
+          if (direction.distance > 0) {
+            var inward = Offset(-direction.dy, direction.dx) / direction.distance;
+            final midpoint = _lerp(startRaw, endRaw, 0.5);
+            final towardCenter = roofGroundCenter - midpoint;
+            if (inward.dx * towardCenter.dx + inward.dy * towardCenter.dy < 0) {
+              inward = inward * -1;
+            }
+            offset = inward *
+                (dim.offset.distance > 0 ? dim.offset.distance : 18) *
+                _depthDimensionOffsetScale;
+            textAlign = inward.dx >= 0 ? 0 : 1;
+          }
+        }
+        final start = startRaw + offset;
+        final end = endRaw + offset;
         if ((end - start).distance < 18) continue;
         _dimLine(canvas, start, end, paint);
-        _drawText(canvas, _paramText(params, dim.code, null), _lerp(start, end, 0.5) + dim.offset * 0.10, lineColor, 10.5, isBold: true, hAlign: dim.hAlign);
+        _drawText(canvas, _paramText(params, dim.code, null), _lerp(start, end, 0.5) + offset * 0.10, lineColor, 10.5, isBold: true, hAlign: textAlign);
       }
     }
   }
@@ -2184,6 +2260,32 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
       ..lineTo(centerX - heightPx * 0.13, feetY - heightPx * 0.44)
       ..close();
     canvas.drawPath(body, silhouette);
+  }
+
+  double _humanDisplayHeightMm(
+    _RoofLayout layout,
+    Offset humanPoint,
+  ) {
+    final posts = _effectivePostPoints(layout);
+    if (posts.isEmpty) return _humanMm;
+
+    var nearest = posts.first;
+    var nearestDistance = (nearest - humanPoint).distance;
+    for (final post in posts.skip(1)) {
+      final distance = (post - humanPoint).distance;
+      if (distance < nearestDistance) {
+        nearest = post;
+        nearestDistance = distance;
+      }
+    }
+
+    final configuredPostHeight = _pointOnEdge(nearest, layout.front)
+        ? frontHeightMm
+        : rearHeightMm;
+    if (configuredPostHeight == null || configuredPostHeight < _humanMm) {
+      return _humanMm;
+    }
+    return _humanMm * layout.heightMm / configuredPostHeight;
   }
 
 
