@@ -2293,6 +2293,9 @@ class _SetContentModuleDimensionsEditor extends StatelessWidget {
   final ValueChanged<int?> onModuleFocusChanged;
   final List<RoofModuleCalculation> calculatedModules;
 
+  bool get _lockModuleDimensions =>
+      (selectedRoofModel?.code ?? draft.modelCode ?? '').trim().toUpperCase() == 'SR';
+
   @override
   Widget build(BuildContext context) {
     final tabs = draft.setContents.isEmpty
@@ -2405,6 +2408,7 @@ class _SetContentModuleDimensionsEditor extends StatelessWidget {
                 value: tab.moduleWidthMm,
                 maxValue: draft.widthMm,
                 index: index,
+                enabled: !_lockModuleDimensions,
               ),
               const SizedBox(width: 12),
               _dimensionField(
@@ -2415,6 +2419,7 @@ class _SetContentModuleDimensionsEditor extends StatelessWidget {
                 value: tab.moduleDepthMm,
                 maxValue: draft.depthMm,
                 index: index,
+                enabled: !_lockModuleDimensions,
               ),
               const SizedBox(width: 4),
               SizedBox(
@@ -2463,6 +2468,7 @@ class _SetContentModuleDimensionsEditor extends StatelessWidget {
     required int? value,
     required int? maxValue,
     required int index,
+    required bool enabled,
   }) {
     final error = _dimensionError(value, maxValue, fieldKey);
     return _ModuleDimensionField(
@@ -2470,6 +2476,7 @@ class _SetContentModuleDimensionsEditor extends StatelessWidget {
       value: value,
       label: '$label mm',
       errorText: error,
+      enabled: enabled,
       onTap: () => onModuleFocusChanged(index + 1),
       onChanged: (input) {
         onModuleFocusChanged(index + 1);
@@ -2552,6 +2559,7 @@ class _ModuleDimensionField extends StatefulWidget {
     required this.value,
     required this.label,
     required this.errorText,
+    required this.enabled,
     required this.onTap,
     required this.onChanged,
   });
@@ -2559,6 +2567,7 @@ class _ModuleDimensionField extends StatefulWidget {
   final int? value;
   final String label;
   final String? errorText;
+  final bool enabled;
   final VoidCallback onTap;
   final ValueChanged<String> onChanged;
 
@@ -2604,6 +2613,7 @@ class _ModuleDimensionFieldState extends State<_ModuleDimensionField> {
       child: TextFormField(
         controller: _controller,
         focusNode: _focusNode,
+        enabled: widget.enabled,
         keyboardType: TextInputType.number,
         decoration: InputDecoration(
           labelText: widget.label,
@@ -7528,10 +7538,15 @@ class _GeometryPreviewTab extends StatelessWidget {
         ? serverPostCount
         : roofCalculation.postCount;
     final colorPreview = _colorPreviewDataFor(calculatorContext, draft.colorCode);
-    final coveringName = _coveringDisplayName(
-      calculatorContext.references['tds_glass_covering'] ?? const [],
-      draft.coveringCode,
-    );
+    final glassCatalogName = result?.glassLines
+        .map((line) => _firstString(line['catalog_name'], line['catalogName']))
+        .whereType<String>()
+        .firstOrNull;
+    final coveringName = glassCatalogName ??
+        _coveringDisplayName(
+          calculatorContext.references['tds_glass_covering'] ?? const [],
+          draft.coveringCode,
+        );
     final buyerContact = calculatorContext.buyerContactFor(draft);
     final draftHandoverTypeCode = draft.handoverTypeCode?.trim();
     final savedHandoverTypeCode = (savedInput?['handover_type_code'] ?? savedInput?['handoverTypeCode'])

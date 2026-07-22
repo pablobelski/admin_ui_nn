@@ -97,10 +97,12 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
   CalculatorDraft build() => const CalculatorDraft();
 
   void loadQuote(LoadedQuote quote) {
-    state = CalculatorDraft.fromCalculationJson(
-      quote.input,
-      productFamilyId: quote.productFamilyId,
-      resultJson: quote.resultJson,
+    state = _withSingleModuleDimensions(
+      CalculatorDraft.fromCalculationJson(
+        quote.input,
+        productFamilyId: quote.productFamilyId,
+        resultJson: quote.resultJson,
+      ),
     );
   }
 
@@ -153,37 +155,43 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
     final normalized = value?.trim();
     final nextValue = normalized == null || normalized.isEmpty ? null : normalized;
     if (nextValue == state.modelCode) return;
-    state = state.copyWith(
-      modelCode: nextValue,
-      clearModel: nextValue == null,
-      setContents: preserveSetContents ? state.setContents : const [],
-      missingSetPieceAbzugArticleNos:
-          preserveSetContents ? state.missingSetPieceAbzugArticleNos : const [],
+    state = _withSingleModuleDimensions(
+      state.copyWith(
+        modelCode: nextValue,
+        clearModel: nextValue == null,
+        setContents: preserveSetContents ? state.setContents : const [],
+        missingSetPieceAbzugArticleNos:
+            preserveSetContents ? state.missingSetPieceAbzugArticleNos : const [],
+      ),
     );
   }
 
   void setWidth(String value) {
     final parsed = int.tryParse(value.trim());
-    state = state.copyWith(
-      widthMm: parsed,
-      clearWidth: value.trim().isEmpty,
-      setContents: _syncFirstModuleDimension(
-        state.setContents,
-        key: 'width_mm',
-        total: parsed,
+    state = _withSingleModuleDimensions(
+      state.copyWith(
+        widthMm: parsed,
+        clearWidth: value.trim().isEmpty,
+        setContents: _syncFirstModuleDimension(
+          state.setContents,
+          key: 'width_mm',
+          total: parsed,
+        ),
       ),
     );
   }
 
   void setDepth(String value) {
     final parsed = int.tryParse(value.trim());
-    state = state.copyWith(
-      depthMm: parsed,
-      clearDepth: value.trim().isEmpty,
-      setContents: _syncFirstModuleDepth(
-        state.setContents,
-        previousTotal: state.depthMm,
-        nextTotal: parsed,
+    state = _withSingleModuleDimensions(
+      state.copyWith(
+        depthMm: parsed,
+        clearDepth: value.trim().isEmpty,
+        setContents: _syncFirstModuleDepth(
+          state.setContents,
+          previousTotal: state.depthMm,
+          nextTotal: parsed,
+        ),
       ),
     );
   }
@@ -329,29 +337,33 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
   }) {
     if (tabs.isEmpty) return;
     if (state.setContents.isEmpty) {
-      state = state.copyWith(setContents: tabs);
+      state = _withSingleModuleDimensions(state.copyWith(setContents: tabs));
       return;
     }
     if (state.setContents.any((tab) => tab.items.isNotEmpty)) return;
     if (preserveStructure) {
-      state = state.copyWith(
-        setContents: [
-          for (var i = 0; i < state.setContents.length; i++)
-            state.setContents[i].copyWith(
-              items: (tabs.firstWhere(
-                (tab) => tab.moduleRole == state.setContents[i].moduleRole,
-                orElse: () => tabs[i < tabs.length ? i : 0],
-              )).items,
-            ),
-        ],
+      state = _withSingleModuleDimensions(
+        state.copyWith(
+          setContents: [
+            for (var i = 0; i < state.setContents.length; i++)
+              state.setContents[i].copyWith(
+                items: (tabs.firstWhere(
+                  (tab) => tab.moduleRole == state.setContents[i].moduleRole,
+                  orElse: () => tabs[i < tabs.length ? i : 0],
+                )).items,
+              ),
+          ],
+        ),
       );
       return;
     }
-    state = state.copyWith(setContents: _materializeSetContentDefaults(tabs, state.setContents));
+    state = _withSingleModuleDimensions(
+      state.copyWith(setContents: _materializeSetContentDefaults(tabs, state.setContents)),
+    );
   }
 
   void setSetContents(List<CalculatorSetContentTab> tabs) {
-    state = state.copyWith(setContents: tabs);
+    state = _withSingleModuleDimensions(state.copyWith(setContents: tabs));
   }
 
   void setMissingSetPieceAbzugForArticles(
@@ -381,7 +393,9 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
       state = state.copyWith(setContents: const []);
       return;
     }
-    state = state.copyWith(setContents: _materializeSetContentDefaults(defaults, state.setContents));
+    state = _withSingleModuleDimensions(
+      state.copyWith(setContents: _materializeSetContentDefaults(defaults, state.setContents)),
+    );
   }
 
   void setSetContentModuleRoles(List<String> roles) {
@@ -441,7 +455,7 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
         );
       }
     }
-    state = state.copyWith(setContents: next);
+    state = _withSingleModuleDimensions(state.copyWith(setContents: next));
   }
 
   void setSetContentModuleCount(int count) {
@@ -547,6 +561,22 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
     final tabs = [...source];
     tabs[0] = tabs[0].withGeometryValue('depth_mm', nextTotal);
     return tabs;
+  }
+
+  CalculatorDraft _withSingleModuleDimensions(CalculatorDraft draft) {
+    if (draft.modelCode?.trim().toUpperCase() != 'SR' || draft.setContents.isEmpty) {
+      return draft;
+    }
+    final firstModule = draft.setContents.first;
+    if (firstModule.moduleWidthMm == draft.widthMm &&
+        firstModule.moduleDepthMm == draft.depthMm) {
+      return draft;
+    }
+    final tabs = [...draft.setContents];
+    tabs[0] = firstModule
+        .withGeometryValue('width_mm', draft.widthMm)
+        .withGeometryValue('depth_mm', draft.depthMm);
+    return draft.copyWith(setContents: tabs);
   }
 
   void setSetContentItemsEnabled(List<({int tabIndex, int itemIndex})> refs, bool enabled) {

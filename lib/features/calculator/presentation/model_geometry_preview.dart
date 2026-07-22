@@ -311,6 +311,8 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
                                   isSpecialColor: widget.isSpecialColor,
                                   coveringName: widget.coveringName,
                                   wallMounted: widget.wallMounted,
+                                  calculatedModules: widget.calculatedModules,
+                                  postCount: widget.postCount,
                                   currentUser: currentUser,
                                 ),
                               ),
@@ -588,6 +590,8 @@ class _ExpandedPreviewInfo extends StatelessWidget {
     required this.isSpecialColor,
     required this.coveringName,
     required this.wallMounted,
+    required this.calculatedModules,
+    required this.postCount,
     required this.currentUser,
   });
 
@@ -608,6 +612,8 @@ class _ExpandedPreviewInfo extends StatelessWidget {
   final bool isSpecialColor;
   final String? coveringName;
   final bool wallMounted;
+  final List<RoofModuleCalculation> calculatedModules;
+  final int postCount;
   final String currentUser;
 
   @override
@@ -625,6 +631,15 @@ class _ExpandedPreviewInfo extends StatelessWidget {
     String weightText(String valueKey, String completeKey) => complete(completeKey)
         ? '${weight(valueKey).toStringAsFixed(1)} kg'
         : '—';
+    final totalGlassCount = calculatedModules.fold<int>(
+      0,
+      (sum, module) => sum + module.glassCount,
+    );
+    final totalBeamCount = calculatedModules.fold<int>(
+      0,
+      (sum, module) => sum + module.beamCount,
+    );
+    final glassName = coveringName?.trim() ?? '';
 
     return Container(
       padding: const EdgeInsets.all(18),
@@ -657,8 +672,15 @@ class _ExpandedPreviewInfo extends StatelessWidget {
                 label: isSpecialColor ? 'Color (Sonderfarbe)' : 'Color',
                 value: colorCode!.trim(),
               ),
-            if (coveringName?.trim().isNotEmpty == true)
-              _PreviewMetadataRow(label: 'Covering', value: coveringName!.trim()),
+            if (glassName.isNotEmpty || totalGlassCount > 0)
+              _PreviewMetadataRow(
+                label: 'Covering',
+                value: 'Glas: ${glassName.isEmpty ? '—' : glassName} · $totalGlassCount stk.',
+              ),
+            _PreviewMetadataRow(
+              label: 'Set content',
+              value: 'Pfosten: $postCount stk.\nTräger: $totalBeamCount stk.',
+            ),
             if (wallMounted)
               const _PreviewMetadataRow(label: 'Montage', value: 'Wandmontage'),
             if ((deliveryName ?? '').trim().isNotEmpty || completionWeek != null)
@@ -724,7 +746,8 @@ class _ExpandedPreviewModules extends StatelessWidget {
                   '${index + 1} · ${_moduleLabel(_effectiveModuleRole(modules[index], index, moduleRoles), index + 1)} · '
                   'T: ${_dimensionValue(modules[index].moduleDepthMm)} mm × '
                   'B: ${_dimensionValue(modules[index].moduleWidthMm)} mm · '
-                  'Glas: ${calculatedModules.where((entry) => entry.moduleIndex == index + 1).firstOrNull?.glassCount ?? '—'}',
+                  'Glas: ${calculatedModules.where((entry) => entry.moduleIndex == index + 1).firstOrNull?.glassCount ?? '—'} · '
+                  'Träger: ${calculatedModules.where((entry) => entry.moduleIndex == index + 1).firstOrNull?.beamCount ?? '—'}',
                   style: theme.textTheme.bodyMedium,
                 ),
               ),
@@ -2121,7 +2144,7 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     final availableHeight = sideRect.bottom - top - 24;
     if (availableHeight < 28) return;
 
-    final maxRiseHeight = _min(54, _max(12, availableHeight - 24));
+    final maxRiseHeight = _min(54, _max(12, availableHeight - 50));
     final geometryScale = _min(
       availableWidth / depth,
       heightDifference > 0 ? maxRiseHeight / heightDifference : availableWidth / depth,
@@ -2189,6 +2212,28 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
       8.0,
       isBold: true,
       hAlign: 1,
+    );
+    final totalBeamCount = calculatedModules.fold<int>(
+      0,
+      (sum, module) => sum + module.beamCount,
+    );
+    _drawText(
+      canvas,
+      'Pfosten: $postCount stk.',
+      Offset(sideRect.center.dx, bottom + 25),
+      lineColor,
+      9.0,
+      isBold: true,
+      hAlign: 0.5,
+    );
+    _drawText(
+      canvas,
+      'Träger: $totalBeamCount stk.',
+      Offset(sideRect.center.dx, bottom + 39),
+      lineColor,
+      9.0,
+      isBold: true,
+      hAlign: 0.5,
     );
   }
 
