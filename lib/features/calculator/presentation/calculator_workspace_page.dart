@@ -480,11 +480,67 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
 
     setState(() => _isSavingQuote = true);
     try {
+      final draft = ref.read(calculatorDraftProvider);
+      final calculatorContext = ref.read(calculatorContextProvider).asData?.value;
+      if (calculatorContext == null) {
+        throw StateError('Calculator context is not ready.');
+      }
+
+      final selectedTemplate = calculatorContext.templates
+          .where((entry) => entry.id == draft.templateId)
+          .cast<CalculatorTemplateOption?>()
+          .firstOrNull;
+      final roofModelState = _roofModelStateFor(
+        calculatorContext,
+        draft,
+        selectedTemplate,
+      );
+      final previewData = _geometryPreviewRenderDataFor(
+        draft: draft,
+        calculatorContext: calculatorContext,
+        roofModelState: roofModelState,
+        result: ref.read(calculatorResultProvider).asData?.value,
+      );
+      final geometryPng = await renderGeometryOnlyPreviewPng(
+        modelCode: draft.modelCode,
+        modelLabel: previewData.selectedModel?.label,
+        widthMm: draft.widthMm,
+        depthMm: draft.depthMm,
+        heightMm: draft.heightMm,
+        geometryParams: geometryPreviewParamsFromDraft(draft),
+        coveringName: previewData.coveringName,
+        calculatedModules: previewData.roofCalculation.modules,
+        wallMounted: draft.wallMounted,
+        postCount: previewData.postCount,
+        roofAngleDeg: draft.roofAngleDeg,
+        rearHeightMm: draft.roofRearHeightMm ?? draft.heightMm,
+        frontHeightMm: draft.roofFrontHeightMm,
+      );
+      final uploadedGeometry = await ref.read(resourceRepositoryProvider).uploadMediaFile(
+        filename: 'geometry_${DateTime.now().toUtc().millisecondsSinceEpoch}.png',
+        contentType: 'image/png',
+        dataBase64: base64Encode(geometryPng),
+        purpose: 'quotes/geometry-preview',
+        metadata: {
+          'variant': 'geometry_only',
+          'width': geometryOnlyPreviewWidth,
+          'height': geometryOnlyPreviewHeight,
+          'model_code': draft.modelCode,
+          'quote_no_external': draft.quoteNoExternal,
+        },
+      );
+      final geometryPreviewFileId =
+          uploadedGeometry['id']?.toString().trim() ?? '';
+      if (geometryPreviewFileId.isEmpty) {
+        throw StateError('Geometry preview upload returned no file id.');
+      }
+
       final repository = ref.read(calculatorRepositoryProvider);
       final savedQuote = await repository.saveQuote(
-        ref.read(calculatorDraftProvider),
+        draft,
         mode: mode,
         baseQuoteId: mode == SaveQuoteMode.asOption ? loadedQuote?.id : null,
+        geometryPreviewFileId: geometryPreviewFileId,
       );
       final savedLoadedQuote = await repository.loadQuoteForWorkspace(savedQuote.id);
 
@@ -7524,6 +7580,71 @@ class _CalculationErrorBanner extends StatelessWidget {
   }
 }
 
+class _GeometryPreviewRenderData {
+  const _GeometryPreviewRenderData({
+    required this.selectedModel,
+    required this.roofCalculation,
+    required this.postCount,
+    required this.coveringName,
+  });
+
+  final CalculatorOption? selectedModel;
+  final RoofGeometryCalculation roofCalculation;
+  final int postCount;
+  final String? coveringName;
+}
+
+_GeometryPreviewRenderData _geometryPreviewRenderDataFor({
+  required CalculatorDraft draft,
+  required CalculatorContext calculatorContext,
+  required _RoofModelStepState roofModelState,
+  CalculatorResult? result,
+}) {
+  final selectedModel = roofModelState.options
+      .where((option) => option.code == draft.modelCode)
+      .cast<CalculatorOption?>()
+      .firstOrNull;
+  final selectedTemplate = calculatorContext.templates
+      .where((template) => template.id == draft.templateId)
+      .cast<CalculatorTemplateOption?>()
+      .firstOrNull;
+  final localRoofCalculation = calculateRoofGeometryForDraft(
+    draft: draft,
+    template: selectedTemplate,
+    model: selectedModel,
+  );
+  final serverRoofCalculation = result == null
+      ? null
+      : roofGeometryCalculationFromSources(result.sources);
+  final hasDraftGeometry = draft.setContents.any(
+    (tab) => tab.moduleWidthMm != null || tab.moduleDepthMm != null,
+  );
+  final roofCalculation = hasDraftGeometry
+      ? localRoofCalculation
+      : (serverRoofCalculation ?? localRoofCalculation);
+  // Keep local geometry responsive, but prefer the calculated BOM post count.
+  final serverPostCount = serverRoofCalculation?.postCount ?? 0;
+  final postCount = serverPostCount > 0
+      ? serverPostCount
+      : roofCalculation.postCount;
+  final glassCatalogName = result?.glassLines
+      .map((line) => _firstString(line['catalog_name'], line['catalogName']))
+      .whereType<String>()
+      .firstOrNull;
+  final coveringName = glassCatalogName ??
+      _coveringDisplayName(
+        calculatorContext.references['tds_glass_covering'] ?? const [],
+        draft.coveringCode,
+      );
+
+  return _GeometryPreviewRenderData(
+    selectedModel: selectedModel,
+    roofCalculation: roofCalculation,
+    postCount: postCount,
+    coveringName: coveringName,
+  );
+}
+
 class _GeometryPreviewTab extends StatelessWidget {
   const _GeometryPreviewTab({
     required this.draft,
@@ -7551,44 +7672,13 @@ class _GeometryPreviewTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final selectedModel = roofModelState.options
-        .where((option) => option.code == draft.modelCode)
-        .cast<CalculatorOption?>()
-        .firstOrNull;
-    final selectedTemplate = calculatorContext.templates
-        .where((template) => template.id == draft.templateId)
-        .cast<CalculatorTemplateOption?>()
-        .firstOrNull;
-    final localRoofCalculation = calculateRoofGeometryForDraft(
+    final previewData = _geometryPreviewRenderDataFor(
       draft: draft,
-      template: selectedTemplate,
-      model: selectedModel,
+      calculatorContext: calculatorContext,
+      roofModelState: roofModelState,
+      result: result,
     );
-    final serverRoofCalculation = result == null
-        ? null
-        : roofGeometryCalculationFromSources(result!.sources);
-    final hasDraftGeometry = draft.setContents.any(
-      (tab) => tab.moduleWidthMm != null || tab.moduleDepthMm != null,
-    );
-    final roofCalculation = hasDraftGeometry
-        ? localRoofCalculation
-        : (serverRoofCalculation ?? localRoofCalculation);
-    // Keep local module geometry responsive while editing, but use the
-    // authoritative matrix/BOM post quantity when a calculation result exists.
-    final serverPostCount = serverRoofCalculation?.postCount ?? 0;
-    final previewPostCount = serverPostCount > 0
-        ? serverPostCount
-        : roofCalculation.postCount;
     final colorPreview = _colorPreviewDataFor(calculatorContext, draft.colorCode);
-    final glassCatalogName = result?.glassLines
-        .map((line) => _firstString(line['catalog_name'], line['catalogName']))
-        .whereType<String>()
-        .firstOrNull;
-    final coveringName = glassCatalogName ??
-        _coveringDisplayName(
-          calculatorContext.references['tds_glass_covering'] ?? const [],
-          draft.coveringCode,
-        );
     final buyerContact = calculatorContext.buyerContactFor(draft);
     final draftHandoverTypeCode = draft.handoverTypeCode?.trim();
     final savedHandoverTypeCode = (savedInput?['handover_type_code'] ?? savedInput?['handoverTypeCode'])
@@ -7623,15 +7713,15 @@ class _GeometryPreviewTab extends StatelessWidget {
           if (hasModel)
             ModelGeometryPreview(
               modelCode: draft.modelCode,
-              modelLabel: selectedModel?.label,
+              modelLabel: previewData.selectedModel?.label,
               mediaRepository: mediaRepository,
               widthMm: draft.widthMm,
               depthMm: draft.depthMm,
               heightMm: draft.heightMm,
               geometryParams: geometryPreviewParamsFromDraft(draft),
               modules: draft.setContents,
-              moduleRoles: _moduleRolesFor(selectedModel),
-              calculatedModules: roofCalculation.modules,
+              moduleRoles: _moduleRolesFor(previewData.selectedModel),
+              calculatedModules: previewData.roofCalculation.modules,
               calculationNumber: calculationNumber,
               calculationSavedAt: calculationSavedAt,
               buyerName: buyerContact.organizationName,
@@ -7644,9 +7734,9 @@ class _GeometryPreviewTab extends StatelessWidget {
               colorCode: colorPreview?.displayCode,
               colorSwatchColor: colorPreview?.color,
               isSpecialColor: colorPreview != null && !colorPreview.isStandard,
-              coveringName: coveringName,
+              coveringName: previewData.coveringName,
               wallMounted: draft.wallMounted,
-              postCount: previewPostCount,
+              postCount: previewData.postCount,
               quoteNotes: draft.externalNotes,
               warnings: result == null
                   ? const []

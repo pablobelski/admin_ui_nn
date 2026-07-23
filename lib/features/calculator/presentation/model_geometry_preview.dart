@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -12,6 +13,9 @@ import '../../../core/http/admin_resource_repository.dart';
 import '../../../core/ui/media_file_actions.dart';
 import '../data/calculator_models.dart';
 import '../data/roof_geometry_calculation.dart';
+
+const geometryOnlyPreviewWidth = 450;
+const geometryOnlyPreviewHeight = 305;
 
 Rect _geometryPreviewSideRect(Size size, double pad) {
   final targetWidth = math.min(122.0, math.max(104.0, size.width * 0.27));
@@ -1003,6 +1007,77 @@ class _GeometryParamBag {
   static String _normalizeCode(String code) => code.trim().toUpperCase().replaceAll(RegExp(r'[^A-Z0-9]'), '');
 }
 
+Future<Uint8List> renderGeometryOnlyPreviewPng({
+  required String? modelCode,
+  required String? modelLabel,
+  required int? widthMm,
+  required int? depthMm,
+  required int? heightMm,
+  required List<RoofGeometryParam> geometryParams,
+  required String? coveringName,
+  required List<RoofModuleCalculation> calculatedModules,
+  required bool wallMounted,
+  required int postCount,
+  required int? roofAngleDeg,
+  required int? rearHeightMm,
+  required int? frontHeightMm,
+}) async {
+  final recorder = ui.PictureRecorder();
+  final canvas = Canvas(recorder);
+  final size = Size(
+    geometryOnlyPreviewWidth.toDouble(),
+    geometryOnlyPreviewHeight.toDouble(),
+  );
+
+  final painter = _ModelGeometryPreviewPainter(
+    modelCode: modelCode,
+    modelLabel: modelLabel,
+    widthMm: widthMm,
+    depthMm: depthMm,
+    heightMm: heightMm,
+    geometryParams: geometryParams,
+    colorCode: null,
+    colorSwatchColor: null,
+    isSpecialColor: false,
+    coveringName: coveringName,
+    humanImage: null,
+    lineColor: Colors.black,
+    mutedLineColor: const Color(0xFF6F7478),
+    accentColor: Colors.black,
+    surfaceColor: Colors.white,
+    highlightedModuleIndex: null,
+    highlightedGlassFieldIndex: null,
+    roofAngleDeg: roofAngleDeg,
+    rearHeightMm: rearHeightMm,
+    frontHeightMm: frontHeightMm,
+    calculatedModules: calculatedModules,
+    wallMounted: wallMounted,
+    postCount: postCount,
+    sideInfoBottomReserve: 0,
+    geometryOnly: true,
+  );
+  painter.paint(canvas, size);
+
+  final picture = recorder.endRecording();
+  final image = await picture.toImage(
+    geometryOnlyPreviewWidth,
+    geometryOnlyPreviewHeight,
+  );
+  picture.dispose();
+  try {
+    final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+    if (byteData == null) {
+      throw StateError('Geometry-only PNG encoding failed.');
+    }
+    return byteData.buffer.asUint8List(
+      byteData.offsetInBytes,
+      byteData.lengthInBytes,
+    );
+  } finally {
+    image.dispose();
+  }
+}
+
 class _ModelGeometryPreviewPainter extends CustomPainter {
   const _ModelGeometryPreviewPainter({
     required this.modelCode,
@@ -1029,6 +1104,7 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     required this.wallMounted,
     required this.postCount,
     required this.sideInfoBottomReserve,
+    this.geometryOnly = false,
   });
 
   final String? modelCode;
@@ -1055,6 +1131,7 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
   final bool wallMounted;
   final int postCount;
   final double sideInfoBottomReserve;
+  final bool geometryOnly;
 
   static const double _ddx = 0.52;
   static const double _ddy = 0.73;
@@ -1077,17 +1154,25 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     final backgroundPaint = Paint()
       ..color = Color.lerp(surfaceColor, Colors.white, 0.72) ?? surfaceColor
       ..style = PaintingStyle.fill;
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(Offset.zero & size, const Radius.circular(10)),
-      backgroundPaint,
-    );
+    if (geometryOnly) {
+      canvas.drawRect(Offset.zero & size, backgroundPaint);
+    } else {
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(Offset.zero & size, const Radius.circular(10)),
+        backgroundPaint,
+      );
+    }
 
     const pad = 12.0;
     const labelBottom = 22.0;
     const sideGap = 10.0;
     const humanGapMm = 500.0;
-    final sideRect = _previewSideRect(size, pad);
-    _drawPreviewSideBackground(canvas, sideRect);
+    final sideRect = geometryOnly
+        ? Rect.fromLTWH(size.width, pad, 0, size.height - pad * 2)
+        : _previewSideRect(size, pad);
+    if (!geometryOnly) {
+      _drawPreviewSideBackground(canvas, sideRect);
+    }
 
     final projDx = (profile.shape == _RoofShape.lFront ? (profile.mirrorView ? -0.42 : 0.58) : _ddx)
         * _depthProjectionScale;
@@ -1121,8 +1206,15 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
       layout,
       Offset(humanX, humanY),
     );
-    final leftReserveMm = humanGapMm + humanDisplayHeightMm * 0.55;
-    final top = _min(minProjectedY, humanPlan.dy + layout.heightMm - humanDisplayHeightMm);
+    final leftReserveMm = geometryOnly
+        ? 0.0
+        : humanGapMm + humanDisplayHeightMm * 0.55;
+    final top = geometryOnly
+        ? minProjectedY
+        : _min(
+            minProjectedY,
+            humanPlan.dy + layout.heightMm - humanDisplayHeightMm,
+          );
     final bottom = maxProjectedY + layout.heightMm;
     final contentW = leftReserveMm + maxProjectedX - minProjectedX;
     final contentH = bottom - top;
@@ -1130,8 +1222,10 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     // dimension arrows/text and beam strokes) and the separated right inset.
     // The model bounds are in millimetres, but some labels/offsets are drawn
     // directly in pixels, so reserve the margin in the available canvas area.
-    const mainRightGuard = 42.0;
-    final availW = _max(40, sideRect.left - pad - sideGap - mainRightGuard);
+    final mainRightGuard = geometryOnly ? 64.0 : 42.0;
+    final availW = geometryOnly
+        ? _max(40, size.width - pad * 2 - mainRightGuard)
+        : _max(40, sideRect.left - pad - sideGap - mainRightGuard);
     final availH = size.height - pad - labelBottom;
     final k = _min(availW / contentW, availH / contentH);
     final ox = pad + (availW - contentW * k) / 2 + leftReserveMm * k - minProjectedX * k;
@@ -1162,7 +1256,16 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
       ..style = PaintingStyle.fill;
 
     canvas.save();
-    canvas.clipRect(Rect.fromLTWH(0, 0, sideRect.left - sideGap * 0.5, size.height));
+    canvas.clipRect(
+      geometryOnly
+          ? Offset.zero & size
+          : Rect.fromLTWH(
+              0,
+              0,
+              sideRect.left - sideGap * 0.5,
+              size.height,
+            ),
+    );
 
     _drawGroundShadow(canvas, s, layout, shadowPaint);
     _drawWallGuides(canvas, s, layout, guidePaint);
@@ -1182,10 +1285,19 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     _drawRoofEdge(canvas, s, layout.front, layout.heightMm, k, isGutter: true);
     _drawDimensions(canvas, s, params, layout, profile, dimensionPaint);
 
-    _drawHuman(canvas, s(humanX, humanY, 0), humanDisplayHeightMm * k, humanGapMm * k);
+    if (!geometryOnly) {
+      _drawHuman(
+        canvas,
+        s(humanX, humanY, 0),
+        humanDisplayHeightMm * k,
+        humanGapMm * k,
+      );
+    }
     canvas.restore();
 
-    _drawPlanInset(canvas, sideRect, layout, profile, params);
+    if (!geometryOnly) {
+      _drawPlanInset(canvas, sideRect, layout, profile, params);
+    }
   }
 
   _RoofProfile _shapeFromText(String value) {
@@ -2923,6 +3035,7 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
         oldDelegate.calculatedModules != calculatedModules ||
         oldDelegate.wallMounted != wallMounted ||
         oldDelegate.postCount != postCount ||
-        oldDelegate.sideInfoBottomReserve != sideInfoBottomReserve;
+        oldDelegate.sideInfoBottomReserve != sideInfoBottomReserve ||
+        oldDelegate.geometryOnly != geometryOnly;
   }
 }

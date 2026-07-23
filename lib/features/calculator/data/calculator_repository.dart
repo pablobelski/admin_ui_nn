@@ -55,12 +55,26 @@ class CalculatorRepository {
     CalculatorDraft draft, {
     SaveQuoteMode mode = SaveQuoteMode.asNew,
     String? baseQuoteId,
+    String? geometryPreviewFileId,
   }) async {
+    final workspaceInput = draft.toWorkspaceJson();
+    if (geometryPreviewFileId != null && geometryPreviewFileId.isNotEmpty) {
+      workspaceInput['printAssets'] = {
+        'geometryPreview': {
+          'fileId': geometryPreviewFileId,
+          'contentType': 'image/png',
+          'variant': 'geometry_only',
+          'width': 450,
+          'height': 305,
+        },
+      };
+    }
+
     final response = await _client.postJson(
       '/api/internal/calculator/save-quote',
       body: {
         'input': draft.toCalculationJson(),
-        'workspace_input': draft.toWorkspaceJson(),
+        'workspace_input': workspaceInput,
         'mode': mode.apiValue,
         if (baseQuoteId != null && baseQuoteId.isNotEmpty) 'base_quote_id': baseQuoteId,
       },
