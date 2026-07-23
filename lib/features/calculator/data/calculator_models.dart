@@ -1312,7 +1312,9 @@ class SavedQuote {
       id: _string(json['id']),
       quoteNo: _string(json['quote_no'] ?? json['quoteNo']),
       statusCode: _string(json['status_code'] ?? json['statusCode']),
-      createdAt: json['created_at'] == null ? null : _string(json['created_at']),
+      createdAt: _nullableString(
+        json['updated_at'] ?? json['updatedAt'] ?? json['created_at'] ?? json['createdAt'],
+      ),
     );
   }
 
@@ -1335,6 +1337,7 @@ class LoadedQuote {
     this.shipToOrganizationId,
     this.quoteNoExternal,
     this.externalNotes,
+    this.createdAt,
   });
 
   factory LoadedQuote.fromJson(Map<String, dynamic> json) {
@@ -1358,6 +1361,16 @@ class LoadedQuote {
       shipToOrganizationId: _nullableString(quote['ship_to_organization_id'] ?? json['ship_to_organization_id']),
       quoteNoExternal: quoteNoExternal,
       externalNotes: externalNotes,
+      createdAt: _nullableString(
+        quote['updated_at'] ??
+            quote['updatedAt'] ??
+            json['updated_at'] ??
+            json['updatedAt'] ??
+            quote['created_at'] ??
+            quote['createdAt'] ??
+            json['created_at'] ??
+            json['createdAt'],
+      ),
     );
   }
 
@@ -1372,6 +1385,7 @@ class LoadedQuote {
   final String? shipToOrganizationId;
   final String? quoteNoExternal;
   final String? externalNotes;
+  final String? createdAt;
 
   Map<String, dynamic> get normalizedInput => CalculatorDraft.fromCalculationJson(
         input,

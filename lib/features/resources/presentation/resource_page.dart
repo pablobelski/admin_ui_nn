@@ -1730,6 +1730,9 @@ class _SavedQuoteGeometryPreviewTab extends StatelessWidget {
             moduleRoles: moduleRoles,
             calculatedModules: roofCalculation?.modules ?? const [],
             calculationNumber: quoteNo,
+            calculationSavedAt:
+                _quoteTextField(data, 'updated_at', 'updatedAt') ??
+                _quoteTextField(data, 'created_at', 'createdAt'),
             buyerName: buyerContact.organizationName,
             buyerContactName: buyerContact.contactName,
             buyerEmail: buyerContact.email,

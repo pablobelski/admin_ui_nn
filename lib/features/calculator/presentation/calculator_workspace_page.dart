@@ -895,6 +895,15 @@ class _StepCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final step = _steps[selectedStep];
+    final result = ref.watch(calculatorResultProvider).asData?.value;
+    final setContentsPreview = step.key == 'set_contents'
+        ? ref.watch(calculatorSetContentsProvider).asData?.value
+        : null;
+    final warningMessages = _calculatorWarningMessagesByStep(
+      draft: draft,
+      result: result,
+      setContentsPreview: setContentsPreview,
+    )[step.key] ?? const [];
     return Card(
       clipBehavior: Clip.antiAlias,
       child: Column(
@@ -906,7 +915,19 @@ class _StepCard extends ConsumerWidget {
               children: [
                 Icon(step.icon, color: Theme.of(context).colorScheme.primary),
                 const SizedBox(width: 12),
-                Expanded(child: Text(step.title, style: Theme.of(context).textTheme.titleLarge)),
+                Expanded(
+                  child: Text(
+                    step.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                ),
+                if (warningMessages.isNotEmpty) ...[
+                  const SizedBox(width: 12),
+                  _WarningsDropdown(messages: warningMessages),
+                  const SizedBox(width: 12),
+                ],
                 Text('${selectedStep + 1}/${_steps.length}', style: Theme.of(context).textTheme.labelLarge),
               ],
             ),
@@ -2308,7 +2329,7 @@ class _SetContentModuleDimensionsEditor extends StatelessWidget {
             ),
           ]
         : draft.setContents;
-    final warnings = _warningsFor(tabs);
+    final warnings = _moduleDimensionWarningMessages(draft, tabs: tabs);
 
     return Card(
       margin: EdgeInsets.zero,
@@ -2511,26 +2532,42 @@ class _SetContentModuleDimensionsEditor extends StatelessWidget {
     return null;
   }
 
-  List<String> _warningsFor(List<CalculatorSetContentTab> tabs) {
-    final warnings = <String>[];
-    for (var i = 0; i < tabs.length; i++) {
-      final tab = tabs[i];
-      final label = _moduleDisplayLabel(tab.moduleRole, i + 1);
-      if (draft.widthMm != null && tab.moduleWidthMm != null && tab.moduleWidthMm! > draft.widthMm!) {
-        warnings.add('$label: width ${_formatLengthMm(tab.moduleWidthMm)} is greater than main width ${_formatLengthMm(draft.widthMm)}.');
-      }
-    }
+}
 
-    final widthValues = tabs.map((tab) => tab.moduleWidthMm).whereType<int>().toList(growable: false);
-    if (draft.widthMm != null && widthValues.length == tabs.length && widthValues.length > 1) {
-      final sum = widthValues.fold<int>(0, (total, value) => total + value);
-      if (sum != draft.widthMm!) {
-        warnings.add('Sum of module widths ${_formatLengthMm(sum)} must equal main width ${_formatLengthMm(draft.widthMm)}.');
-      }
+List<String> _moduleDimensionWarningMessages(
+  CalculatorDraft draft, {
+  List<CalculatorSetContentTab>? tabs,
+}) {
+  final moduleTabs = tabs ?? draft.setContents;
+  final warnings = <String>[];
+  for (var i = 0; i < moduleTabs.length; i++) {
+    final tab = moduleTabs[i];
+    final label = _moduleDisplayLabel(tab.moduleRole, i + 1);
+    if (draft.widthMm != null &&
+        tab.moduleWidthMm != null &&
+        tab.moduleWidthMm! > draft.widthMm!) {
+      warnings.add(
+        '$label: width ${_formatLengthMm(tab.moduleWidthMm)} is greater than main width ${_formatLengthMm(draft.widthMm)}.',
+      );
     }
-
-    return warnings;
   }
+
+  final widthValues = moduleTabs
+      .map((tab) => tab.moduleWidthMm)
+      .whereType<int>()
+      .toList(growable: false);
+  if (draft.widthMm != null &&
+      widthValues.length == moduleTabs.length &&
+      widthValues.length > 1) {
+    final sum = widthValues.fold<int>(0, (total, value) => total + value);
+    if (sum != draft.widthMm!) {
+      warnings.add(
+        'Sum of module widths ${_formatLengthMm(sum)} must equal main width ${_formatLengthMm(draft.widthMm)}.',
+      );
+    }
+  }
+
+  return warnings;
 }
 
 
@@ -7234,6 +7271,7 @@ class _ResultPanel extends StatelessWidget {
                                   mediaRepository: mediaRepository,
                                   savedInput: loadedQuote?.input,
                                   calculationNumber: calculationNumber,
+                                  calculationSavedAt: savedQuote?.createdAt ?? loadedQuote?.createdAt,
                                   highlightedModuleIndex: highlightedModuleIndex,
                                   highlightedGlassFieldIndex: highlightedGlassFieldIndex,
                                 ),
@@ -7274,6 +7312,7 @@ class _ResultPanel extends StatelessWidget {
                         padding: const EdgeInsets.fromLTRB(18, 16, 18, 8),
                         child: _PriceHeader(
                           result: result,
+                          draft: draft,
                           calculationNumber: calculationNumber ?? 'new quote',
                           isCalculationSaved: isCalculationSaved,
                           needsRecalculation: needsRecalculation,
@@ -7304,6 +7343,7 @@ class _ResultPanel extends StatelessWidget {
                                   result: result,
                                   savedInput: loadedQuote?.input,
                                   calculationNumber: calculationNumber,
+                                  calculationSavedAt: savedQuote?.createdAt ?? loadedQuote?.createdAt,
                                   highlightedModuleIndex: highlightedModuleIndex,
                                   highlightedGlassFieldIndex: highlightedGlassFieldIndex,
                                 ),
@@ -7383,6 +7423,7 @@ class _ResultPanel extends StatelessWidget {
                             roofModelState: roofModelState,
                             mediaRepository: mediaRepository,
                             calculationNumber: calculationNumber,
+                            calculationSavedAt: savedQuote?.createdAt ?? loadedQuote?.createdAt,
                             highlightedModuleIndex: highlightedModuleIndex,
                             highlightedGlassFieldIndex: highlightedGlassFieldIndex,
                           ),
@@ -7493,6 +7534,7 @@ class _GeometryPreviewTab extends StatelessWidget {
     this.result,
     this.savedInput,
     this.calculationNumber,
+    this.calculationSavedAt,
     this.highlightedModuleIndex,
     this.highlightedGlassFieldIndex,
   });
@@ -7504,6 +7546,7 @@ class _GeometryPreviewTab extends StatelessWidget {
   final CalculatorResult? result;
   final Map<String, dynamic>? savedInput;
   final String? calculationNumber;
+  final String? calculationSavedAt;
   final int? highlightedModuleIndex;
   final int? highlightedGlassFieldIndex;
 
@@ -7591,6 +7634,7 @@ class _GeometryPreviewTab extends StatelessWidget {
               moduleRoles: _moduleRolesFor(selectedModel),
               calculatedModules: roofCalculation.modules,
               calculationNumber: calculationNumber,
+              calculationSavedAt: calculationSavedAt,
               buyerName: buyerContact.organizationName,
               buyerContactName: buyerContact.contactName,
               buyerEmail: buyerContact.email,
@@ -7607,7 +7651,12 @@ class _GeometryPreviewTab extends StatelessWidget {
               quoteNotes: draft.externalNotes,
               warnings: result == null
                   ? const []
-                  : _resultWarningMessages(result!),
+                  : _flattenWarningMessages(
+                      _calculatorWarningMessagesByStep(
+                        draft: draft,
+                        result: result,
+                      ),
+                    ),
               highlightedModuleIndex: highlightedModuleIndex,
               highlightedGlassFieldIndex: highlightedGlassFieldIndex,
               roofAngleDeg: draft.roofAngleDeg,
@@ -8003,38 +8052,169 @@ class _SaveQuoteModeDialog extends StatelessWidget {
   }
 }
 
-List<String> _resultWarningMessages(CalculatorResult result) {
-  final missingOptionPriceCount = result.optionDiagnostics
-      .where((row) => row['price_found'] == false)
-      .length;
-  final nonOptionWarnings = result.warnings.where((warning) {
-    final code = '${warning['code'] ?? ''}';
-    return !code.startsWith('option_');
-  }).toList(growable: false);
+void _addWarningMessage(
+  Map<String, List<String>> grouped,
+  String stepKey,
+  Object? message,
+) {
+  final text = message?.toString().trim() ?? '';
+  if (text.isEmpty) return;
+  final messages = grouped.putIfAbsent(stepKey, () => <String>[]);
+  if (!messages.contains(text)) messages.add(text);
+}
+
+String _warningStepKey(Map<String, dynamic> warning) {
+  final explicitStep = '${warning['step_key'] ?? warning['step'] ?? ''}'
+      .trim()
+      .toLowerCase()
+      .replaceAll(RegExp(r'[\s-]+'), '_');
+  if (_steps.any((step) => step.key == explicitStep)) return explicitStep;
+
+  final code = '${warning['code'] ?? ''}'.trim().toLowerCase();
+  if (code.startsWith('option_') ||
+      code.startsWith('additional_handling_')) {
+    return 'options';
+  }
+  if (code.startsWith('glass_') || code.contains('covering')) {
+    return 'covering';
+  }
+  if (code.startsWith('special_color_') || code.contains('colour')) {
+    return 'color';
+  }
+  if (code.contains('derived_accessor')) return 'accessory';
+  if (code.contains('set_') ||
+      code.contains('abzug') ||
+      code.contains('manual_component')) {
+    return 'set_contents';
+  }
+  if (code.startsWith('roof_') ||
+      code.contains('matrix') ||
+      code.contains('dimension') ||
+      code.contains('profile_length')) {
+    return 'dimensions';
+  }
+  return 'summary';
+}
+
+Map<String, List<String>> _calculatorWarningMessagesByStep({
+  required CalculatorDraft draft,
+  CalculatorResult? result,
+  CalculatorSetContentsPreview? setContentsPreview,
+}) {
+  final grouped = <String, List<String>>{};
+
+  for (final message in _moduleDimensionWarningMessages(draft)) {
+    _addWarningMessage(grouped, 'dimensions', message);
+  }
+
+  for (final warning in setContentsPreview?.warnings ?? const []) {
+    _addWarningMessage(
+      grouped,
+      _warningStepKey(warning),
+      warning['message'] ?? warning['code'],
+    );
+  }
+
+  if (result == null) return grouped;
+
+  for (final warning in result.warnings) {
+    final code = '${warning['code'] ?? ''}'.trim().toLowerCase();
+    // Option warnings are routed more accurately through their existing
+    // per-section diagnostics below.
+    if (code.startsWith('option_')) continue;
+    _addWarningMessage(
+      grouped,
+      _warningStepKey(warning),
+      warning['message'] ?? warning['code'],
+    );
+  }
+
+  void addDiagnosticWarnings(
+    String stepKey,
+    List<Map<String, dynamic>> diagnostics,
+  ) {
+    for (final row in diagnostics) {
+      final warning = '${row['warning'] ?? ''}'.trim();
+      if (warning.isNotEmpty) {
+        _addWarningMessage(grouped, stepKey, warning);
+      } else if (row['price_found'] == false) {
+        final label =
+            '${row['name'] ?? row['article_no'] ?? row['option_code'] ?? 'Position'}'
+                .trim();
+        _addWarningMessage(
+          grouped,
+          stepKey,
+          '$label has no configured price.',
+        );
+      }
+    }
+  }
+
+  addDiagnosticWarnings(
+    'set_contents',
+    result.setDeltaDiagnostics,
+  );
+  addDiagnosticWarnings(
+    'set_contents',
+    result.manualComponentDiagnostics,
+  );
+  addDiagnosticWarnings(
+    'accessory',
+    result.derivedAccessoryDiagnostics,
+  );
+  addDiagnosticWarnings(
+    'options',
+    result.optionDiagnostics,
+  );
+
   final missingWeightItems =
       (result.weights['missing_weight_items'] as List? ?? const [])
           .map((item) => '$item'.trim())
           .where((item) => item.isNotEmpty)
           .toList(growable: false);
-  return [
-    if (missingOptionPriceCount > 0)
-      '$missingOptionPriceCount selected option(s) have no configured price. See Options tab.',
-    for (final warning in nonOptionWarnings)
-      '${warning['message'] ?? warning['code']}',
-    if (missingWeightItems.isNotEmpty)
+  if (missingWeightItems.isNotEmpty) {
+    _addWarningMessage(
+      grouped,
+      'summary',
       'Weight is partial. Missing catalog weight data: ${missingWeightItems.join(', ')}',
-  ];
+    );
+  }
+
+  return grouped;
+}
+
+List<String> _flattenWarningMessages(
+  Map<String, List<String>> grouped,
+) {
+  final messages = <String>[];
+  final seen = <String>{};
+
+  void addStep(String stepKey) {
+    for (final message in grouped[stepKey] ?? const []) {
+      if (seen.add(message)) messages.add(message);
+    }
+  }
+
+  for (final step in _steps) {
+    addStep(step.key);
+  }
+  for (final stepKey in grouped.keys) {
+    if (!_steps.any((step) => step.key == stepKey)) addStep(stepKey);
+  }
+  return messages;
 }
 
 class _PriceHeader extends StatelessWidget {
   const _PriceHeader({
     required this.result,
+    required this.draft,
     required this.calculationNumber,
     required this.isCalculationSaved,
     required this.needsRecalculation,
   });
 
   final CalculatorResult result;
+  final CalculatorDraft draft;
   final String calculationNumber;
   final bool isCalculationSaved;
   final bool needsRecalculation;
@@ -8090,9 +8270,12 @@ class _PriceHeader extends StatelessWidget {
     final nonGlassWeight = _weightValue(result.weights, 'set_kg')
         + _weightValue(result.weights, 'accessories_kg')
         + _weightValue(result.weights, 'options_kg');
-    final warningMessages = _resultWarningMessages(result)
-        .map((message) => '⚠ $message')
-        .toList(growable: false);
+    final warningMessages = _flattenWarningMessages(
+      _calculatorWarningMessagesByStep(
+        draft: draft,
+        result: result,
+      ),
+    );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -8177,7 +8360,7 @@ class _PriceHeader extends StatelessWidget {
         ],
         if (warningMessages.isNotEmpty) ...[
           const SizedBox(height: 10),
-          _ScrollableWarningText(messages: warningMessages),
+          _WarningsDropdown(messages: warningMessages),
         ],
       ],
     );
@@ -8185,39 +8368,89 @@ class _PriceHeader extends StatelessWidget {
 }
 
 
-class _ScrollableWarningText extends StatefulWidget {
-  const _ScrollableWarningText({required this.messages});
+class _WarningsDropdown extends StatelessWidget {
+  const _WarningsDropdown({required this.messages});
 
   final List<String> messages;
 
   @override
-  State<_ScrollableWarningText> createState() => _ScrollableWarningTextState();
-}
-
-class _ScrollableWarningTextState extends State<_ScrollableWarningText> {
-  final ScrollController _controller = ScrollController();
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    return ConstrainedBox(
-      constraints: const BoxConstraints(maxHeight: 92),
-      child: Scrollbar(
-        controller: _controller,
-        thumbVisibility: true,
-        child: SingleChildScrollView(
-          controller: _controller,
-          padding: const EdgeInsets.only(right: 12),
-          child: SelectionArea(
-            child: Text(
-              widget.messages.join('\n'),
-              style: TextStyle(color: Theme.of(context).colorScheme.error),
+    final colorScheme = Theme.of(context).colorScheme;
+    return PopupMenuButton<void>(
+      tooltip: 'Show warnings',
+      position: PopupMenuPosition.under,
+      padding: EdgeInsets.zero,
+      borderRadius: BorderRadius.circular(8),
+      constraints: const BoxConstraints(
+        minWidth: 260,
+        maxWidth: 480,
+      ),
+      itemBuilder: (context) => [
+        for (final message in messages)
+          PopupMenuItem<void>(
+            enabled: false,
+            height: 0,
+            padding: EdgeInsets.zero,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 14,
+                vertical: 9,
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    Icons.warning_amber_rounded,
+                    size: 18,
+                    color: colorScheme.error,
+                  ),
+                  const SizedBox(width: 9),
+                  Expanded(
+                    child: SelectionArea(
+                      child: Text(
+                        message,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: colorScheme.onSurface,
+                            ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
+          ),
+      ],
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: colorScheme.errorContainer.withValues(alpha: 0.55),
+          border: Border.all(color: colorScheme.error.withValues(alpha: 0.5)),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.warning_amber_rounded,
+                size: 17,
+                color: colorScheme.error,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                'Warnings: ${messages.length}',
+                style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                      color: colorScheme.onErrorContainer,
+                      fontWeight: FontWeight.w600,
+                    ),
+              ),
+              const SizedBox(width: 3),
+              Icon(
+                Icons.arrow_drop_down,
+                size: 18,
+                color: colorScheme.onErrorContainer,
+              ),
+            ],
           ),
         ),
       ),

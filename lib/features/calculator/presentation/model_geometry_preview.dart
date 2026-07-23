@@ -45,6 +45,7 @@ class ModelGeometryPreview extends ConsumerStatefulWidget {
     this.moduleRoles = const [],
     this.calculatedModules = const [],
     this.calculationNumber,
+    this.calculationSavedAt,
     this.buyerName,
     this.buyerContactName,
     this.buyerEmail,
@@ -78,6 +79,7 @@ class ModelGeometryPreview extends ConsumerStatefulWidget {
   final List<String> moduleRoles;
   final List<RoofModuleCalculation> calculatedModules;
   final String? calculationNumber;
+  final String? calculationSavedAt;
   final String? buyerName;
   final String? buyerContactName;
   final String? buyerEmail;
@@ -198,7 +200,11 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
     return code != null && code.isNotEmpty ? code : 'No model selected';
   }
 
-  Widget _buildGeometryCanvas(ColorScheme colorScheme, {bool clearHighlight = false}) {
+  Widget _buildGeometryCanvas(
+    ColorScheme colorScheme, {
+    bool clearHighlight = false,
+    double sideInfoBottomReserve = 0.0,
+  }) {
     return FutureBuilder<ui.Image?>(
       future: _humanImageFuture,
       builder: (context, snapshot) {
@@ -227,6 +233,7 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
             calculatedModules: widget.calculatedModules,
             wallMounted: widget.wallMounted,
             postCount: widget.postCount,
+            sideInfoBottomReserve: sideInfoBottomReserve,
           ),
         );
       },
@@ -341,12 +348,16 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
                                             72.0,
                                             sideRect.width - 16.0,
                                           );
+                                          final hasQr = calculationNumber != null &&
+                                              calculationNumber.isNotEmpty;
                                           return Stack(
                                             fit: StackFit.expand,
                                             children: [
                                               _buildGeometryCanvas(
                                                 colorScheme,
                                                 clearHighlight: true,
+                                                sideInfoBottomReserve:
+                                                    hasQr ? qrSize + 16 : 0.0,
                                               ),
                                               Positioned(
                                                 left: 12,
@@ -377,7 +388,7 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
                                                     ),
                                                     const SizedBox(width: 16),
                                                     Text(
-                                                      'Date: ${_displayDate(exportDate)}',
+                                                      'Date: ${_displaySavedDate(widget.calculationSavedAt)}',
                                                       maxLines: 1,
                                                       style: Theme.of(
                                                         dialogContext,
@@ -495,8 +506,7 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
                                                     ],
                                                   ),
                                                 ),
-                                              if (calculationNumber != null &&
-                                                  calculationNumber.isNotEmpty)
+                                              if (hasQr)
                                                 Positioned(
                                                   left: sideRect.left +
                                                       (sideRect.width - qrSize) /
@@ -505,7 +515,7 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
                                                       sideRect.bottom +
                                                       8,
                                                   child: QrImageView(
-                                                    data: calculationNumber,
+                                                    data: calculationNumber!,
                                                     version: QrVersions.auto,
                                                     size: qrSize,
                                                     padding:
@@ -628,9 +638,16 @@ class _ExpandedPreviewInfo extends StatelessWidget {
         .join(' · ');
     double weight(String key) => (weights[key] as num?)?.toDouble() ?? 0;
     bool complete(String key) => weights[key] is bool ? weights[key] as bool : true;
-    String weightText(String valueKey, String completeKey) => complete(completeKey)
-        ? '${weight(valueKey).toStringAsFixed(1)} kg'
-        : '—';
+    String weightText(String valueKey, String completeKey) {
+      if (weights.isEmpty) return '—';
+      return '${weight(valueKey).toStringAsFixed(1)} kg${complete(completeKey) ? '' : '*'}';
+    }
+
+    final nonGlassComplete = complete('set_complete')
+        && complete('accessories_complete')
+        && complete('options_complete');
+    final nonGlassWeight =
+        weight('set_kg') + weight('accessories_kg') + weight('options_kg');
     final totalGlassCount = calculatedModules.fold<int>(
       0,
       (sum, module) => sum + module.glassCount,
@@ -691,13 +708,12 @@ class _ExpandedPreviewInfo extends StatelessWidget {
                   if (completionWeek != null) 'Fertigst. KW $completionWeek',
                 ].join(' · '),
               ),
-            if (weights.isNotEmpty)
-              _PreviewMetadataRow(
-                label: 'Gewicht',
-                value: '${complete('set_complete') && complete('accessories_complete') && complete('options_complete') ? '${(weight('set_kg') + weight('accessories_kg') + weight('options_kg')).toStringAsFixed(1)} kg' : '—'} / '
-                    'Glas: ${weightText('glass_kg', 'glass_complete')} / '
-                    'Gesamt: ${weightText('total_kg', 'total_complete')}',
-              ),
+            _PreviewMetadataRow(
+              label: 'Gewicht',
+              value: '${weights.isEmpty ? '—' : '${nonGlassWeight.toStringAsFixed(1)} kg${nonGlassComplete ? '' : '*'}'} / '
+                  'Glas: ${weightText('glass_kg', 'glass_complete')} / '
+                  'Gesamt: ${weightText('total_kg', 'total_complete')}',
+            ),
             _PreviewMetadataRow(
               label: 'Overall dimensions',
               value: 'B: ${_dimensionValue(widthMm)} mm × T: ${_dimensionValue(depthMm)} mm × H: ${_dimensionValue(heightMm)} mm',
@@ -830,8 +846,16 @@ String _expandedKommissionLabel(String? value) {
 }
 
 String _displayDate(DateTime value) {
+  final local = value.toLocal();
   String two(int item) => item.toString().padLeft(2, '0');
-  return '${two(value.day)}.${two(value.month)}.${value.year} ${two(value.hour)}:${two(value.minute)}';
+  return '${two(local.day)}.${two(local.month)}.${local.year} ${two(local.hour)}:${two(local.minute)}';
+}
+
+String _displaySavedDate(String? value) {
+  final normalized = value?.trim();
+  if (normalized == null || normalized.isEmpty) return '—';
+  final parsed = DateTime.tryParse(normalized);
+  return parsed == null ? normalized : _displayDate(parsed);
 }
 
 String _fileDate(DateTime value) {
@@ -1004,6 +1028,7 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     required this.calculatedModules,
     required this.wallMounted,
     required this.postCount,
+    required this.sideInfoBottomReserve,
   });
 
   final String? modelCode;
@@ -1029,6 +1054,7 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
   final List<RoofModuleCalculation> calculatedModules;
   final bool wallMounted;
   final int postCount;
+  final double sideInfoBottomReserve;
 
   static const double _ddx = 0.52;
   static const double _ddy = 0.73;
@@ -1039,6 +1065,8 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
   static const double _defaultHeightMm = 2500;
   static const double _humanMm = 1800;
   static const double _depthDimensionOffsetScale = 1 / 3;
+  static const double _sideInfoMaxGap = 14;
+  static const double _sideInfoFontSize = 10.5;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -1992,7 +2020,68 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
 
   void _drawPlanInset(Canvas canvas, Rect sideRect, _RoofLayout layout, _RoofProfile profile, _GeometryParamBag params) {
     final insetWidth = _min(86, _max(48, sideRect.width - 18));
-    final insetHeight = _min(68, _max(42, sideRect.height * 0.26));
+    final code = colorCode?.trim();
+    final hasColor = code != null && code.isNotEmpty;
+    final depth = depthMm;
+    final angle = roofAngleDeg;
+    final rearHeight = rearHeightMm;
+    final frontHeight = frontHeightMm;
+    final hasSlope = depth != null &&
+        depth > 0 &&
+        angle != null &&
+        angle >= 0 &&
+        rearHeight != null &&
+        rearHeight > 0 &&
+        frontHeight != null &&
+        frontHeight > 0 &&
+        frontHeight <= rearHeight;
+
+    const heightBlockHeight = 28.0;
+    const countsBlockHeight = 28.0;
+    final colorBlockHeight = hasColor ? 30.0 + (isSpecialColor ? 24.0 : 0.0) : 0.0;
+    final infoHeight = _min(
+      240.0,
+      _max(0.0, sideRect.height - sideInfoBottomReserve),
+    );
+    if (infoHeight <= 0) return;
+
+    var insetHeight = _min(58, _max(34, infoHeight * 0.24));
+    var slopeBlockHeight = hasSlope ? 52.0 : 0.0;
+    final blockCount = 3 + (hasColor ? 1 : 0) + (hasSlope ? 1 : 0);
+    final gapCount = blockCount - 1;
+    const minimumGap = 3.0;
+    final fixedBlockHeight =
+        heightBlockHeight + colorBlockHeight + countsBlockHeight;
+    final availableFlexibleHeight = _max(
+      0.0,
+      infoHeight - fixedBlockHeight - gapCount * minimumGap,
+    );
+    final flexibleHeight = insetHeight + slopeBlockHeight;
+    if (flexibleHeight > availableFlexibleHeight) {
+      final insetRoom = _max(0.0, insetHeight - 34);
+      final slopeRoom = _max(
+        0.0,
+        slopeBlockHeight - (hasSlope ? 32.0 : 0.0),
+      );
+      final room = insetRoom + slopeRoom;
+      if (room > 0) {
+        final reduction = _min(
+          1.0,
+          (flexibleHeight - availableFlexibleHeight) / room,
+        );
+        insetHeight -= insetRoom * reduction;
+        slopeBlockHeight -= slopeRoom * reduction;
+      }
+    }
+    final totalBlockHeight =
+        fixedBlockHeight + insetHeight + slopeBlockHeight;
+    final blockGap = gapCount > 0
+        ? _min(
+            _sideInfoMaxGap,
+            _max(0.0, (infoHeight - totalBlockHeight) / gapCount),
+          )
+        : 0.0;
+
     final rect = Rect.fromLTWH(
       sideRect.left + (sideRect.width - insetWidth) / 2,
       sideRect.top,
@@ -2039,19 +2128,53 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
       final b = p(Offset(x, _yAt(layout.back, x)));
       canvas.drawLine(a, b, beamPaint);
     }
-    const insetTextGap = 14.0;
-    final hCenter = Offset(rect.center.dx, rect.bottom + insetTextGap);
+
+    var blockTop = rect.bottom + blockGap;
+    final ukwHeight = params.intValue('H') ?? heightMm;
     _drawText(
       canvas,
-      _paramEqualsText(params, 'H', heightMm),
-      hCenter,
+      'Höhe UKW:',
+      Offset(rect.center.dx, blockTop + 7),
       lineColor,
-      10.5,
+      _sideInfoFontSize,
       isBold: true,
       hAlign: 0.5,
     );
-    final colorBottom = _drawColorInset(canvas, rect, hCenter.dy + insetTextGap);
-    _drawSlopeInset(canvas, sideRect, colorBottom + 6);
+    _drawText(
+      canvas,
+      '${_dimensionValue(ukwHeight)} mm',
+      Offset(rect.center.dx, blockTop + 21),
+      lineColor,
+      _sideInfoFontSize,
+      isBold: true,
+      hAlign: 0.5,
+    );
+    blockTop += heightBlockHeight + blockGap;
+
+    if (hasColor) {
+      blockTop = _drawColorInset(canvas, rect, blockTop) + blockGap;
+    }
+    if (hasSlope) {
+      _drawSlopeInset(
+        canvas,
+        Rect.fromLTWH(
+          sideRect.left,
+          blockTop,
+          sideRect.width,
+          slopeBlockHeight,
+        ),
+      );
+      blockTop += slopeBlockHeight + blockGap;
+    }
+    _drawSetContentInset(
+      canvas,
+      Rect.fromLTWH(
+        sideRect.left,
+        blockTop,
+        sideRect.width,
+        countsBlockHeight,
+      ),
+    );
   }
 
   double _drawColorInset(Canvas canvas, Rect planRect, double top) {
@@ -2084,7 +2207,15 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
         ..strokeWidth = 0.8,
     );
 
-    _drawText(canvas, code, tileRect.center, foreground, 11.0, isBold: true, hAlign: 0.5);
+    _drawText(
+      canvas,
+      code,
+      tileRect.center,
+      foreground,
+      _sideInfoFontSize,
+      isBold: true,
+      hAlign: 0.5,
+    );
     if (!isSpecialColor) return tileRect.bottom;
 
     const warningHeight = 18.0;
@@ -2122,7 +2253,7 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     return tileRect.bottom + 6 + warningHeight;
   }
 
-  void _drawSlopeInset(Canvas canvas, Rect sideRect, double top) {
+  void _drawSlopeInset(Canvas canvas, Rect blockRect) {
     final depth = depthMm;
     final angle = roofAngleDeg;
     final rearHeight = rearHeightMm;
@@ -2140,20 +2271,18 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     }
 
     final heightDifference = rearHeight - frontHeight;
-    final availableWidth = _max(36, sideRect.width - 24);
-    final availableHeight = sideRect.bottom - top - 24;
-    if (availableHeight < 28) return;
+    final availableWidth = _max(36, blockRect.width - 24);
+    if (blockRect.height < 28) return;
 
-    final maxRiseHeight = _min(54, _max(12, availableHeight - 50));
+    final maxRiseHeight = _min(54, _max(3, blockRect.height - 24));
     final geometryScale = _min(
       availableWidth / depth,
       heightDifference > 0 ? maxRiseHeight / heightDifference : availableWidth / depth,
     );
     final baseLength = depth * geometryScale;
     final rise = heightDifference * geometryScale;
-    final triangleTop = top + 16;
-    final bottom = triangleTop + _max(rise, 3);
-    final left = sideRect.center.dx - baseLength / 2;
+    final bottom = blockRect.bottom - 13;
+    final left = blockRect.center.dx - baseLength / 2;
     final leftBottom = Offset(left, bottom);
     final rightBottom = Offset(left + baseLength, bottom);
     final rightTop = Offset(rightBottom.dx, bottom - rise);
@@ -2213,6 +2342,9 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
       isBold: true,
       hAlign: 1,
     );
+  }
+
+  void _drawSetContentInset(Canvas canvas, Rect blockRect) {
     final totalBeamCount = calculatedModules.fold<int>(
       0,
       (sum, module) => sum + module.beamCount,
@@ -2220,18 +2352,18 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     _drawText(
       canvas,
       'Pfosten: $postCount stk.',
-      Offset(sideRect.center.dx, bottom + 25),
+      Offset(blockRect.center.dx, blockRect.top + 7),
       lineColor,
-      9.0,
+      _sideInfoFontSize,
       isBold: true,
       hAlign: 0.5,
     );
     _drawText(
       canvas,
       'Träger: $totalBeamCount stk.',
-      Offset(sideRect.center.dx, bottom + 39),
+      Offset(blockRect.center.dx, blockRect.top + 21),
       lineColor,
-      9.0,
+      _sideInfoFontSize,
       isBold: true,
       hAlign: 0.5,
     );
@@ -2240,11 +2372,6 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
   String _paramText(_GeometryParamBag params, String code, int? fallback) {
     final value = params.intValue(code) ?? fallback;
     return value == null || value <= 0 ? code : '$code $value';
-  }
-
-  String _paramEqualsText(_GeometryParamBag params, String code, int? fallback) {
-    final value = params.intValue(code) ?? fallback;
-    return value == null || value <= 0 ? code : '$code: $value mm';
   }
 
   bool _isWidthDimensionCode(String code) {
@@ -2795,6 +2922,7 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
         oldDelegate.frontHeightMm != frontHeightMm ||
         oldDelegate.calculatedModules != calculatedModules ||
         oldDelegate.wallMounted != wallMounted ||
-        oldDelegate.postCount != postCount;
+        oldDelegate.postCount != postCount ||
+        oldDelegate.sideInfoBottomReserve != sideInfoBottomReserve;
   }
 }
