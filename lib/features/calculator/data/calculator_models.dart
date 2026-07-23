@@ -1245,7 +1245,7 @@ class CalculatorResult {
       status: _string(json['status']),
       currency: _string(json['currency']),
       price: _map(json['price']),
-      visibleLines: _list(json['visibleLines']),
+      visibleLines: _list(_visibleLineItems(json['visibleLines'])),
       summary: _list(json['summary']),
       warnings: _list(json['warnings']),
       weights: _map(json['weights']),
@@ -1264,7 +1264,11 @@ class CalculatorResult {
       derivedAccessoryDiagnostics: _list(json['derivedAccessoryDiagnostics'] ?? json['derived_accessory_diagnostics']),
       manualComponentDiagnostics: _list(json['manualComponentDiagnostics'] ?? json['manual_component_diagnostics']),
       setDeltaDiagnostics: _list(json['setDeltaDiagnostics'] ?? json['set_delta_diagnostics']),
-      optionDiagnostics: _list(json['optionDiagnostics'] ?? json['option_diagnostics']),
+      optionDiagnostics: _list(
+        _diagnosticItems(
+          json['optionDiagnostics'] ?? json['option_diagnostics'],
+        ),
+      ),
       setContentDiagnostics: _list(json['setContentDiagnostics'] ?? json['set_content_diagnostics']),
       trace: _list(json['trace']),
       raw: json,
@@ -1483,6 +1487,16 @@ List<Map<String, dynamic>> _list(dynamic value) {
     return value.whereType<Map>().map((entry) => Map<String, dynamic>.from(entry)).toList();
   }
   return const [];
+}
+
+dynamic _visibleLineItems(dynamic value) {
+  if (value is Map) return value['items'];
+  return value;
+}
+
+dynamic _diagnosticItems(dynamic value) {
+  if (value is Map) return value['items'];
+  return value;
 }
 
 Map<String, dynamic> _map(dynamic value) {

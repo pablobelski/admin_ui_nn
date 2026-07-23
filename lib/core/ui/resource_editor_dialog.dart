@@ -620,11 +620,18 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
     if (ref == null || widget.repository == null) return;
 
     try {
-      final response = await widget.repository!.downloadMediaFile(ref.fileId);
-      downloadMediaBytes(
-        response.bytes,
-        filename: response.filename ?? ref.label,
-        contentType: response.contentType,
+      final media = await widget.repository!.fetchMediaFileUrl(ref.fileId);
+      final url = media['download_url']?.toString().trim() ?? '';
+      if (url.isEmpty) {
+        throw StateError('File download URL is empty');
+      }
+      final file = media['file'];
+      final filename = file is Map
+          ? file['original_filename']?.toString().trim()
+          : null;
+      downloadMediaUrl(
+        url,
+        filename: filename == null || filename.isEmpty ? ref.label : filename,
       );
     } catch (error) {
       if (!mounted) return;

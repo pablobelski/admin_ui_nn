@@ -100,7 +100,8 @@ class _MediaPreviewCard extends StatelessWidget {
 
         final data = snapshot.data ?? const <String, dynamic>{};
         final file = Map<String, dynamic>.from((data['file'] as Map?) ?? const <String, dynamic>{});
-        final url = repository.mediaFileViewUrl(ref.fileId);
+        final url = data['url']?.toString().trim() ?? '';
+        final downloadUrl = data['download_url']?.toString().trim() ?? '';
         final filename = file['original_filename']?.toString() ?? ref.fileId;
         final mimeType = file['mime_type']?.toString() ?? '';
         final sizeText = _sizeText(file['size_bytes']);
@@ -128,12 +129,17 @@ class _MediaPreviewCard extends StatelessWidget {
                     ),
                     IconButton(
                       tooltip: 'Open',
-                      onPressed: () => _openMediaFile(context, repository, ref.fileId, filename),
+                      onPressed: url.isEmpty ? null : () => openMediaUrl(url),
                       icon: const Icon(Icons.open_in_new_rounded),
                     ),
                     IconButton(
                       tooltip: 'Download',
-                      onPressed: () => _downloadMediaFile(context, repository, ref.fileId, filename),
+                      onPressed: downloadUrl.isEmpty
+                          ? null
+                          : () => downloadMediaUrl(
+                                downloadUrl,
+                                filename: filename,
+                              ),
                       icon: const Icon(Icons.download_outlined),
                     ),
                   ],
@@ -205,49 +211,6 @@ class _MediaPreviewCard extends StatelessWidget {
           ),
         );
       },
-    );
-  }
-}
-
-
-Future<void> _openMediaFile(
-  BuildContext context,
-  AdminResourceRepository repository,
-  String fileId,
-  String fallbackFilename,
-) async {
-  try {
-    final response = await repository.viewMediaFile(fileId);
-    openMediaBytes(
-      response.bytes,
-      filename: response.filename ?? fallbackFilename,
-      contentType: response.contentType,
-    );
-  } catch (error) {
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Open file failed: $error')),
-    );
-  }
-}
-
-Future<void> _downloadMediaFile(
-  BuildContext context,
-  AdminResourceRepository repository,
-  String fileId,
-  String fallbackFilename,
-) async {
-  try {
-    final response = await repository.downloadMediaFile(fileId);
-    downloadMediaBytes(
-      response.bytes,
-      filename: response.filename ?? fallbackFilename,
-      contentType: response.contentType,
-    );
-  } catch (error) {
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('File download failed: $error')),
     );
   }
 }

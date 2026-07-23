@@ -9,7 +9,6 @@ import 'package:intl/intl.dart';
 import '../../../core/http/admin_resource_repository.dart';
 import '../../../core/http/api_client.dart';
 import '../../../core/navigation/admin_providers.dart';
-import '../../../core/navigation/browser_navigation.dart';
 import '../../../core/ui/json_view_card.dart';
 import '../../../core/ui/media_file_actions.dart';
 import '../../../core/ui/media_preview_dialog.dart';
@@ -7956,18 +7955,18 @@ class _GeneratedDocumentTile extends StatelessWidget {
     if (fileId.isEmpty) {
       final url = document.url;
       if (url != null && url.isNotEmpty) {
-        openExternalUrlInNewTab(url);
+        openMediaUrl(url);
       }
       return;
     }
 
     try {
-      final response = await repository.viewMediaFile(fileId);
-      openMediaBytes(
-        response.bytes,
-        filename: response.filename ?? document.filename,
-        contentType: response.contentType,
-      );
+      final media = await repository.fetchMediaFileUrl(fileId);
+      final url = '${media['url'] ?? document.url ?? ''}'.trim();
+      if (url.isEmpty) {
+        throw StateError('Document URL is empty');
+      }
+      openMediaUrl(url);
     } catch (error) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

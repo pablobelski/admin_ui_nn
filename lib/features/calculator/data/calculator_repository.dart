@@ -96,8 +96,15 @@ class CalculatorRepository {
     return GeneratedDocument.fromJson(response);
   }
 
-  Future<ApiBinaryResponse> viewMediaFile(String fileId) {
-    return _client.getBytes('/api/admin/media-files/$fileId/view');
+  Future<Map<String, dynamic>> fetchMediaFileUrl(String fileId) async {
+    final data = await _client.getJson('/api/admin/media-files/$fileId/url');
+    for (final key in ['url', 'download_url']) {
+      final value = data[key]?.toString() ?? '';
+      if (value.startsWith('/')) {
+        data[key] = _client.url(value);
+      }
+    }
+    return data;
   }
 }
 

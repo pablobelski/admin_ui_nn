@@ -2084,11 +2084,15 @@ Future<void> _downloadMediaFiles(
 ) async {
   try {
     for (final fileRef in files) {
-      final response = await repository.downloadMediaFile(fileRef.fileId);
-      downloadMediaBytes(
-        response.bytes,
-        filename: response.filename ?? fileRef.label,
-        contentType: response.contentType,
+      final media = await repository.fetchMediaFileUrl(fileRef.fileId);
+      final url = media['download_url']?.toString().trim() ?? '';
+      if (url.isEmpty) {
+        throw StateError('File download URL is empty');
+      }
+      final file = _mapValue(media['file']);
+      downloadMediaUrl(
+        url,
+        filename: _firstText(file['original_filename'], fileRef.label),
       );
     }
 
@@ -2303,12 +2307,12 @@ Future<void> _openQuoteGeneratedDocument(
   _QuoteDocumentMenuAction action,
 ) async {
   try {
-    final response = await repository.viewMediaFile(action.fileId);
-    openMediaBytes(
-      response.bytes,
-      filename: response.filename ?? action.label,
-      contentType: response.contentType,
-    );
+    final media = await repository.fetchMediaFileUrl(action.fileId);
+    final url = media['url']?.toString().trim() ?? '';
+    if (url.isEmpty) {
+      throw StateError('Document URL is empty');
+    }
+    openMediaUrl(url);
   } catch (error) {
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
