@@ -254,6 +254,11 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
         clearColor: value == null || value.isEmpty,
       );
 
+  void setProductionColorCode(String? value) => state = state.copyWith(
+        productionColorCode: value,
+        clearProductionColorCode: value == null || value.trim().isEmpty,
+      );
+
   void setHandover(String? value) => state = state.copyWith(
         handoverTypeCode: value,
         clearHandover: value == null || value.isEmpty,

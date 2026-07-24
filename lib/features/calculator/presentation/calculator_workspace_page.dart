@@ -2764,48 +2764,6 @@ class _RoofCalculationParamsCard extends StatelessWidget {
   }
 }
 
-class _CoveringCalculationParamsCard extends StatelessWidget {
-  const _CoveringCalculationParamsCard({
-    required this.maxGlassFieldWidthController,
-    required this.maximumWidthMm,
-    required this.errorText,
-    required this.onChanged,
-  });
-
-  final TextEditingController maxGlassFieldWidthController;
-  final int maximumWidthMm;
-  final String? errorText;
-  final ValueChanged<String> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: double.infinity,
-      child: Card(
-        margin: EdgeInsets.zero,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Calculation parameters', style: Theme.of(context).textTheme.labelLarge),
-              const SizedBox(height: 8),
-              _NumberField(
-                label: 'Max glass field width',
-                controller: maxGlassFieldWidthController,
-                onChanged: onChanged,
-                errorText: errorText,
-              ),
-              const SizedBox(height: 4),
-              Text('Maximum for selected glass: $maximumWidthMm mm'),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 String _roofParametersConfigurationMessage(CalculatorTemplateOption template) {
   final missing = template.roofParameterMissingKeys;
   final missingText = missing.isEmpty ? '' : ' Missing parameters: ${missing.join(', ')}.';
@@ -3265,13 +3223,14 @@ class _CoveringStepState extends State<_CoveringStep> {
           options: widget.options,
           onChanged: _onCoveringChanged,
           emptyLabel: '— Covering not selected —',
-        ),
-        const SizedBox(height: 16),
-        _CoveringCalculationParamsCard(
-          maxGlassFieldWidthController: _maxGlassFieldWidth,
-          maximumWidthMm: _coveringMaxGlassFieldWidth(),
-          errorText: _maxGlassFieldErrorText,
-          onChanged: _onMaxGlassFieldWidthChanged,
+          trailing: _NumberField(
+            label: 'Max glass field width',
+            controller: _maxGlassFieldWidth,
+            onChanged: _onMaxGlassFieldWidthChanged,
+            errorText: _maxGlassFieldErrorText,
+            helperText:
+                'Maximum for selected glass: ${_coveringMaxGlassFieldWidth()} mm',
+          ),
         ),
         if (roofCalculation.modules.isNotEmpty) ...[
           const SizedBox(height: 16),
@@ -3535,6 +3494,7 @@ class _SelectStep extends StatelessWidget {
     required this.options,
     required this.onChanged,
     required this.emptyLabel,
+    this.trailing,
   });
 
   final String title;
@@ -3543,9 +3503,19 @@ class _SelectStep extends StatelessWidget {
   final List<CalculatorOption> options;
   final ValueChanged<String?> onChanged;
   final String? emptyLabel;
+  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
+    final selector = _DropdownField(
+      label: title,
+      value: value,
+      options: options,
+      idSelector: (option) => option.code,
+      onChanged: onChanged,
+      emptyLabel: emptyLabel,
+    );
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -3553,14 +3523,17 @@ class _SelectStep extends StatelessWidget {
         const SizedBox(height: 8),
         Text(description),
         const SizedBox(height: 20),
-        _DropdownField(
-          label: title,
-          value: value,
-          options: options,
-          idSelector: (option) => option.code,
-          onChanged: onChanged,
-          emptyLabel: emptyLabel,
-        ),
+        if (trailing == null)
+          selector
+        else
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(child: selector),
+              const SizedBox(width: 16),
+              trailing!,
+            ],
+          ),
       ],
     );
   }
@@ -3583,6 +3556,7 @@ class _ColorStep extends StatefulWidget {
 
 class _ColorStepState extends State<_ColorStep> {
   late final TextEditingController _customRalController;
+  late final TextEditingController _productionColorCodeController;
   var _customRalMode = false;
 
   @override
@@ -3590,6 +3564,10 @@ class _ColorStepState extends State<_ColorStep> {
     super.initState();
     _customRalController = TextEditingController(text: _initialCustomRalCode());
     _customRalMode = _customRalController.text.isNotEmpty;
+    _productionColorCodeController = TextEditingController(
+      text: _productionColorCodeText(),
+    );
+    _syncStandardProductionColorCode();
   }
 
   @override
@@ -3598,7 +3576,8 @@ class _ColorStepState extends State<_ColorStep> {
     final selectedCode = _normalizeRalCode(widget.draft.colorCode);
     final isStandard = selectedCode != null && _standardColorCodes.contains(selectedCode);
     final nextText = isStandard || selectedCode == null ? '' : selectedCode;
-    if (nextText.isNotEmpty && nextText != _customRalController.text) {
+    if (isStandard) _customRalMode = false;
+    if (nextText != _customRalController.text && (nextText.isNotEmpty || isStandard)) {
       _customRalController.value = TextEditingValue(
         text: nextText,
         selection: TextSelection.collapsed(offset: nextText.length),
@@ -3607,11 +3586,17 @@ class _ColorStepState extends State<_ColorStep> {
     if (nextText.isNotEmpty && !_customRalMode) {
       _customRalMode = true;
     }
+    _setControllerText(
+      _productionColorCodeController,
+      _productionColorCodeText(),
+    );
+    _syncStandardProductionColorCode();
   }
 
   @override
   void dispose() {
     _customRalController.dispose();
+    _productionColorCodeController.dispose();
     super.dispose();
   }
 
@@ -3629,9 +3614,86 @@ class _ColorStepState extends State<_ColorStep> {
     return selectedCode;
   }
 
-  void _setColor(String? value) {
+  String? _standardProductionColorCode(String? rawColorCode) {
+    final colorCode = _normalizeRalCode(rawColorCode);
+    if (colorCode == null) return null;
+
+    for (final option in _standardColorOptions) {
+      if (_normalizeRalCode(option.code) != colorCode) continue;
+      final metadata = option.raw['metadata_json'];
+      if (metadata is Map) return _stringFromRaw(metadata['legacy_ref']);
+      return null;
+    }
+    return null;
+  }
+
+  String _productionColorCodeText() {
+    final selectedCode = _normalizeRalCode(widget.draft.colorCode);
+    if (selectedCode == null) {
+      return _customRalMode ? widget.draft.productionColorCode ?? '' : '';
+    }
+    if (_standardColorCodes.contains(selectedCode)) {
+      return _standardProductionColorCode(selectedCode) ?? '';
+    }
+    return widget.draft.productionColorCode ?? '';
+  }
+
+  void _setControllerText(
+    TextEditingController controller,
+    String value,
+  ) {
+    if (controller.text == value) return;
+    controller.value = TextEditingValue(
+      text: value,
+      selection: TextSelection.collapsed(offset: value.length),
+    );
+  }
+
+  void _syncStandardProductionColorCode() {
+    final selectedCode = _normalizeRalCode(widget.draft.colorCode);
+    if (selectedCode == null || !_standardColorCodes.contains(selectedCode)) return;
+    final expected = _standardProductionColorCode(selectedCode);
+    if (_stringFromRaw(widget.draft.productionColorCode) == expected) return;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final currentCode = _normalizeRalCode(widget.draft.colorCode);
+      if (currentCode != selectedCode || !_standardColorCodes.contains(currentCode)) return;
+      widget.notifier.setProductionColorCode(
+        _standardProductionColorCode(currentCode),
+      );
+    });
+  }
+
+  void _setProductionColorCode(String? value) {
+    final normalized = _stringFromRaw(value);
+    _setControllerText(_productionColorCodeController, normalized ?? '');
+    widget.notifier.setProductionColorCode(normalized);
+  }
+
+  void _setColor(String? value, {required bool custom}) {
     final normalized = _normalizeRalCode(value);
     widget.notifier.setColor(normalized);
+    if (!custom) {
+      _setProductionColorCode(_standardProductionColorCode(normalized));
+    }
+  }
+
+  void _selectCustomColor() {
+    final selectedCode = _normalizeRalCode(widget.draft.colorCode);
+    final wasCustom = _customRalMode ||
+        (selectedCode != null && !_standardColorCodes.contains(selectedCode));
+    setState(() {
+      _customRalMode = true;
+    });
+    if (!wasCustom) _setProductionColorCode(null);
+
+    final existing = _normalizeRalCode(_customRalController.text);
+    if (existing != null && !_standardColorCodes.contains(existing)) {
+      _setColor(existing, custom: true);
+    } else if (selectedCode != null && _standardColorCodes.contains(selectedCode)) {
+      widget.notifier.setColor(null);
+    }
   }
 
   Color? _colorForCode(String? rawCode) {
@@ -3678,29 +3740,42 @@ class _ColorStepState extends State<_ColorStep> {
           style: Theme.of(context).textTheme.bodyMedium,
         ),
         const SizedBox(height: 20),
-        _DropdownField(
-          label: 'Frame color',
-          value: dropdownValue,
-          options: dropdownOptions,
-          idSelector: (option) => option.code,
-          onChanged: (next) {
-            if (next == _customRalOptionCode) {
-              setState(() {
-                _customRalMode = true;
-              });
-              final existing = _normalizeRalCode(_customRalController.text);
-              if (existing != null && !_standardColorCodes.contains(existing)) {
-                _setColor(existing);
-              }
-              return;
-            }
-            setState(() {
-              _customRalMode = false;
-            });
-            _customRalController.clear();
-            _setColor(next);
-          },
-          emptyLabel: '— Color not selected —',
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: _DropdownField(
+                label: 'Frame color',
+                value: dropdownValue,
+                options: dropdownOptions,
+                idSelector: (option) => option.code,
+                onChanged: (next) {
+                  if (next == _customRalOptionCode) {
+                    _selectCustomColor();
+                    return;
+                  }
+                  setState(() {
+                    _customRalMode = false;
+                  });
+                  _customRalController.clear();
+                  _setColor(next, custom: false);
+                },
+                emptyLabel: '— Color not selected —',
+              ),
+            ),
+            const SizedBox(width: 16),
+            SizedBox(
+              width: 220,
+              child: TextField(
+                controller: _productionColorCodeController,
+                enabled: customMode,
+                decoration: const InputDecoration(
+                  labelText: 'Production color code',
+                ),
+                onChanged: widget.notifier.setProductionColorCode,
+              ),
+            ),
+          ],
         ),
         const SizedBox(height: 16),
         GridView.count(
@@ -3721,22 +3796,14 @@ class _ColorStepState extends State<_ColorStep> {
                     _customRalMode = false;
                   });
                   _customRalController.clear();
-                  _setColor(option.code);
+                  _setColor(option.code, custom: false);
                 },
               ),
             _RalColorTile(
               label: customSelected ? _labelForCode(selectedCode) : 'Указать свой цвет',
               color: customSelected ? customColor : null,
               selected: customMode,
-              onTap: () {
-                setState(() {
-                  _customRalMode = true;
-                });
-                final existing = _normalizeRalCode(_customRalController.text);
-                if (existing != null && !_standardColorCodes.contains(existing)) {
-                  _setColor(existing);
-                }
-              },
+              onTap: _selectCustomColor,
             ),
           ],
         ),
@@ -3757,9 +3824,9 @@ class _ColorStepState extends State<_ColorStep> {
               }
               final normalized = _normalizeRalCode(value);
               if (normalized != null && normalized.length == 4) {
-                _setColor(normalized);
+                _setColor(normalized, custom: true);
               } else if (normalized == null) {
-                _setColor(null);
+                _setColor(null, custom: true);
               }
             },
           ),
@@ -9259,6 +9326,7 @@ class _NumberField extends StatelessWidget {
     this.readOnly = false,
     this.suffixText = 'mm',
     this.errorText,
+    this.helperText,
   });
 
   final String label;
@@ -9268,6 +9336,7 @@ class _NumberField extends StatelessWidget {
   final bool readOnly;
   final String suffixText;
   final String? errorText;
+  final String? helperText;
 
   @override
   Widget build(BuildContext context) {
@@ -9282,6 +9351,7 @@ class _NumberField extends StatelessWidget {
           labelText: label,
           suffixText: suffixText,
           errorText: errorText,
+          helperText: helperText,
         ),
         onChanged: onChanged,
       ),

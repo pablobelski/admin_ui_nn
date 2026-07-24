@@ -859,6 +859,7 @@ class CalculatorDraft {
     this.maxGlassFieldWidthMm,
     this.coveringCode,
     this.colorCode,
+    this.productionColorCode,
     this.handoverTypeCode,
     this.completionWeek,
     this.quoteNoExternal,
@@ -916,6 +917,9 @@ class CalculatorDraft {
       maxGlassFieldWidthMm: _intOrNull(roof['max_glass_field_width_mm']),
       coveringCode: _nullableString(json['covering_code']),
       colorCode: _nullableString(json['color_code']),
+      productionColorCode: _nullableString(
+        json['production_color_code'] ?? json['productionColorCode'],
+      ),
       handoverTypeCode: _nullableString(json['handover_type_code']),
       completionWeek: _intOrNull(json['completion_week'] ?? json['completionWeek']),
       quoteNoExternal: _nullableString(json['quote_no_external'] ?? json['quoteNoExternal']),
@@ -947,6 +951,7 @@ class CalculatorDraft {
   final int? maxGlassFieldWidthMm;
   final String? coveringCode;
   final String? colorCode;
+  final String? productionColorCode;
   final String? handoverTypeCode;
   final int? completionWeek;
   final String? quoteNoExternal;
@@ -987,6 +992,8 @@ class CalculatorDraft {
     bool clearCovering = false,
     String? colorCode,
     bool clearColor = false,
+    String? productionColorCode,
+    bool clearProductionColorCode = false,
     String? handoverTypeCode,
     bool clearHandover = false,
     int? completionWeek,
@@ -1020,6 +1027,8 @@ class CalculatorDraft {
       maxGlassFieldWidthMm: clearMaxGlassFieldWidth ? null : maxGlassFieldWidthMm ?? this.maxGlassFieldWidthMm,
       coveringCode: clearCovering ? null : coveringCode ?? this.coveringCode,
       colorCode: clearColor ? null : colorCode ?? this.colorCode,
+      productionColorCode:
+          clearProductionColorCode ? null : productionColorCode ?? this.productionColorCode,
       handoverTypeCode: clearHandover ? null : handoverTypeCode ?? this.handoverTypeCode,
       completionWeek: clearCompletionWeek ? null : completionWeek ?? this.completionWeek,
       quoteNoExternal: clearQuoteNoExternal ? null : quoteNoExternal ?? this.quoteNoExternal,
@@ -1085,6 +1094,8 @@ class CalculatorDraft {
       if (_roofJson().isNotEmpty) 'roof': _roofJson(),
       if (coveringCode != null && coveringCode!.isNotEmpty) 'covering_code': coveringCode,
       if (colorCode != null && colorCode!.isNotEmpty) 'color_code': colorCode,
+      if (productionColorCode != null && productionColorCode!.trim().isNotEmpty)
+        'production_color_code': productionColorCode!.trim(),
       if (handoverTypeCode != null && handoverTypeCode!.isNotEmpty) 'handover_type_code': handoverTypeCode,
       if (completionWeek != null) 'completion_week': completionWeek,
       if (quoteNoExternal != null && quoteNoExternal!.isNotEmpty) 'quote_no_external': quoteNoExternal,
