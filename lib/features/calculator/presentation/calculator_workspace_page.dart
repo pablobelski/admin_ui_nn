@@ -12,6 +12,7 @@ import '../../../core/navigation/admin_providers.dart';
 import '../../../core/ui/json_view_card.dart';
 import '../../../core/ui/media_file_actions.dart';
 import '../../../core/ui/media_preview_dialog.dart';
+import '../../../core/ui/top_notification.dart';
 import '../data/calculator_models.dart';
 import '../data/calculator_repository.dart';
 import '../data/roof_geometry_calculation.dart';
@@ -143,7 +144,10 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
                             selectedTemplate: selectedTemplate,
                             onNext: () => _moveStep(disabledStepKeys, 1),
                             onBack: () => _moveStep(disabledStepKeys, -1),
-                            onCalculate: () => _calculate(context),
+                            onCalculate: ({String? successMessage}) => _calculate(
+                              context,
+                              successMessage: successMessage,
+                            ),
                             onModelChanged: (value) => _changeModel(context, value),
                             canCalculate: canCalculate,
                             roofModelState: roofModelState,
@@ -189,7 +193,10 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
                             selectedTemplate: selectedTemplate,
                             onNext: () => _moveStep(disabledStepKeys, 1),
                             onBack: () => _moveStep(disabledStepKeys, -1),
-                            onCalculate: () => _calculate(context),
+                            onCalculate: ({String? successMessage}) => _calculate(
+                              context,
+                              successMessage: successMessage,
+                            ),
                             onModelChanged: (value) => _changeModel(context, value),
                             canCalculate: canCalculate,
                             roofModelState: roofModelState,
@@ -334,11 +341,16 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
       final preview = await ref.read(calculatorSetContentsProvider.future);
       notifier.setSetContents(preview.tabs);
       if (!context.mounted) return;
-      await _calculate(context);
+      await _calculate(
+        context,
+        successMessage: 'Model and set contents updated; server data recalculated and loaded.',
+      );
     } catch (error) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Model recalculation failed: $error')),
+      showTopNotification(
+        context,
+        'Model recalculation failed: $error',
+        type: TopNotificationType.error,
       );
     }
   }
@@ -378,8 +390,10 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
       _calculatedPriceSignature = null;
     });
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('New calculation started')),
+    showTopNotification(
+      context,
+      'New calculation started.',
+      type: TopNotificationType.success,
     );
   }
 
@@ -387,41 +401,75 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
     final value = ref.read(calculatorDraftProvider).quoteNoExternal?.trim() ?? '';
     if (value.isNotEmpty) return true;
     setState(() => _selectedStep = 0);
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Fill Kommission name first.')),
+    showTopNotification(
+      context,
+      'Fill Kommission name first.',
+      type: TopNotificationType.error,
     );
     return false;
   }
 
-  Future<void> _calculate(BuildContext context) async {
-    final draft = ref.read(calculatorDraftProvider);
-    if (!_validateKommissionName(context)) return;
-    if (draft.templateId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Select a template first.')),
-      );
-      return;
+  Future<CalculatorResult> _requestServerCalculation(
+    CalculatorDraft draft, {
+    required bool clearSavedQuote,
+  }) async {
+    final priceSignature = _priceSignature(draft);
+    if (clearSavedQuote) {
+      setState(() {
+        _savedQuote = null;
+        _calculatedResult = null;
+        _calculatedPriceSignature = null;
+      });
     }
 
-    final priceSignature = _priceSignature(draft);
-    setState(() {
-      _savedQuote = null;
-      _calculatedResult = null;
-      _calculatedPriceSignature = null;
-    });
     final resultNotifier = ref.read(calculatorResultProvider.notifier);
     resultNotifier.setLoading();
     try {
       final result = await ref.read(calculatorRepositoryProvider).calculate(draft);
-      _calculatedResult = result;
-      _calculatedPriceSignature = priceSignature;
+      if (mounted) {
+        setState(() {
+          _calculatedResult = result;
+          _calculatedPriceSignature = priceSignature;
+        });
+      }
       resultNotifier.setData(result);
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Calculation finished')),
-      );
+      return result;
     } catch (error, stackTrace) {
       resultNotifier.setError(error, stackTrace);
+      rethrow;
+    }
+  }
+
+  Future<void> _calculate(
+    BuildContext context, {
+    String? successMessage,
+  }) async {
+    final draft = ref.read(calculatorDraftProvider);
+    if (!_validateKommissionName(context)) return;
+    if (draft.templateId == null) {
+      showTopNotification(
+        context,
+        'Select a template first.',
+        type: TopNotificationType.error,
+      );
+      return;
+    }
+
+    try {
+      await _requestServerCalculation(draft, clearSavedQuote: true);
+      if (!context.mounted) return;
+      showTopNotification(
+        context,
+        successMessage ?? 'Server calculation finished; server result data loaded.',
+        type: TopNotificationType.success,
+      );
+    } catch (error) {
+      if (!context.mounted) return;
+      showTopNotification(
+        context,
+        'Server calculation failed: $error',
+        type: TopNotificationType.error,
+      );
     }
   }
 
@@ -433,8 +481,10 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
       orElse: () => false,
     );
     if (!canSaveCalculation) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Run calculation before saving quote.')),
+      showTopNotification(
+        context,
+        'Run the server calculation before saving the quote.',
+        type: TopNotificationType.error,
       );
       return;
     }
@@ -459,8 +509,10 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
     final loadedQuote = ref.read(loadedQuoteProvider);
     final quoteId = loadedQuote?.id ?? _savedQuote?.id;
     if (quoteId == null || quoteId.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Save the quote before printing.')),
+      showTopNotification(
+        context,
+        'Save the quote before printing.',
+        type: TopNotificationType.error,
       );
       return;
     }
@@ -486,6 +538,11 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
         throw StateError('Calculator context is not ready.');
       }
 
+      final serverResult = await _requestServerCalculation(
+        draft,
+        clearSavedQuote: false,
+      );
+
       final selectedTemplate = calculatorContext.templates
           .where((entry) => entry.id == draft.templateId)
           .cast<CalculatorTemplateOption?>()
@@ -499,7 +556,7 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
         draft: draft,
         calculatorContext: calculatorContext,
         roofModelState: roofModelState,
-        result: ref.read(calculatorResultProvider).asData?.value,
+        result: serverResult,
       );
       final geometryPng = await renderGeometryOnlyPreviewPng(
         modelCode: draft.modelCode,
@@ -568,13 +625,17 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
       }
 
       setState(() => _savedQuote = savedQuote);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Quote saved ${mode.label}: ${savedLoadedQuote.quoteNo}')),
+      showTopNotification(
+        context,
+        'Server data calculated, saved and loaded ${mode.label}: ${savedLoadedQuote.quoteNo}',
+        type: TopNotificationType.success,
       );
     } catch (error) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Save quote failed: $error')),
+      showTopNotification(
+        context,
+        'Server calculation or quote save failed: $error',
+        type: TopNotificationType.error,
       );
     } finally {
       if (mounted) {
@@ -939,7 +1000,7 @@ class _StepCard extends ConsumerWidget {
   final CalculatorTemplateOption? selectedTemplate;
   final VoidCallback onNext;
   final VoidCallback onBack;
-  final VoidCallback onCalculate;
+  final Future<void> Function({String? successMessage}) onCalculate;
   final ValueChanged<String?> onModelChanged;
   final bool canCalculate;
   final _RoofModelStepState roofModelState;
@@ -1012,7 +1073,7 @@ class _StepCard extends ConsumerWidget {
                 ),
                 const Spacer(),
                 FilledButton.icon(
-                  onPressed: canCalculate ? onCalculate : null,
+                  onPressed: canCalculate ? () => onCalculate() : null,
                   icon: const Icon(Icons.play_arrow_rounded),
                   label: const Text('Calculate'),
                 ),
@@ -1035,7 +1096,7 @@ class _StepCard extends ConsumerWidget {
       builder: (dialogContext) => AlertDialog(
         title: const Text('Update set contents?'),
         content: const Text(
-          'Calculated segments will be rebuilt from the current roof geometry. Only real manual changes, excluded segments, manual components and derived-accessory overrides are reapplied by their stable segment IDs.',
+          'Calculated segments will be rebuilt from the current roof geometry. Only real manual changes, excluded segments, manual components and derived-accessory overrides are reapplied by their stable segment IDs. The full server calculation will then run automatically.',
         ),
         actions: [
           TextButton(
@@ -1044,7 +1105,7 @@ class _StepCard extends ConsumerWidget {
           ),
           FilledButton(
             onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('Update'),
+            child: const Text('Recalculate'),
           ),
         ],
       ),
@@ -1057,13 +1118,15 @@ class _StepCard extends ConsumerWidget {
       final preview = await ref.read(calculatorSetContentsProvider.future);
       notifier.setSetContents(preview.tabs);
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Calculated segments updated; saved overrides were reapplied.')),
+      await onCalculate(
+        successMessage: 'Set contents updated; server data recalculated and loaded.',
       );
     } catch (error) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Set contents update failed: $error')),
+      showTopNotification(
+        context,
+        'Set contents update failed: $error',
+        type: TopNotificationType.error,
       );
     }
   }
@@ -1190,8 +1253,9 @@ class _StepCard extends ConsumerWidget {
           mediaRepository: ref.read(resourceRepositoryProvider),
           weights: result?.weights ?? const {},
           onFastenersPressed: () {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Fasteners import will be connected in the next iteration.')),
+            showTopNotification(
+              context,
+              'Fasteners import will be connected in the next iteration.',
             );
           },
         );
@@ -4243,10 +4307,10 @@ class _SetContentsStepState extends State<_SetContentsStep> {
   Future<void> _showAddManualComponent(int tabIndex) async {
     final candidates = widget.contextData.templateSetCatalogItemsFor(widget.draft.templateId);
     if (candidates.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('No Catalog Items are configured in the selected template set.'),
-        ),
+      showTopNotification(
+        context,
+        'No Catalog Items are configured in the selected template set.',
+        type: TopNotificationType.error,
       );
       return;
     }
@@ -7619,8 +7683,10 @@ class _CalculationErrorBanner extends StatelessWidget {
                 TextButton.icon(
                   onPressed: () {
                     Clipboard.setData(ClipboardData(text: message));
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Calculation error copied.')),
+                    showTopNotification(
+                      context,
+                      'Calculation error copied.',
+                      type: TopNotificationType.success,
                     );
                   },
                   icon: const Icon(Icons.copy, size: 16),
@@ -7683,13 +7749,8 @@ _GeometryPreviewRenderData _geometryPreviewRenderDataFor({
   final serverRoofCalculation = result == null
       ? null
       : roofGeometryCalculationFromSources(result.sources);
-  final hasDraftGeometry = draft.setContents.any(
-    (tab) => tab.moduleWidthMm != null || tab.moduleDepthMm != null,
-  );
-  final roofCalculation = hasDraftGeometry
-      ? localRoofCalculation
-      : (serverRoofCalculation ?? localRoofCalculation);
-  // Keep local geometry responsive, but prefer the calculated BOM post count.
+  final roofCalculation = serverRoofCalculation ?? localRoofCalculation;
+  // Keep local geometry responsive until a server calculation is available.
   final serverPostCount = serverRoofCalculation?.postCount ?? 0;
   final postCount = serverPostCount > 0
       ? serverPostCount
@@ -8126,8 +8187,10 @@ class _GeneratedDocumentTile extends StatelessWidget {
       openMediaUrl(url);
     } catch (error) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Open PDF failed: $error')),
+      showTopNotification(
+        context,
+        'Open PDF failed: $error',
+        type: TopNotificationType.error,
       );
     }
   }

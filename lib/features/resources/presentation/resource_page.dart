@@ -20,6 +20,7 @@ import '../../../core/ui/resizable_split_pane.dart';
 import '../../../core/ui/scrollable_areas.dart';
 import '../../../core/ui/resource_editor_dialog.dart';
 import '../../../core/ui/searchable_select_form_field.dart';
+import '../../../core/ui/top_notification.dart';
 import '../../calculator/data/calculator_models.dart';
 import '../../calculator/data/roof_geometry_calculation.dart';
 import '../../calculator/presentation/calculator_providers.dart';
@@ -231,13 +232,17 @@ class _ToolbarState extends ConsumerState<_Toolbar> {
         ref.invalidate(resourceListProvider(widget.resource));
         ref.invalidate(resourceDetailsProvider(widget.resource));
         if (!context.mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Uploaded media file: ${picked.filename}')),
+        showTopNotification(
+          context,
+          'Uploaded media file: ${picked.filename}',
+          type: TopNotificationType.success,
         );
       } catch (error) {
         if (!context.mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Create failed: $error')),
+        showTopNotification(
+          context,
+          'Create failed: $error',
+          type: TopNotificationType.error,
         );
       }
       return;
@@ -257,8 +262,10 @@ class _ToolbarState extends ConsumerState<_Toolbar> {
       ref.invalidate(resourceListProvider(widget.resource));
     } catch (error) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Create failed: $error')),
+      showTopNotification(
+        context,
+        'Create failed: $error',
+        type: TopNotificationType.error,
       );
     }
   }
@@ -1161,13 +1168,17 @@ class _DetailsCardState extends ConsumerState<_DetailsCard> {
                               ref.invalidate(resourceListProvider(resource));
                               ref.invalidate(resourceDetailsProvider(resource));
                               if (!context.mounted) return;
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('Password changed')),
+                              showTopNotification(
+                                context,
+                                'Password changed.',
+                                type: TopNotificationType.success,
                               );
                             } catch (error) {
                               if (!context.mounted) return;
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text('Password change failed: $error')),
+                              showTopNotification(
+                                context,
+                                'Password change failed: $error',
+                                type: TopNotificationType.error,
                               );
                             }
                           },
@@ -1254,8 +1265,10 @@ class _DetailsCardState extends ConsumerState<_DetailsCard> {
                             ref.invalidate(resourceDetailsProvider(resource));
                           } catch (error) {
                             if (!context.mounted) return;
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('Update failed: $error')),
+                            showTopNotification(
+                              context,
+                              'Update failed: $error',
+                              type: TopNotificationType.error,
                             );
                           }
                         },
@@ -1294,8 +1307,10 @@ class _DetailsCardState extends ConsumerState<_DetailsCard> {
                             ref.invalidate(resourceDetailsProvider(resource));
                           } catch (error) {
                             if (!context.mounted) return;
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('Delete failed: $error')),
+                            showTopNotification(
+                              context,
+                              'Delete failed: $error',
+                              type: TopNotificationType.error,
                             );
                           }
                         },
@@ -2097,15 +2112,19 @@ Future<void> _downloadMediaFiles(
     }
 
     if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(files.length == 1 ? 'File download started' : 'File downloads started: ${files.length}'),
-      ),
+    showTopNotification(
+      context,
+      files.length == 1
+          ? 'File download started.'
+          : 'File downloads started: ${files.length}',
+      type: TopNotificationType.success,
     );
   } catch (error) {
     if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('File download failed: $error')),
+    showTopNotification(
+      context,
+      'File download failed: $error',
+      type: TopNotificationType.error,
     );
   }
 }
@@ -2315,8 +2334,10 @@ Future<void> _openQuoteGeneratedDocument(
     openMediaUrl(url);
   } catch (error) {
     if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Open document failed: $error')),
+    showTopNotification(
+      context,
+      'Open document failed: $error',
+      type: TopNotificationType.error,
     );
   }
 }
@@ -2384,13 +2405,17 @@ Future<void> loadQuoteToWorkspace(
     ref.read(selectedResourceProvider.notifier).select('calculator_workspace');
 
     if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Loaded quote: ${loadedQuote.quoteNo}')),
+    showTopNotification(
+      context,
+      'Loaded server quote data: ${loadedQuote.quoteNo}',
+      type: TopNotificationType.success,
     );
   } catch (error) {
     if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Load quote failed: $error')),
+    showTopNotification(
+      context,
+      'Load server quote failed: $error',
+      type: TopNotificationType.error,
     );
   }
 }

@@ -8,6 +8,7 @@ import 'media_file_actions.dart';
 import 'media_file_picker.dart';
 import 'media_preview_dialog.dart';
 import 'searchable_select_form_field.dart';
+import 'top_notification.dart';
 
 class ResourceEditorDialog extends StatefulWidget {
   const ResourceEditorDialog({
@@ -635,8 +636,10 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
       );
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('File download failed: $error')),
+      showTopNotification(
+        context,
+        'File download failed: $error',
+        type: TopNotificationType.error,
       );
     }
   }
@@ -664,8 +667,10 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
       _controllers[field.key]!.text = uploaded['id']?.toString() ?? '';
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('File upload failed: $error')),
+      showTopNotification(
+        context,
+        'File upload failed: $error',
+        type: TopNotificationType.error,
       );
     } finally {
       if (mounted) {

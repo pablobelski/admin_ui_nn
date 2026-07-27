@@ -11,6 +11,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 import '../../../core/auth/auth_session.dart';
 import '../../../core/http/admin_resource_repository.dart';
 import '../../../core/ui/media_file_actions.dart';
+import '../../../core/ui/top_notification.dart';
 import '../data/calculator_models.dart';
 import '../data/roof_geometry_calculation.dart';
 
@@ -578,8 +579,10 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
       );
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Geometry preview download failed: $error')),
+      showTopNotification(
+        context,
+        'Geometry preview download failed: $error',
+        type: TopNotificationType.error,
       );
     }
   }

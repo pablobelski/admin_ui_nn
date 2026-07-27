@@ -16,6 +16,7 @@ import '../navigation/admin_providers.dart';
 import '../navigation/admin_registry.dart';
 import '../navigation/admin_route_paths.dart';
 import '../navigation/browser_navigation.dart';
+import 'top_notification.dart';
 
 class AdminShell extends ConsumerStatefulWidget {
   const AdminShell({super.key});
@@ -175,13 +176,17 @@ class _AdminShellState extends ConsumerState<AdminShell> {
         },
       );
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Password changed')),
+      showTopNotification(
+        context,
+        'Password changed.',
+        type: TopNotificationType.success,
       );
     } catch (error) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Password change failed: $error')),
+      showTopNotification(
+        context,
+        'Password change failed: $error',
+        type: TopNotificationType.error,
       );
     }
   }
