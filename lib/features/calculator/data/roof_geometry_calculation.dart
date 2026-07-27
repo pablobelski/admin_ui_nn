@@ -308,7 +308,7 @@ RoofGeometryCalculation calculateRoofGeometryForDraft({
     if (glassCountAcrossWidth <= 0) continue;
     final beamStep = (width - beamCount * beamWidth) / glassCountAcrossWidth;
     final roundedBeamStep = (beamStep * 10).round() / 10;
-    final glassWidth = (roundedBeamStep - wallGutterBlendeClearanceMm + glassOverlap).ceil();
+    final glassWidth = (roundedBeamStep - wallGutterBlendeClearanceMm + glassOverlap).truncate();
     final unsplitGlassLength = (beamLength + glassFrontAdd + _angleCorrection(angle)).round();
     final glassDepthFieldCount = math.max(
       1,

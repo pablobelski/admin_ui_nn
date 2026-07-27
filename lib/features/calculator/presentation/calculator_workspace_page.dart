@@ -9786,7 +9786,7 @@ String _formatDecimalNumber(num value) {
   return fixed.replaceAll('.', ',');
 }
 
-String _formatLengthNumber(num value) => _formatDecimalNumber(value);
+String _formatLengthNumber(num value) => value.round().toString();
 
 String? _formatLengthMm(num? value) {
   if (value == null || value <= 1) return null;
