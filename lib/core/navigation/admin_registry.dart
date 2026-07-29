@@ -2295,6 +2295,7 @@ const adminNavGroups = <AdminNavGroup>[
           AdminColumn(key: 'email', label: 'Email', isPrimary: true, flex: 2),
           AdminColumn(key: 'full_name', label: 'Full name', flex: 2),
           AdminColumn(key: 'role_code', label: 'Global role'),
+          AdminColumn(key: 'must_change_password', label: 'Password reset'),
           AdminColumn(key: 'locale_code', label: 'Locale'),
           AdminColumn(key: 'is_active', label: 'Active'),
         ],
@@ -2304,15 +2305,51 @@ const adminNavGroups = <AdminNavGroup>[
           AdminResourceFilter(key: 'is_active', label: 'Active', options: activeFilterOptions),
         ],
         formFields: [
-          AdminField(key: 'email', label: 'Email'),
+          AdminField(key: 'email', label: 'Email', type: AdminFieldType.email, requiredOnCreate: true),
           AdminField(key: 'full_name', label: 'Full name'),
-          AdminField(key: 'role_code', label: 'Global role', options: globalRoleOptions),
-          AdminField(key: 'initial_password', label: 'Initial password (required for new users; sysadmin only)', type: AdminFieldType.password),
-          AdminField(key: 'locale_code', label: 'Locale code'),
-          AdminField(key: 'timezone_name', label: 'Timezone name'),
+          AdminField(key: 'role_code', label: 'Global role', options: globalRoleOptions, defaultValue: 'viewer'),
+          AdminField(
+            key: 'organization_id',
+            label: 'Organization',
+            lookup: organizationLookup,
+            lookupFilters: {'is_active': 'true'},
+            helperText: 'Optional primary organization link for this user.',
+          ),
+          AdminField(
+            key: 'contact_id',
+            label: 'Organization contact',
+            lookup: organizationContactLookup,
+            lookupFilterFieldKey: 'organization_id',
+            lookupFilterQueryKey: 'organization_id',
+            lookupFilters: {'is_active': 'true'},
+            helperText: 'Optional contact from the selected organization.',
+          ),
+          AdminField(
+            key: 'initial_password',
+            label: 'Temporary password',
+            type: AdminFieldType.password,
+            helperText: 'At least 8 characters. The user must replace it at first sign-in.',
+            createOnly: true,
+            requiredOnCreate: true,
+            minLength: 8,
+          ),
+          AdminField(
+            key: 'initial_password_repeat',
+            label: 'Repeat temporary password',
+            type: AdminFieldType.password,
+            createOnly: true,
+            requiredOnCreate: true,
+            minLength: 8,
+            matchesFieldKey: 'initial_password',
+            includeInPayload: false,
+          ),
+          AdminField(key: 'locale_code', label: 'Locale code', defaultValue: 'de'),
+          AdminField(key: 'timezone_name', label: 'Timezone name', defaultValue: 'Europe/Berlin'),
           AdminField(key: 'settings_json', label: 'Settings JSON', type: AdminFieldType.json),
           AdminField(key: 'is_active', label: 'Active', type: AdminFieldType.boolType),
         ],
+        supportsDelete: true,
+        requiresSysadmin: true,
         detailActions: [
           AdminDetailAction(
             label: 'Show linked contacts',
@@ -2352,8 +2389,20 @@ const adminNavGroups = <AdminNavGroup>[
         ],
         formFields: [
           AdminField(key: 'user_id', label: 'User', lookup: userLookup),
-          AdminField(key: 'organization_id', label: 'Organization', lookup: organizationLookup),
-          AdminField(key: 'contact_id', label: 'Contact', lookup: organizationContactLookup),
+          AdminField(
+            key: 'organization_id',
+            label: 'Organization',
+            lookup: organizationLookup,
+            lookupFilters: {'is_active': 'true'},
+          ),
+          AdminField(
+            key: 'contact_id',
+            label: 'Contact',
+            lookup: organizationContactLookup,
+            lookupFilterFieldKey: 'organization_id',
+            lookupFilterQueryKey: 'organization_id',
+            lookupFilters: {'is_active': 'true'},
+          ),
           AdminField(key: 'role_code', label: 'Organization role', options: organizationRoleOptions),
           AdminField(key: 'is_default', label: 'Default for user', type: AdminFieldType.boolType),
           AdminField(key: 'permissions_json', label: 'Permissions JSON', type: AdminFieldType.json),
@@ -2531,6 +2580,45 @@ const adminNavGroups = <AdminNavGroup>[
     ],
   ),
 ];
+
+const managerRestrictedGroupKeys = <String>{
+  'pricing',
+  'rules',
+  'references',
+  'docs',
+  'integrations',
+};
+
+bool canRoleAccessAdminResource(
+  String? roleCode,
+  AdminResourceDefinition resource,
+) {
+  if (resource.requiresSysadmin && roleCode != 'sysadmin') {
+    return false;
+  }
+  if (roleCode != 'manager') {
+    return true;
+  }
+
+  return !adminNavGroups.any(
+    (group) =>
+        managerRestrictedGroupKeys.contains(group.key) &&
+        group.resources.any((candidate) => candidate.key == resource.key),
+  );
+}
+
+bool canRoleAccessAdminLookup(String? roleCode, AdminLookup lookup) {
+  if (lookup.endpoint == '/api/admin/sales-price-lists') {
+    return roleCode == 'sysadmin';
+  }
+
+  for (final resource in allResources) {
+    if (resource.endpoint == lookup.endpoint) {
+      return canRoleAccessAdminResource(roleCode, resource);
+    }
+  }
+  return true;
+}
 
 final allResources = <AdminResourceDefinition>[
   dashboardResource,

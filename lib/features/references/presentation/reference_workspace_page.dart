@@ -196,6 +196,7 @@ class _ReferenceToolbarState extends ConsumerState<_ReferenceToolbar> {
             SizedBox(
               width: 190,
               child: DropdownButtonFormField<String>(
+                key: ValueKey('reference-scope-${state.scopeCode}'),
                 initialValue: _scopeDropdownValue(state.scopeCode),
                 decoration: const InputDecoration(
                   labelText: 'Scope',
@@ -213,6 +214,16 @@ class _ReferenceToolbarState extends ConsumerState<_ReferenceToolbar> {
               onPressed: () => browser.setDomainQuery(_domainSearchController.text.trim()),
               icon: const Icon(Icons.filter_alt_outlined),
               label: const Text('Apply domain filter'),
+            ),
+            OutlinedButton.icon(
+              onPressed: state.domainQuery.isNotEmpty || state.activeFilters.isNotEmpty
+                  ? () {
+                      _domainSearchController.clear();
+                      browser.resetDomainFilters();
+                    }
+                  : null,
+              icon: const Icon(Icons.filter_alt_off_outlined),
+              label: const Text('Reset filters'),
             ),
             if (ownerFilterLabel != null)
               InputChip(
@@ -237,6 +248,16 @@ class _ReferenceToolbarState extends ConsumerState<_ReferenceToolbar> {
                   : () => browser.setValueQuery(_valueSearchController.text.trim()),
               icon: const Icon(Icons.manage_search_rounded),
               label: const Text('Apply value filter'),
+            ),
+            OutlinedButton.icon(
+              onPressed: state.valueQuery.isNotEmpty
+                  ? () {
+                      _valueSearchController.clear();
+                      browser.resetValueFilters();
+                    }
+                  : null,
+              icon: const Icon(Icons.filter_alt_off_outlined),
+              label: const Text('Reset filters'),
             ),
             IconButton(
               tooltip: 'Refresh domains and values',

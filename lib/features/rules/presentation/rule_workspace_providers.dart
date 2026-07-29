@@ -133,6 +133,15 @@ class RuleWorkspaceNotifier extends Notifier<RuleWorkspaceState> {
     state = state.copyWith(rowQuery: value, clearRow: true);
   }
 
+  void resetWorkspaceFilters() {
+    state = state.copyWith(
+      matrixQuery: '',
+      rowQuery: '',
+      clearMatrix: true,
+      clearRow: true,
+    );
+  }
+
   void selectRuleSet(String? id) {
     state = state.copyWith(selectedRuleSetId: id, clearMatrix: true, clearRow: true);
   }

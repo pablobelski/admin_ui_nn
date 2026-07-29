@@ -156,7 +156,7 @@ class _RuleSetToolbarState extends ConsumerState<_RuleSetToolbar> {
               .toList(growable: false),
           orElse: () => const <SearchableSelectOption>[],
         );
-    final hasFilters = _ruleSetQueryController.text.trim().isNotEmpty ||
+    final hasFilters = browserState.ruleSetQuery.isNotEmpty ||
         browserState.ruleSetFilterId != null ||
         browserState.configuratorTemplateFilterId != null;
 
@@ -692,6 +692,17 @@ class _RuleWorkspaceToolbarState extends ConsumerState<_RuleWorkspaceToolbar> {
           },
           icon: const Icon(Icons.filter_alt_outlined),
           label: const Text('Apply'),
+        ),
+        OutlinedButton.icon(
+          onPressed: browserState.matrixQuery.isNotEmpty || browserState.rowQuery.isNotEmpty
+              ? () {
+                  _matrixQueryController.clear();
+                  _rowQueryController.clear();
+                  browser.resetWorkspaceFilters();
+                }
+              : null,
+          icon: const Icon(Icons.filter_alt_off_outlined),
+          label: const Text('Reset filters'),
         ),
         FilledButton.icon(
           onPressed: browserState.selectedRuleSetId == null

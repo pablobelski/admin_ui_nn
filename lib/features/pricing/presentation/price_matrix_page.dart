@@ -174,6 +174,16 @@ class _MatrixToolbarState extends ConsumerState<_MatrixToolbar> {
           icon: const Icon(Icons.filter_alt_outlined),
           label: const Text('Apply matrix filter'),
         ),
+        OutlinedButton.icon(
+          onPressed: browserState.matrixQuery.isNotEmpty || browserState.priceListId.isNotEmpty
+              ? () {
+                  _matrixSearchController.clear();
+                  browser.resetMatrixFilters();
+                }
+              : null,
+          icon: const Icon(Icons.filter_alt_off_outlined),
+          label: const Text('Reset filters'),
+        ),
         SizedBox(
           width: 260,
           child: TextField(
@@ -191,6 +201,16 @@ class _MatrixToolbarState extends ConsumerState<_MatrixToolbar> {
               : () => browser.setCellQuery(_cellSearchController.text.trim()),
           icon: const Icon(Icons.manage_search_rounded),
           label: const Text('Apply cell filter'),
+        ),
+        OutlinedButton.icon(
+          onPressed: browserState.cellQuery.isNotEmpty
+              ? () {
+                  _cellSearchController.clear();
+                  browser.resetCellFilters();
+                }
+              : null,
+          icon: const Icon(Icons.filter_alt_off_outlined),
+          label: const Text('Reset filters'),
         ),
         IconButton(
           tooltip: 'Refresh matrices and cells',

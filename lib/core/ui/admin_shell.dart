@@ -48,11 +48,17 @@ class _AdminShellState extends ConsumerState<AdminShell> {
     final authSession = ref.watch(authSessionProvider);
     final selectedKey = ref.watch(selectedResourceProvider);
     final selectedResource = findResourceByKey(selectedKey);
-    final effectiveResource = selectedResource.requiresSysadmin && authSession.roleCode != 'sysadmin'
-        ? dashboardResource
-        : selectedResource;
+    final effectiveResource = canRoleAccessAdminResource(authSession.roleCode, selectedResource)
+        ? selectedResource
+        : dashboardResource;
     final effectiveSelectedKey = effectiveResource.key;
     final isNarrow = MediaQuery.sizeOf(context).width < 1100;
+    final userDisplayName = _firstNonEmpty(
+      authSession.contactName,
+      authSession.fullName,
+      authSession.email,
+    );
+    final organizationDisplayName = authSession.organizationName?.trim() ?? '';
 
     return Scaffold(
       appBar: AppBar(
@@ -61,8 +67,22 @@ class _AdminShellState extends ConsumerState<AdminShell> {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Center(
-              child: Text(
-                authSession.email ?? 'catalogs / prices / rules / refs',
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    userDisplayName,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                  ),
+                  if (organizationDisplayName.isNotEmpty)
+                    Text(
+                      organizationDisplayName,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                ],
               ),
             ),
           ),
@@ -192,6 +212,14 @@ class _AdminShellState extends ConsumerState<AdminShell> {
   }
 }
 
+String _firstNonEmpty(String? first, String? second, String? fallback) {
+  for (final value in [first, second, fallback]) {
+    final normalized = value?.trim() ?? '';
+    if (normalized.isNotEmpty) return normalized;
+  }
+  return 'User';
+}
+
 class _ChangeOwnPasswordDialog extends StatefulWidget {
   const _ChangeOwnPasswordDialog();
 
@@ -234,8 +262,16 @@ class _ChangeOwnPasswordDialogState extends State<_ChangeOwnPasswordDialog> {
               TextFormField(
                 controller: _newPasswordController,
                 obscureText: true,
-                decoration: const InputDecoration(labelText: 'New password'),
-                validator: _required,
+                decoration: const InputDecoration(
+                  labelText: 'New password',
+                  helperText: 'At least 8 characters',
+                ),
+                validator: (value) {
+                  final requiredMessage = _required(value);
+                  if (requiredMessage != null) return requiredMessage;
+                  if (value!.length < 8) return 'Use at least 8 characters';
+                  return null;
+                },
               ),
               const SizedBox(height: 12),
               TextFormField(
@@ -337,11 +373,10 @@ class _NavigationTree extends StatelessWidget {
   }
 
   List<AdminResourceDefinition> _visibleResources(AdminNavGroup group) {
-    final navigableResources = group.resources.where((resource) => resource.showInNavigation);
-    if (roleCode == 'sysadmin') {
-      return navigableResources.toList(growable: false);
-    }
-    return navigableResources.where((resource) => !resource.requiresSysadmin).toList(growable: false);
+    return group.resources
+        .where((resource) => resource.showInNavigation)
+        .where((resource) => canRoleAccessAdminResource(roleCode, resource))
+        .toList(growable: false);
   }
 }
 

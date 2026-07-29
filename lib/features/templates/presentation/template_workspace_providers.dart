@@ -123,6 +123,7 @@ class TemplateWorkspaceNotifier extends Notifier<TemplateWorkspaceState> {
 
   void clearTemplateFilters() {
     state = state.copyWith(
+      templateQuery: '',
       productFamilyId: '',
       roofModelId: '',
       offset: 0,
@@ -133,6 +134,10 @@ class TemplateWorkspaceNotifier extends Notifier<TemplateWorkspaceState> {
         .read(resourceBrowserProvider('configurator_templates').notifier)
         .openWithFilters(const <String, String>{}, updateUrl: false);
     pushAdminResourceUrl('configurator_templates');
+  }
+
+  void resetModuleFilters() {
+    state = state.copyWith(moduleQuery: '', clearModule: true);
   }
 
   void selectTemplate(String? id) {

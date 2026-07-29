@@ -76,6 +76,21 @@ class PriceMatrixBrowserNotifier extends Notifier<PriceMatrixBrowserState> {
     );
   }
 
+  void resetMatrixFilters() {
+    state = state.copyWith(
+      matrixQuery: '',
+      priceListId: '',
+      offset: 0,
+      clearMatrix: true,
+      clearCell: true,
+    );
+    pushAdminResourceUrl('price_matrices');
+  }
+
+  void resetCellFilters() {
+    state = state.copyWith(cellQuery: '', clearCell: true);
+  }
+
   void selectMatrix(String? id) {
     state = state.copyWith(selectedMatrixId: id, clearCell: true);
   }

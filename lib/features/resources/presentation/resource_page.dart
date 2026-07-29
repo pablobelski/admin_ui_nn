@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import '../../../core/auth/auth_session.dart';
 import '../../../core/http/admin_resource_repository.dart';
 import '../../../core/http/api_client.dart';
 import '../../../core/models/admin_resource.dart';
@@ -134,7 +135,13 @@ class _ToolbarState extends ConsumerState<_Toolbar> {
   Widget build(BuildContext context) {
     final browser = ref.read(resourceBrowserProvider(widget.resource.key).notifier);
     final repository = ref.read(resourceRepositoryProvider);
+    final roleCode = ref.watch(authSessionProvider.select((session) => session.roleCode));
+    final visibleFilters = widget.resource.listFilters
+        .where((filter) =>
+            filter.lookup == null || canRoleAccessAdminLookup(roleCode, filter.lookup!))
+        .toList(growable: false);
     final hasActiveFilters = widget.browserState.filters.isNotEmpty;
+    final canResetFilters = hasActiveFilters || widget.browserState.query.trim().isNotEmpty;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -159,6 +166,17 @@ class _ToolbarState extends ConsumerState<_Toolbar> {
               label: const Text('Apply'),
             ),
             const SizedBox(width: 8),
+            OutlinedButton.icon(
+              onPressed: canResetFilters
+                  ? () {
+                      _searchController.clear();
+                      browser.clearFilters();
+                    }
+                  : null,
+              icon: const Icon(Icons.filter_alt_off_outlined),
+              label: const Text('Reset filters'),
+            ),
+            const SizedBox(width: 8),
             IconButton(
               tooltip: 'Refresh',
               onPressed: () {
@@ -176,14 +194,14 @@ class _ToolbarState extends ConsumerState<_Toolbar> {
               ),
           ],
         ),
-        if (widget.resource.listFilters.isNotEmpty) ...[
+        if (visibleFilters.isNotEmpty || hasActiveFilters) ...[
           const SizedBox(height: 12),
           Wrap(
             spacing: 12,
             runSpacing: 12,
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              for (final filter in widget.resource.listFilters)
+              for (final filter in visibleFilters)
                 SizedBox(
                   width: 320,
                   child: _ListFilterField(
@@ -191,12 +209,6 @@ class _ToolbarState extends ConsumerState<_Toolbar> {
                     filter: filter,
                     value: widget.browserState.filters[filter.key] ?? '',
                   ),
-                ),
-              if (hasActiveFilters)
-                TextButton.icon(
-                  onPressed: browser.clearFilters,
-                  icon: const Icon(Icons.clear),
-                  label: const Text('Clear filters'),
                 ),
             ],
           ),
@@ -258,8 +270,19 @@ class _ToolbarState extends ConsumerState<_Toolbar> {
     );
     if (payload == null) return;
     try {
-      await repository.create(widget.resource, payload);
+      final created = await repository.create(widget.resource, payload);
+      final createdId = created['id']?.toString().trim() ?? '';
+      if (createdId.isNotEmpty) {
+        ref.read(resourceBrowserProvider(widget.resource.key).notifier).select(createdId);
+      }
       ref.invalidate(resourceListProvider(widget.resource));
+      ref.invalidate(resourceDetailsProvider(widget.resource));
+      if (!context.mounted) return;
+      showTopNotification(
+        context,
+        widget.resource.key == 'users' ? 'User created.' : 'Record created.',
+        type: TopNotificationType.success,
+      );
     } catch (error) {
       if (!context.mounted) return;
       showTopNotification(
@@ -383,12 +406,13 @@ class _ListCard extends ConsumerWidget {
     final useCompactLayout = _usesCompactListLayout(resource);
     final hasLeadingPreview = _hasLeadingPreviewColumn(resource);
     final hasOrganizationCalculationAction = resource.key == 'organizations';
+    final roleCode = ref.watch(authSessionProvider.select((session) => session.roleCode));
     final visibleColumns = resource.columns
         .where((column) => !_hideListColumn(resource, column))
         .toList(growable: false);
     final lookupLabelsByColumn = <String, Map<String, String>>{
       for (final column in visibleColumns)
-        if (column.lookup != null)
+        if (column.lookup != null && canRoleAccessAdminLookup(roleCode, column.lookup!))
           column.key: ref.watch(adminLookupProvider(column.lookup!)).maybeWhen(
             data: (rows) => _lookupLabelMap(column.lookup!, rows),
             orElse: () => const <String, String>{},
@@ -1055,6 +1079,7 @@ class _DetailsCardState extends ConsumerState<_DetailsCard> {
     final resource = widget.resource;
     final browserState = ref.watch(resourceBrowserProvider(resource.key));
     final repository = ref.read(resourceRepositoryProvider);
+    final authSession = ref.watch(authSessionProvider);
 
     return widget.detailsAsync.when(
       loading: () => const Card(child: Center(child: CircularProgressIndicator())),
@@ -1076,6 +1101,10 @@ class _DetailsCardState extends ConsumerState<_DetailsCard> {
           );
         }
 
+        final isCurrentUser = resource.key == 'users' &&
+            data['id']?.toString() == authSession.userId;
+        final mustChangePassword = resource.key == 'users' &&
+            data['must_change_password'] == true;
         final canShowCatalogItemTree =
             resource.key == 'catalog_item_relations' || resource.key == 'catalog_items';
         final canShowOrganizationTree =
@@ -1086,10 +1115,17 @@ class _DetailsCardState extends ConsumerState<_DetailsCard> {
         final generatedDocumentAction = resource.key == 'generated_documents'
             ? _quoteDocumentMenuAction(data)
             : null;
+        final accessibleDetailActions = resource.detailActions
+            .where((action) => canRoleAccessAdminResource(
+                  authSession.roleCode,
+                  findResourceByKey(action.targetResourceKey),
+                ))
+            .toList(growable: false);
         final detailLookupLabelsByKey = _detailLookupLabelsByKey(ref, resource);
         final enrichedData = _withReadableRelationFields(resource, data, detailLookupLabelsByKey);
         final quotePreviewContext = resource.key == 'quotes' ? ref.watch(calculatorContextProvider) : null;
-        final roofModelLabelsByCode = resource.key == 'quotes'
+        final roofModelLabelsByCode = resource.key == 'quotes' &&
+                canRoleAccessAdminLookup(authSession.roleCode, roofModelLookup)
             ? ref.watch(adminLookupProvider(roofModelLookup)).maybeWhen(
                   data: _roofModelLabelsByCode,
                   orElse: () => const <String, String>{},
@@ -1113,11 +1149,11 @@ class _DetailsCardState extends ConsumerState<_DetailsCard> {
                       style: Theme.of(context).textTheme.titleLarge,
                     ),
                     const Spacer(),
-                    if (resource.detailActions.isNotEmpty)
+                    if (accessibleDetailActions.isNotEmpty)
                       Padding(
                         padding: const EdgeInsets.only(right: 8),
                         child: _DetailActionsMenu(
-                          actions: resource.detailActions,
+                          actions: accessibleDetailActions,
                           data: data,
                           onSelected: (action) => _openDetailAction(ref, action, data),
                         ),
@@ -1153,37 +1189,99 @@ class _DetailsCardState extends ConsumerState<_DetailsCard> {
                     if (resource.key == 'users')
                       Padding(
                         padding: const EdgeInsets.only(right: 8),
+                        child: Tooltip(
+                          message: isCurrentUser
+                              ? 'Use Change password in the top bar for your own account'
+                              : 'Assign or reset this user password',
+                          child: OutlinedButton.icon(
+                            onPressed: isCurrentUser
+                                ? null
+                                : () async {
+                                    final passwordInput = await showDialog<_UserPasswordInput>(
+                                      context: context,
+                                      builder: (_) => const _SetUserPasswordDialog(),
+                                    );
+                                    if (passwordInput == null) return;
+                                    try {
+                                      await repository.setUserPassword(
+                                        userId: browserState.selectedId!,
+                                        password: passwordInput.password,
+                                        mustChangePassword: passwordInput.mustChangePassword,
+                                      );
+                                      ref.invalidate(resourceListProvider(resource));
+                                      ref.invalidate(resourceDetailsProvider(resource));
+                                      if (!context.mounted) return;
+                                      showTopNotification(
+                                        context,
+                                        passwordInput.mustChangePassword
+                                            ? 'Temporary password saved. The user must choose a new password at next sign-in.'
+                                            : 'Password assigned.',
+                                        type: TopNotificationType.success,
+                                      );
+                                    } catch (error) {
+                                      if (!context.mounted) return;
+                                      showTopNotification(
+                                        context,
+                                        'Password reset failed: $error',
+                                        type: TopNotificationType.error,
+                                      );
+                                    }
+                                  },
+                            icon: const Icon(Icons.password_rounded, size: 18),
+                            label: const Text('Password'),
+                          ),
+                        ),
+                      ),
+                    if (mustChangePassword)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 8),
                         child: OutlinedButton.icon(
                           onPressed: () async {
-                            final password = await showDialog<String>(
+                            final confirmed = await showDialog<bool>(
                               context: context,
-                              builder: (_) => const _SetUserPasswordDialog(),
+                              builder: (dialogContext) => AlertDialog(
+                                title: const Text('Clear password change requirement?'),
+                                content: const Text(
+                                  'The user will be able to continue signing in with the currently assigned password.',
+                                ),
+                                actions: [
+                                  TextButton(
+                                    onPressed: () => Navigator.of(dialogContext).pop(false),
+                                    child: const Text('Cancel'),
+                                  ),
+                                  FilledButton(
+                                    onPressed: () => Navigator.of(dialogContext).pop(true),
+                                    child: const Text('Clear flag'),
+                                  ),
+                                ],
+                              ),
                             );
-                            if (password == null) return;
+                            if (confirmed != true) return;
+
                             try {
-                              await ref.read(apiClientProvider).postJson(
-                                '/api/admin/users/${browserState.selectedId}/password',
-                                body: {'password': password},
+                              await repository.setUserPasswordChangeRequired(
+                                userId: browserState.selectedId!,
+                                mustChangePassword: false,
                               );
                               ref.invalidate(resourceListProvider(resource));
                               ref.invalidate(resourceDetailsProvider(resource));
                               if (!context.mounted) return;
                               showTopNotification(
                                 context,
-                                'Password changed.',
+                                'Password change requirement cleared.',
                                 type: TopNotificationType.success,
                               );
                             } catch (error) {
                               if (!context.mounted) return;
                               showTopNotification(
                                 context,
-                                'Password change failed: $error',
+                                'Flag reset failed: $error',
                                 type: TopNotificationType.error,
                               );
                             }
                           },
-                          icon: const Icon(Icons.password_rounded, size: 18),
-                          label: const Text('Set password'),
+                          icon: const Icon(Icons.lock_reset_rounded, size: 18),
+                          label: const Text('Clear reset flag'),
                         ),
                       ),
                     if (canShowCatalogItemTree)
@@ -1276,44 +1374,58 @@ class _DetailsCardState extends ConsumerState<_DetailsCard> {
                       ),
                     if (resource.supportsDelete)
                       IconButton(
-                        tooltip: 'Delete',
-                        onPressed: () async {
-                          final selectedId = browserState.selectedId;
-                          if (selectedId == null) return;
+                        tooltip: isCurrentUser ? 'You cannot delete your own account' : 'Delete',
+                        onPressed: isCurrentUser
+                            ? null
+                            : () async {
+                                final selectedId = browserState.selectedId;
+                                if (selectedId == null) return;
 
-                          final confirmed = await showDialog<bool>(
-                            context: context,
-                            builder: (dialogContext) => AlertDialog(
-                              title: const Text('Delete row?'),
-                              content: const Text('Delete this record?'),
-                              actions: [
-                                TextButton(
-                                  onPressed: () => Navigator.of(dialogContext).pop(false),
-                                  child: const Text('Cancel'),
-                                ),
-                                FilledButton.tonal(
-                                  onPressed: () => Navigator.of(dialogContext).pop(true),
-                                  child: const Text('Delete'),
-                                ),
-                              ],
-                            ),
-                          );
-                          if (confirmed != true) return;
+                                final isUser = resource.key == 'users';
+                                final userLabel = data['email']?.toString() ?? selectedId;
+                                final confirmed = await showDialog<bool>(
+                                  context: context,
+                                  builder: (dialogContext) => AlertDialog(
+                                    title: Text(isUser ? 'Delete user?' : 'Delete row?'),
+                                    content: Text(
+                                      isUser
+                                          ? 'Delete $userLabel? The account credentials and organization links will be removed. Historical documents remain available.'
+                                          : 'Delete this record?',
+                                    ),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () => Navigator.of(dialogContext).pop(false),
+                                        child: const Text('Cancel'),
+                                      ),
+                                      FilledButton.tonal(
+                                        onPressed: () => Navigator.of(dialogContext).pop(true),
+                                        child: const Text('Delete'),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                                if (confirmed != true) return;
 
-                          try {
-                            await repository.delete(resource, selectedId);
-                            ref.read(resourceBrowserProvider(resource.key).notifier).select(null);
-                            ref.invalidate(resourceListProvider(resource));
-                            ref.invalidate(resourceDetailsProvider(resource));
-                          } catch (error) {
-                            if (!context.mounted) return;
-                            showTopNotification(
-                              context,
-                              'Delete failed: $error',
-                              type: TopNotificationType.error,
-                            );
-                          }
-                        },
+                                try {
+                                  await repository.delete(resource, selectedId);
+                                  ref.read(resourceBrowserProvider(resource.key).notifier).select(null);
+                                  ref.invalidate(resourceListProvider(resource));
+                                  ref.invalidate(resourceDetailsProvider(resource));
+                                  if (!context.mounted) return;
+                                  showTopNotification(
+                                    context,
+                                    isUser ? 'User deleted.' : 'Record deleted.',
+                                    type: TopNotificationType.success,
+                                  );
+                                } catch (error) {
+                                  if (!context.mounted) return;
+                                  showTopNotification(
+                                    context,
+                                    'Delete failed: $error',
+                                    type: TopNotificationType.error,
+                                  );
+                                }
+                              },
                         icon: const Icon(Icons.delete_outline),
                       ),
                   ],
@@ -1716,23 +1828,7 @@ class _SavedQuoteGeometryPreviewTab extends StatelessWidget {
           ),
           const SizedBox(height: 12),
         ],
-        Text('Roof type', style: Theme.of(context).textTheme.titleSmall),
-        const SizedBox(height: 8),
         if (hasModel)
-          _QuotePreviewInfoCard(
-            rows: [
-              _DetailRowData('Model', modelLabel.isNotEmpty ? modelLabel : modelCode),
-              _DetailRowData('Code', modelCode),
-            ],
-          )
-        else
-          const _DetailsHintCard(
-            icon: Icons.view_in_ar_outlined,
-            title: 'No roof type selected',
-            text: 'The saved calculation does not contain a selected roof model.',
-          ),
-        if (hasModel) ...[
-          const SizedBox(height: 12),
           ModelGeometryPreview(
             modelCode: modelCode,
             modelLabel: modelLabel,
@@ -1763,8 +1859,8 @@ class _SavedQuoteGeometryPreviewTab extends StatelessWidget {
             roofAngleDeg: roofCalculation?.angleDeg ?? slope.angleDeg,
             rearHeightMm: slope.rearHeightMm,
             frontHeightMm: roofCalculation?.frontHeightMm ?? slope.frontHeightMm,
+            showRoofType: false,
           ),
-        ],
       ],
     );
   }
@@ -2496,6 +2592,16 @@ void _openOrganization(WidgetRef ref, String organizationId) {
   ref.invalidate(resourceDetailsProvider(targetResource));
 }
 
+class _UserPasswordInput {
+  const _UserPasswordInput({
+    required this.password,
+    required this.mustChangePassword,
+  });
+
+  final String password;
+  final bool mustChangePassword;
+}
+
 class _SetUserPasswordDialog extends StatefulWidget {
   const _SetUserPasswordDialog();
 
@@ -2507,6 +2613,9 @@ class _SetUserPasswordDialogState extends State<_SetUserPasswordDialog> {
   final _formKey = GlobalKey<FormState>();
   final _passwordController = TextEditingController();
   final _repeatPasswordController = TextEditingController();
+  bool _mustChangePassword = true;
+  bool _obscurePassword = true;
+  bool _obscureRepeat = true;
 
   @override
   void dispose() {
@@ -2518,9 +2627,9 @@ class _SetUserPasswordDialogState extends State<_SetUserPasswordDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('Set user password'),
+      title: const Text('Assign or reset password'),
       content: SizedBox(
-        width: 420,
+        width: 440,
         child: Form(
           key: _formKey,
           child: Column(
@@ -2528,23 +2637,55 @@ class _SetUserPasswordDialogState extends State<_SetUserPasswordDialog> {
             children: [
               TextFormField(
                 controller: _passwordController,
-                obscureText: true,
-                decoration: const InputDecoration(labelText: 'New password'),
-                validator: _required,
+                autofocus: true,
+                obscureText: _obscurePassword,
+                decoration: InputDecoration(
+                  labelText: 'New password',
+                  helperText: 'At least 8 characters',
+                  suffixIcon: IconButton(
+                    onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                    icon: Icon(
+                      _obscurePassword
+                          ? Icons.visibility_outlined
+                          : Icons.visibility_off_outlined,
+                    ),
+                  ),
+                ),
+                validator: _validatePassword,
               ),
               const SizedBox(height: 12),
               TextFormField(
                 controller: _repeatPasswordController,
-                obscureText: true,
-                decoration: const InputDecoration(labelText: 'Repeat new password'),
+                obscureText: _obscureRepeat,
+                decoration: InputDecoration(
+                  labelText: 'Repeat new password',
+                  suffixIcon: IconButton(
+                    onPressed: () => setState(() => _obscureRepeat = !_obscureRepeat),
+                    icon: Icon(
+                      _obscureRepeat
+                          ? Icons.visibility_outlined
+                          : Icons.visibility_off_outlined,
+                    ),
+                  ),
+                ),
                 validator: (value) {
-                  final requiredMessage = _required(value);
-                  if (requiredMessage != null) return requiredMessage;
+                  if (value == null || value.isEmpty) return 'Required';
                   if (value != _passwordController.text) {
                     return 'Passwords do not match';
                   }
                   return null;
                 },
+              ),
+              const SizedBox(height: 8),
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                value: _mustChangePassword,
+                onChanged: (value) => setState(() => _mustChangePassword = value ?? true),
+                title: const Text('Require a new password at next sign-in'),
+                subtitle: const Text(
+                  'Recommended for password resets and temporary passwords.',
+                ),
+                controlAffinity: ListTileControlAffinity.leading,
               ),
             ],
           ),
@@ -2558,7 +2699,12 @@ class _SetUserPasswordDialogState extends State<_SetUserPasswordDialog> {
         FilledButton(
           onPressed: () {
             if (!_formKey.currentState!.validate()) return;
-            Navigator.of(context).pop(_passwordController.text);
+            Navigator.of(context).pop(
+              _UserPasswordInput(
+                password: _passwordController.text,
+                mustChangePassword: _mustChangePassword,
+              ),
+            );
           },
           child: const Text('Save'),
         ),
@@ -2566,10 +2712,9 @@ class _SetUserPasswordDialogState extends State<_SetUserPasswordDialog> {
     );
   }
 
-  String? _required(String? value) {
-    if (value == null || value.isEmpty) {
-      return 'Required';
-    }
+  String? _validatePassword(String? value) {
+    if (value == null || value.isEmpty) return 'Required';
+    if (value.length < 8) return 'Use at least 8 characters';
     return null;
   }
 }
@@ -2579,13 +2724,15 @@ Map<String, Map<String, String>> _detailLookupLabelsByKey(
   AdminResourceDefinition resource,
 ) {
   if (!_usesReadableDetails(resource)) return const <String, Map<String, String>>{};
+  final roleCode = ref.watch(authSessionProvider.select((session) => session.roleCode));
   final lookups = _detailRelationLookupsByKey(resource);
   return {
     for (final entry in lookups.entries)
-      entry.key: ref.watch(adminLookupProvider(entry.value)).maybeWhen(
-            data: (rows) => _lookupLabelMap(entry.value, rows),
-            orElse: () => const <String, String>{},
-          ),
+      if (canRoleAccessAdminLookup(roleCode, entry.value))
+        entry.key: ref.watch(adminLookupProvider(entry.value)).maybeWhen(
+              data: (rows) => _lookupLabelMap(entry.value, rows),
+              orElse: () => const <String, String>{},
+            ),
   };
 }
 

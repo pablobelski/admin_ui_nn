@@ -46,11 +46,14 @@ class AdminResourceRepository {
       AdminLookup lookup, {
         String query = '',
         int limit = 100,
+        Map<String, String> filters = const {},
       }) async {
     final response = await _client.getJson(
       lookup.endpoint,
       query: {
         if (query.isNotEmpty) 'q': query,
+        for (final entry in filters.entries)
+          if (entry.value.trim().isNotEmpty) entry.key: entry.value.trim(),
         'limit': '$limit',
         'offset': '0',
       },
@@ -135,6 +138,31 @@ class AdminResourceRepository {
     return _client.putJson('${resource.endpoint}/$id', body: body);
   }
 
+  Future<Map<String, dynamic>> setUserPassword({
+    required String userId,
+    required String password,
+    required bool mustChangePassword,
+  }) {
+    return _client.postJson(
+      '/api/admin/users/$userId/password',
+      body: {
+        'password': password,
+        'must_change_password': mustChangePassword,
+      },
+    );
+  }
+
+  Future<Map<String, dynamic>> setUserPasswordChangeRequired({
+    required String userId,
+    required bool mustChangePassword,
+  }) {
+    return _client.postJson(
+      '/api/admin/users/$userId/password-change-required',
+      body: {
+        'must_change_password': mustChangePassword,
+      },
+    );
+  }
 
   Future<Map<String, dynamic>> uploadMediaFile({
     required String filename,
@@ -156,35 +184,16 @@ class AdminResourceRepository {
   }
 
   Future<Map<String, dynamic>?> findMediaFileByOriginalFilename(String filename) async {
-    final target = filename.trim().toLowerCase();
-    if (target.isEmpty) return null;
+    final normalized = filename.trim();
+    if (normalized.isEmpty) return null;
 
     final response = await _client.getJson(
-      '/api/admin/media-files',
-      query: {
-        'q': filename.trim(),
-        'limit': '20',
-        'offset': '0',
-      },
+      '/api/internal/media-files/by-filename',
+      query: {'filename': normalized},
     );
-    final items = (response['items'] as List? ?? const [])
-        .cast<Map>()
-        .map((entry) => Map<String, dynamic>.from(entry))
-        .toList();
-
-    for (final item in items) {
-      final original =
-          item['original_filename']?.toString().trim().toLowerCase() ?? '';
-      if (original == target) return item;
-    }
-    for (final item in items) {
-      final original =
-          item['original_filename']?.toString().trim().toLowerCase() ?? '';
-      if (original.endsWith('/$target') || original.endsWith('\\$target')) {
-        return item;
-      }
-    }
-    return items.isEmpty ? null : items.first;
+    final item = response['item'];
+    if (item is! Map) return null;
+    return Map<String, dynamic>.from(item);
   }
 
   Future<Map<String, dynamic>> fetchMediaFileUrl(String fileId) async {

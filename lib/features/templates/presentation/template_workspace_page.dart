@@ -160,7 +160,6 @@ class _TemplateToolbarState extends ConsumerState<_TemplateToolbar> {
     final templateResource = findResourceByKey('configurator_templates');
     final workspaceState = ref.watch(templateWorkspaceProvider);
     final selectedTemplateId = workspaceState.selectedTemplateId;
-    final hasActiveFilters = workspaceState.activeFilters.isNotEmpty;
 
     return Wrap(
       spacing: 8,
@@ -183,6 +182,17 @@ class _TemplateToolbarState extends ConsumerState<_TemplateToolbar> {
           icon: const Icon(Icons.filter_alt_outlined),
           label: const Text('Apply template filter'),
         ),
+        OutlinedButton.icon(
+          onPressed: workspaceState.templateQuery.isNotEmpty ||
+                  workspaceState.activeFilters.isNotEmpty
+              ? () {
+                  _templateSearchController.clear();
+                  browser.clearTemplateFilters();
+                }
+              : null,
+          icon: const Icon(Icons.filter_alt_off_outlined),
+          label: const Text('Reset filters'),
+        ),
         SizedBox(
           width: 280,
           child: _TemplateLookupFilterField(
@@ -201,12 +211,6 @@ class _TemplateToolbarState extends ConsumerState<_TemplateToolbar> {
             onChanged: (value) => browser.setTemplateFilter('roof_model_id', value),
           ),
         ),
-        if (hasActiveFilters)
-          TextButton.icon(
-            onPressed: browser.clearTemplateFilters,
-            icon: const Icon(Icons.clear),
-            label: const Text('Clear template filters'),
-          ),
         SizedBox(
           width: 280,
           child: TextField(
@@ -224,6 +228,16 @@ class _TemplateToolbarState extends ConsumerState<_TemplateToolbar> {
               : () => browser.setModuleQuery(_moduleSearchController.text.trim()),
           icon: const Icon(Icons.manage_search_rounded),
           label: const Text('Apply module filter'),
+        ),
+        OutlinedButton.icon(
+          onPressed: workspaceState.moduleQuery.isNotEmpty
+              ? () {
+                  _moduleSearchController.clear();
+                  browser.resetModuleFilters();
+                }
+              : null,
+          icon: const Icon(Icons.filter_alt_off_outlined),
+          label: const Text('Reset filters'),
         ),
         IconButton(
           tooltip: 'Refresh templates and modules',
@@ -860,6 +874,14 @@ class _ModuleToolbarState extends ConsumerState<_ModuleToolbar> {
     final adminRepository = ref.read(resourceRepositoryProvider);
     final moduleResource = findResourceByKey('template_modules');
     final templateId = ref.watch(templateWorkspaceProvider.select((value) => value.selectedTemplateId));
+    final moduleQuery = ref.watch(templateWorkspaceProvider.select((value) => value.moduleQuery));
+    if (_controller.text != moduleQuery) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _controller.text != moduleQuery) {
+          _controller.text = moduleQuery;
+        }
+      });
+    }
 
     return Wrap(
       spacing: 8,
@@ -881,6 +903,16 @@ class _ModuleToolbarState extends ConsumerState<_ModuleToolbar> {
           onPressed: () => browser.setModuleQuery(_controller.text.trim()),
           icon: const Icon(Icons.filter_alt_outlined),
           label: const Text('Apply module filter'),
+        ),
+        OutlinedButton.icon(
+          onPressed: moduleQuery.isNotEmpty
+              ? () {
+                  _controller.clear();
+                  browser.resetModuleFilters();
+                }
+              : null,
+          icon: const Icon(Icons.filter_alt_off_outlined),
+          label: const Text('Reset filters'),
         ),
         FilledButton.icon(
           onPressed: templateId == null

@@ -31,7 +31,9 @@ class _ConfiguratorAdminAppState extends ConsumerState<ConfiguratorAdminApp> {
       home: authState.isLoading
           ? const _SplashScreen()
           : authState.isAuthenticated
-              ? const AdminShell()
+              ? authState.mustChangePassword
+                  ? const RequiredPasswordChangePage()
+                  : const AdminShell()
               : const LoginPage(),
     );
   }

@@ -64,8 +64,7 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
     _lookupFutures = {
       for (final field in widget.resource.formFields)
         if (field.lookup != null)
-          field.key: widget.repository?.fetchLookup(field.lookup!, limit: field.lookup!.limit) ??
-              Future<List<Map<String, dynamic>>>.value(const <Map<String, dynamic>>[]),
+          field.key: _loadLookup(field),
     };
     _referenceOptionFutures = {
       for (final field in widget.resource.formFields)
@@ -79,6 +78,45 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
 
   bool _defaultBoolValue(String key) {
     return key == 'is_active' || key == 'is_default' || key == 'enabled';
+  }
+
+  String _lookupFilterValue(AdminField field) {
+    final sourceKey = field.lookupFilterFieldKey;
+    if (sourceKey == null || sourceKey.isEmpty) return '';
+    return _controllers[sourceKey]?.text.trim() ?? '';
+  }
+
+  Future<List<Map<String, dynamic>>> _loadLookup(AdminField field) {
+    final lookup = field.lookup;
+    if (lookup == null || widget.repository == null) {
+      return Future<List<Map<String, dynamic>>>.value(const <Map<String, dynamic>>[]);
+    }
+
+    final filterValue = _lookupFilterValue(field);
+    if (field.lookupFilterFieldKey != null && filterValue.isEmpty) {
+      return Future<List<Map<String, dynamic>>>.value(const <Map<String, dynamic>>[]);
+    }
+
+    final queryKey = field.lookupFilterQueryKey;
+    return widget.repository!.fetchLookup(
+      lookup,
+      limit: lookup.limit,
+      filters: {
+        ...field.lookupFilters,
+        if (queryKey != null && queryKey.isNotEmpty) queryKey: filterValue,
+      },
+    );
+  }
+
+  void _handleLookupSourceChanged(String sourceFieldKey) {
+    var changed = false;
+    for (final field in widget.resource.formFields) {
+      if (field.lookup == null || field.lookupFilterFieldKey != sourceFieldKey) continue;
+      _controllers[field.key]?.clear();
+      _lookupFutures[field.key] = _loadLookup(field);
+      changed = true;
+    }
+    if (changed) setState(() {});
   }
 
   dynamic _valueAtPath(Map<String, dynamic>? source, String key) {
@@ -192,13 +230,14 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
               runSpacing: 16,
               children: [
                 for (final field in widget.resource.formFields)
-                  SizedBox(
-                    width: field.type == AdminFieldType.longText ||
-                            field.type == AdminFieldType.json
-                        ? 680
-                        : 332,
-                    child: _buildField(field),
-                  ),
+                  if (!isEditing || !field.createOnly)
+                    SizedBox(
+                      width: field.type == AdminFieldType.longText ||
+                              field.type == AdminFieldType.json
+                          ? 680
+                          : 332,
+                      child: _buildField(field),
+                    ),
               ],
             ),
           ),
@@ -314,6 +353,8 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
           final lookup = field.lookup!;
           final controller = _controllers[field.key]!;
           final currentValue = controller.text.trim();
+          final filterValue = _lookupFilterValue(field);
+          final dependencyMissing = field.lookupFilterFieldKey != null && filterValue.isEmpty;
           final rows = snapshot.data ?? const <Map<String, dynamic>>[];
           final options = <SearchableSelectOption>[];
           var hasCurrentValue = currentValue.isEmpty;
@@ -332,15 +373,20 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
           return SearchableSelectFormField(
             value: currentValue,
             options: options,
-            enabled: !field.readOnly && snapshot.connectionState != ConnectionState.waiting,
+            enabled: !field.readOnly &&
+                !dependencyMissing &&
+                snapshot.connectionState != ConnectionState.waiting,
             labelText: field.label,
-            helperText: snapshot.connectionState == ConnectionState.waiting
+            helperText: dependencyMissing
+                ? 'Select organization first'
+                : snapshot.connectionState == ConnectionState.waiting
                 ? 'Loading options...'
                 : snapshot.hasError
                 ? 'Failed to load; keep existing value or leave empty'
                 : field.helperText,
             onChanged: (value) {
               controller.text = value ?? '';
+              _handleLookupSourceChanged(field.key);
             },
           );
         },
@@ -354,6 +400,8 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
       maxLines: field.type == AdminFieldType.longText || field.type == AdminFieldType.json ? 8 : 1,
       keyboardType: field.type == AdminFieldType.number
           ? TextInputType.number
+          : field.type == AdminFieldType.email
+          ? TextInputType.emailAddress
           : field.type == AdminFieldType.json
           ? TextInputType.multiline
           : TextInputType.text,
@@ -372,8 +420,26 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
             }
           : null,
       validator: (value) {
-        if (!field.readOnly && (value == null || value.trim().isEmpty) && field.key != 'id') {
+        final normalizedValue = value?.trim() ?? '';
+        final isCreating = widget.initialData == null;
+        if (!field.readOnly && field.requiredOnCreate && isCreating && normalizedValue.isEmpty) {
+          return 'Required';
+        }
+        if (field.minLength != null && normalizedValue.isNotEmpty && normalizedValue.length < field.minLength!) {
+          return 'Use at least ${field.minLength} characters';
+        }
+        if (field.matchesFieldKey != null && normalizedValue.isNotEmpty) {
+          final sourceValue = _controllers[field.matchesFieldKey]?.text ?? '';
+          if (value != sourceValue) {
+            return 'Values do not match';
+          }
+        }
+        if (!field.readOnly && normalizedValue.isEmpty && field.key != 'id') {
           return null;
+        }
+        if (field.type == AdminFieldType.email && normalizedValue.isNotEmpty) {
+          final emailPattern = RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$');
+          if (!emailPattern.hasMatch(normalizedValue)) return 'Invalid email address';
         }
         if (field.type == AdminFieldType.number && value != null && value.trim().isNotEmpty) {
           if (num.tryParse(value.trim().replaceAll(',', '.')) == null) {

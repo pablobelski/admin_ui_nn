@@ -71,6 +71,7 @@ class ModelGeometryPreview extends ConsumerStatefulWidget {
     this.roofAngleDeg,
     this.rearHeightMm,
     this.frontHeightMm,
+    this.showRoofType = true,
   });
 
   final String? modelCode;
@@ -105,6 +106,7 @@ class ModelGeometryPreview extends ConsumerStatefulWidget {
   final int? roofAngleDeg;
   final int? rearHeightMm;
   final int? frontHeightMm;
+  final bool showRoofType;
 
   @override
   ConsumerState<ModelGeometryPreview> createState() => _ModelGeometryPreviewState();
@@ -326,6 +328,7 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
                                   calculatedModules: widget.calculatedModules,
                                   postCount: widget.postCount,
                                   currentUser: currentUser,
+                                  showRoofType: widget.showRoofType,
                                 ),
                               ),
                               const SizedBox(width: 20),
@@ -610,6 +613,7 @@ class _ExpandedPreviewInfo extends StatelessWidget {
     required this.calculatedModules,
     required this.postCount,
     required this.currentUser,
+    required this.showRoofType,
   });
 
   final String modelLabel;
@@ -632,6 +636,7 @@ class _ExpandedPreviewInfo extends StatelessWidget {
   final List<RoofModuleCalculation> calculatedModules;
   final int postCount;
   final String currentUser;
+  final bool showRoofType;
 
   @override
   Widget build(BuildContext context) {
@@ -685,12 +690,13 @@ class _ExpandedPreviewInfo extends StatelessWidget {
             ),
             if (contactDetails.isNotEmpty)
               _PreviewMetadataRow(label: 'Configurator contact', value: contactDetails),
-            _PreviewMetadataRow(
-              label: 'Roof type',
-              value: modelCodeValue == null || modelCodeValue.isEmpty
-                  ? modelLabel
-                  : '$modelLabel ($modelCodeValue)',
-            ),
+            if (showRoofType)
+              _PreviewMetadataRow(
+                label: 'Roof type',
+                value: modelCodeValue == null || modelCodeValue.isEmpty
+                    ? modelLabel
+                    : '$modelLabel ($modelCodeValue)',
+              ),
             if (colorCode?.trim().isNotEmpty == true)
               _PreviewMetadataRow(
                 label: isSpecialColor ? 'Color (Sonderfarbe)' : 'Color',

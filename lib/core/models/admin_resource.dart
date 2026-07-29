@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-enum AdminFieldType { text, longText, number, boolType, date, json, password, file }
+enum AdminFieldType { text, email, longText, number, boolType, date, json, password, file }
 
 class AdminSelectOption {
   const AdminSelectOption({
@@ -42,6 +42,13 @@ class AdminField {
     this.includeInPayload = true,
     this.filePurpose,
     this.accept,
+    this.createOnly = false,
+    this.requiredOnCreate = false,
+    this.minLength,
+    this.matchesFieldKey,
+    this.lookupFilterFieldKey,
+    this.lookupFilterQueryKey,
+    this.lookupFilters = const {},
   });
 
   final String key;
@@ -56,6 +63,13 @@ class AdminField {
   final bool includeInPayload;
   final String? filePurpose;
   final String? accept;
+  final bool createOnly;
+  final bool requiredOnCreate;
+  final int? minLength;
+  final String? matchesFieldKey;
+  final String? lookupFilterFieldKey;
+  final String? lookupFilterQueryKey;
+  final Map<String, String> lookupFilters;
 }
 
 class AdminColumn {

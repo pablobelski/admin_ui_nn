@@ -60,10 +60,18 @@ class _SearchableSelectFormFieldState extends State<SearchableSelectFormField> {
 
     if ((selectedValueChanged || selectedLabelLoaded) &&
         _textController.text != nextLabel) {
-      _textController.value = TextEditingValue(
-        text: nextLabel,
-        selection: TextSelection.collapsed(offset: nextLabel.length),
-      );
+      final currentText = _textController.text;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted ||
+            _selectedLabel != nextLabel ||
+            _textController.text != currentText) {
+          return;
+        }
+        _textController.value = TextEditingValue(
+          text: nextLabel,
+          selection: TextSelection.collapsed(offset: nextLabel.length),
+        );
+      });
     }
   }
 

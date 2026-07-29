@@ -22,21 +22,32 @@ final resourceRepositoryProvider = Provider<AdminResourceRepository>((ref) {
 });
 
 final adminLookupProvider = FutureProvider.family<List<Map<String, dynamic>>, AdminLookup>(
-      (ref, lookup) {
+      (ref, lookup) async {
+    final roleCode = ref.watch(authSessionProvider.select((session) => session.roleCode));
+    if (!canRoleAccessAdminLookup(roleCode, lookup)) {
+      return const <Map<String, dynamic>>[];
+    }
     return ref.watch(resourceRepositoryProvider).fetchLookup(lookup, limit: lookup.limit);
   },
 );
 
 class SelectedResourceNotifier extends Notifier<String> {
   @override
-  String build() => currentAdminResourceKey();
+  String build() => _accessibleResourceKey(currentAdminResourceKey());
+
+  String _accessibleResourceKey(String key) {
+    if (!isKnownAdminResourceKey(key)) return dashboardResource.key;
+    final resource = findResourceByKey(key);
+    final roleCode = ref.read(authSessionProvider).roleCode;
+    return canRoleAccessAdminResource(roleCode, resource) ? key : dashboardResource.key;
+  }
 
   void select(
       String key, {
         bool updateUrl = true,
         Map<String, String> filters = const {},
       }) {
-    final nextKey = isKnownAdminResourceKey(key) ? key : dashboardResource.key;
+    final nextKey = _accessibleResourceKey(key);
     state = nextKey;
     if (updateUrl) {
       pushAdminResourceUrl(nextKey, filters: filters);
@@ -60,7 +71,14 @@ class ResourceBrowserNotifier extends Notifier<ResourceBrowserState> {
   @override
   ResourceBrowserState build() {
     final resource = findResourceByKey(resourceKey);
-    final filters = currentAdminResourceFilters(resource);
+    final roleCode = ref.watch(authSessionProvider.select((session) => session.roleCode));
+    final filters = Map<String, String>.from(currentAdminResourceFilters(resource));
+    final blockedLookupFilterKeys = resource.listFilters
+        .where((filter) =>
+            filter.lookup != null && !canRoleAccessAdminLookup(roleCode, filter.lookup!))
+        .map((filter) => filter.key)
+        .toSet();
+    filters.removeWhere((key, _) => blockedLookupFilterKeys.contains(key));
     return ResourceBrowserState(
       filters: filters,
       selectedId: filters['id'],
@@ -104,7 +122,12 @@ class ResourceBrowserNotifier extends Notifier<ResourceBrowserState> {
   }
 
   void clearFilters() {
-    state = state.copyWith(filters: const {}, offset: 0, clearSelected: true);
+    state = state.copyWith(
+      query: '',
+      filters: const {},
+      offset: 0,
+      clearSelected: true,
+    );
     pushAdminResourceUrl(resourceKey);
   }
 

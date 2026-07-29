@@ -117,6 +117,26 @@ class ReferenceWorkspaceNotifier extends Notifier<ReferenceWorkspaceState> {
     pushAdminResourceUrl('reference_domains', filters: nextState.activeFilters);
   }
 
+  void resetDomainFilters() {
+    state = state.copyWith(
+      domainQuery: '',
+      scopeCode: '',
+      objectName: '',
+      parentId: '',
+      offset: 0,
+      clearDomain: true,
+      clearValue: true,
+    );
+    ref
+        .read(resourceBrowserProvider('reference_domains').notifier)
+        .openWithFilters(const <String, String>{}, updateUrl: false);
+    pushAdminResourceUrl('reference_domains');
+  }
+
+  void resetValueFilters() {
+    state = state.copyWith(valueQuery: '', clearValue: true);
+  }
+
   void applyNavigationFilters(Map<String, String> filters) {
     final nextScope = _normalizeScopeCode(filters['scope_code'] ?? '');
     final nextObjectName = (filters['object_name'] ?? '').trim();
