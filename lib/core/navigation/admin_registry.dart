@@ -88,6 +88,13 @@ const documentTemplateLookup = AdminLookup(
   showIdInDropdown: false,
 );
 
+const documentBatchLookup = AdminLookup(
+  endpoint: '/api/admin/document-batches',
+  labelKeys: ['code', 'name', 'is_default'],
+  limit: 1000,
+  showIdInDropdown: false,
+);
+
 const roofModelLookup = AdminLookup(
   endpoint: '/api/admin/roof-models',
   labelKeys: ['code', 'name'],
@@ -831,6 +838,7 @@ const adminNavGroups = <AdminNavGroup>[
           AdminColumn(key: 'document_type_code', label: 'Type', isPrimary: true),
           AdminColumn(key: 'document_type_label', label: 'Label'),
           AdminColumn(key: 'output_filename', label: 'Filename', flex: 3),
+          AdminColumn(key: 'created_by', label: 'Printed by', flex: 2, lookup: userLookup),
           AdminColumn(key: 'status_code', label: 'Status'),
           AdminColumn(key: 'created_at', label: 'Created', flex: 2),
         ],
@@ -838,6 +846,7 @@ const adminNavGroups = <AdminNavGroup>[
           AdminResourceFilter(key: 'quote_id', label: 'Quote', lookup: quoteLookup),
           AdminResourceFilter(key: 'document_type_code', label: 'Document type', options: documentTypeOptions),
           AdminResourceFilter(key: 'document_template_id', label: 'Template', lookup: documentTemplateLookup),
+          AdminResourceFilter(key: 'created_by', label: 'Printed by', lookup: userLookup),
           AdminResourceFilter(key: 'status_code', label: 'Status'),
         ],
         formFields: [
@@ -849,6 +858,7 @@ const adminNavGroups = <AdminNavGroup>[
           AdminField(key: 'document_type_label', label: 'Document type label', readOnly: true),
           AdminField(key: 'output_filename', label: 'Output filename', readOnly: true),
           AdminField(key: 'status_code', label: 'Status', readOnly: true),
+          AdminField(key: 'created_by', label: 'Printed by', lookup: userLookup, readOnly: true),
           AdminField(key: 'file_id', label: 'PDF file', type: AdminFieldType.file, readOnly: true, includeInPayload: false),
           AdminField(key: 'asset_file_id', label: 'Asset file', type: AdminFieldType.file, readOnly: true, includeInPayload: false),
           AdminField(key: 'payload_json', label: 'Payload JSON', type: AdminFieldType.json, readOnly: true),
@@ -1512,6 +1522,13 @@ const adminNavGroups = <AdminNavGroup>[
             sourceValueKey: 'product_family_id',
             selectTargetRow: true,
             icon: Icons.category_outlined,
+          ),
+          AdminDetailAction(
+            label: 'Document batches',
+            targetResourceKey: 'document_batches',
+            filterKey: 'configurator_template_id',
+            sourceValueKey: 'id',
+            icon: Icons.library_books_outlined,
           ),
         ],
       ),
@@ -2435,6 +2452,128 @@ const adminNavGroups = <AdminNavGroup>[
     icon: Icons.description_outlined,
     resources: [
       AdminResourceDefinition(
+        key: 'document_batches',
+        title: 'Document batches',
+        endpoint: '/api/admin/document-batches',
+        icon: Icons.library_books_outlined,
+        supportsDelete: true,
+        columns: [
+          AdminColumn(key: 'code', label: 'Code', isPrimary: true),
+          AdminColumn(key: 'name', label: 'Name', flex: 2),
+          AdminColumn(key: 'configurator_template_id', label: 'Configurator template', flex: 2, lookup: configuratorTemplateLookup),
+          AdminColumn(key: 'batch_output_filename', label: 'Output filename', flex: 2),
+          AdminColumn(key: 'is_default', label: 'Default'),
+          AdminColumn(key: 'is_active', label: 'Active'),
+        ],
+        listFilters: [
+          AdminResourceFilter(key: 'configurator_template_id', label: 'Configurator template', lookup: configuratorTemplateLookup),
+          AdminResourceFilter(key: 'is_default', label: 'Default', options: activeFilterOptions),
+          AdminResourceFilter(key: 'is_active', label: 'Active', options: activeFilterOptions),
+        ],
+        formFields: [
+          AdminField(key: 'configurator_template_id', label: 'Configurator template', lookup: configuratorTemplateLookup),
+          AdminField(key: 'code', label: 'Code'),
+          AdminField(key: 'name', label: 'Name'),
+          AdminField(
+            key: 'batch_output_filename',
+            label: 'Batch output filename',
+            defaultValue: 'documents_{{quote_no}}.pdf',
+            helperText: 'Supports {{quote_no}} and the existing filename placeholders.',
+          ),
+          AdminField(key: 'is_default', label: 'Default', type: AdminFieldType.boolType),
+          AdminField(key: 'is_active', label: 'Active', type: AdminFieldType.boolType),
+          AdminField(
+            key: 'allowed_organization_ids',
+            label: 'Allowed organization IDs',
+            type: AdminFieldType.json,
+            defaultValue: '[]',
+            helperText: 'JSON array. Empty means unrestricted.',
+          ),
+          AdminField(
+            key: 'allowed_product_family_codes',
+            label: 'Allowed product family codes',
+            type: AdminFieldType.json,
+            defaultValue: '[]',
+            helperText: 'JSON array. Empty means unrestricted.',
+          ),
+          AdminField(
+            key: 'allowed_role_codes',
+            label: 'Allowed role codes',
+            type: AdminFieldType.json,
+            defaultValue: '[]',
+            helperText: 'JSON array of global or organization roles. Empty means unrestricted.',
+          ),
+          AdminField(
+            key: 'allowed_quote_statuses',
+            label: 'Allowed quote statuses',
+            type: AdminFieldType.json,
+            defaultValue: '[]',
+            helperText: 'JSON array. Empty means unrestricted.',
+          ),
+          AdminField(key: 'metadata_json', label: 'Metadata JSON', type: AdminFieldType.json, defaultValue: '{}'),
+        ],
+        detailActions: [
+          AdminDetailAction(
+            label: 'Show configurator template',
+            targetResourceKey: 'configurator_templates',
+            filterKey: 'id',
+            sourceValueKey: 'configurator_template_id',
+            selectTargetRow: true,
+            icon: Icons.webhook_rounded,
+          ),
+          AdminDetailAction(
+            label: 'Batch items',
+            targetResourceKey: 'document_batches_items',
+            filterKey: 'document_batch_id',
+            sourceValueKey: 'id',
+            icon: Icons.format_list_numbered_rounded,
+          ),
+        ],
+      ),
+      AdminResourceDefinition(
+        key: 'document_batches_items',
+        showInNavigation: false,
+        title: 'Document batch items',
+        endpoint: '/api/admin/document-batch-items',
+        icon: Icons.format_list_numbered_rounded,
+        supportsDelete: true,
+        columns: [
+          AdminColumn(key: 'document_batch_id', label: 'Batch', flex: 2, lookup: documentBatchLookup),
+          AdminColumn(key: 'document_template_id', label: 'Document template', flex: 2, lookup: documentTemplateLookup),
+          AdminColumn(key: 'batch_order', label: 'Batch order'),
+          AdminColumn(key: 'is_active', label: 'Active'),
+        ],
+        listFilters: [
+          AdminResourceFilter(key: 'document_batch_id', label: 'Batch', lookup: documentBatchLookup),
+          AdminResourceFilter(key: 'document_template_id', label: 'Document template', lookup: documentTemplateLookup),
+          AdminResourceFilter(key: 'is_active', label: 'Active', options: activeFilterOptions),
+        ],
+        formFields: [
+          AdminField(key: 'document_batch_id', label: 'Document batch', lookup: documentBatchLookup),
+          AdminField(key: 'document_template_id', label: 'Document template', lookup: documentTemplateLookup),
+          AdminField(key: 'batch_order', label: 'Batch order', type: AdminFieldType.number, defaultValue: '100'),
+          AdminField(key: 'is_active', label: 'Active', type: AdminFieldType.boolType),
+        ],
+        detailActions: [
+          AdminDetailAction(
+            label: 'Show document batch',
+            targetResourceKey: 'document_batches',
+            filterKey: 'id',
+            sourceValueKey: 'document_batch_id',
+            selectTargetRow: true,
+            icon: Icons.library_books_outlined,
+          ),
+          AdminDetailAction(
+            label: 'Show document template',
+            targetResourceKey: 'document_templates',
+            filterKey: 'id',
+            sourceValueKey: 'document_template_id',
+            selectTargetRow: true,
+            icon: Icons.file_copy_outlined,
+          ),
+        ],
+      ),
+      AdminResourceDefinition(
         key: 'document_templates',
         title: 'Document Templates',
         endpoint: '/api/admin/document-templates',
@@ -2489,6 +2628,15 @@ const adminNavGroups = <AdminNavGroup>[
             defaultValue: '{}',
           ),
           AdminField(key: 'is_active', label: 'Active', type: AdminFieldType.boolType),
+        ],
+        detailActions: [
+          AdminDetailAction(
+            label: 'Document batch items',
+            targetResourceKey: 'document_batches_items',
+            filterKey: 'document_template_id',
+            sourceValueKey: 'id',
+            icon: Icons.library_books_outlined,
+          ),
         ],
       ),
       AdminResourceDefinition(

@@ -99,12 +99,22 @@ class CalculatorRepository {
   Future<GeneratedDocument> printPdf({
     required String quoteId,
     String? documentTemplateId,
+    List<String> documentTemplateIds = const [],
+    String? documentBatchId,
+    bool useDefaultBatch = false,
   }) async {
     final response = await _client.postJson(
       '/api/internal/calculator/print',
       body: {
         'quote_id': quoteId,
-        if (documentTemplateId != null && documentTemplateId.isNotEmpty) 'document_template_id': documentTemplateId,
+        if (documentBatchId != null && documentBatchId.isNotEmpty)
+          'document_batch_id': documentBatchId
+        else if (useDefaultBatch)
+          'use_default_batch': true
+        else if (documentTemplateIds.isNotEmpty)
+          'document_template_ids': documentTemplateIds
+        else if (documentTemplateId != null && documentTemplateId.isNotEmpty)
+          'document_template_id': documentTemplateId,
       },
     );
     return GeneratedDocument.fromJson(response);
@@ -124,13 +134,23 @@ class CalculatorRepository {
 
 class PrintDialogData {
   const PrintDialogData({
+    required this.batches,
     required this.templates,
     required this.recentDocuments,
     required this.payloadPreview,
+    this.defaultBatch,
   });
 
   factory PrintDialogData.fromJson(Map<String, dynamic> json) {
+    final batches = _repoList(json['batches'])
+        .map(DocumentBatchOption.fromJson)
+        .toList(growable: false);
+    final defaultBatchJson = _repoMap(json['default_batch'] ?? json['defaultBatch']);
     return PrintDialogData(
+      batches: batches,
+      defaultBatch: defaultBatchJson.isEmpty
+          ? _firstOrNull(batches.where((entry) => entry.isDefault && entry.compatible && entry.items.isNotEmpty))
+          : DocumentBatchOption.fromJson(defaultBatchJson),
       templates: _repoList(json['templates'])
           .map(PrintTemplateOption.fromJson)
           .where((entry) => entry.isPrintEnabled && (entry.sourceAssetFileId ?? '').isNotEmpty)
@@ -138,15 +158,80 @@ class PrintDialogData {
       recentDocuments: _repoList(json['recent_documents'] ?? json['recentDocuments'])
           .map(GeneratedDocument.fromJson)
           .where((entry) => entry.fileId.isNotEmpty || (entry.url ?? '').isNotEmpty)
-          .take(3)
           .toList(growable: false),
       payloadPreview: _repoMap(json['payload_preview'] ?? json['payloadPreview']),
     );
   }
 
+  final List<DocumentBatchOption> batches;
+  final DocumentBatchOption? defaultBatch;
   final List<PrintTemplateOption> templates;
   final List<GeneratedDocument> recentDocuments;
   final Map<String, dynamic> payloadPreview;
+}
+
+class DocumentBatchOption {
+  const DocumentBatchOption({
+    required this.id,
+    required this.code,
+    required this.name,
+    required this.outputFilename,
+    required this.isDefault,
+    required this.compatible,
+    required this.items,
+    this.compatibilityError,
+  });
+
+  factory DocumentBatchOption.fromJson(Map<String, dynamic> json) {
+    return DocumentBatchOption(
+      id: _repoString(json['id']),
+      code: _repoString(json['code']),
+      name: _repoString(json['name'] ?? json['code']),
+      outputFilename: _repoString(json['batch_output_filename'] ?? json['batchOutputFilename']),
+      isDefault: _repoBool(json['is_default'] ?? json['isDefault']),
+      compatible: _repoBool(json['compatible'], fallback: true),
+      compatibilityError: _repoNullableString(json['compatibility_error'] ?? json['compatibilityError']),
+      items: _repoList(json['items']).map(DocumentBatchItemOption.fromJson).toList(growable: false),
+    );
+  }
+
+  final String id;
+  final String code;
+  final String name;
+  final String outputFilename;
+  final bool isDefault;
+  final bool compatible;
+  final String? compatibilityError;
+  final List<DocumentBatchItemOption> items;
+
+  List<String> get documentTemplateIds => items
+      .map((entry) => entry.documentTemplate.id)
+      .where((id) => id.isNotEmpty)
+      .toList(growable: false);
+
+  String get displayName => isDefault ? '$name · Default' : name;
+}
+
+class DocumentBatchItemOption {
+  const DocumentBatchItemOption({
+    required this.id,
+    required this.batchOrder,
+    required this.documentTemplate,
+  });
+
+  factory DocumentBatchItemOption.fromJson(Map<String, dynamic> json) {
+    return DocumentBatchItemOption(
+      id: _repoString(json['id']),
+      batchOrder: _repoIntOrNull(json['batch_order'] ?? json['batchOrder']) ?? 100,
+      documentTemplate: PrintTemplateOption.fromJson(
+        _repoMap(json['document_template'] ?? json['documentTemplate']),
+      ),
+    );
+  }
+
+  final String id;
+  final int batchOrder;
+  final PrintTemplateOption documentTemplate;
 }
 
 class PrintTemplateOption {
@@ -212,6 +297,9 @@ class GeneratedDocument {
     this.documentTypeCode,
     this.documentTemplateId,
     this.createdAt,
+    this.createdByUserId,
+    this.createdByName,
+    this.createdByEmail,
     this.url,
     this.expiresSeconds,
   });
@@ -233,6 +321,9 @@ class GeneratedDocument {
       documentTypeCode: _repoNullableString(document['document_type_code'] ?? json['document_type_code']),
       documentTemplateId: _repoNullableString(document['document_template_id'] ?? document['template_id'] ?? json['document_template_id']),
       createdAt: _repoNullableString(document['created_at'] ?? json['created_at']),
+      createdByUserId: _repoNullableString(document['created_by'] ?? json['created_by']),
+      createdByName: _repoNullableString(document['created_by_name'] ?? json['created_by_name']),
+      createdByEmail: _repoNullableString(document['created_by_email'] ?? json['created_by_email']),
       url: _repoNullableString(json['file_url'] ?? json['url']),
       expiresSeconds: _repoIntOrNull(json['expires_seconds']),
     );
@@ -244,8 +335,13 @@ class GeneratedDocument {
   final String? documentTypeCode;
   final String? documentTemplateId;
   final String? createdAt;
+  final String? createdByUserId;
+  final String? createdByName;
+  final String? createdByEmail;
   final String? url;
   final int? expiresSeconds;
+
+  String? get printedByLabel => createdByName ?? createdByEmail;
 }
 
 List<Map<String, dynamic>> _repoList(Object? value) {
@@ -271,5 +367,21 @@ int? _repoIntOrNull(Object? value) {
   if (value is int) return value;
   if (value is num) return value.toInt();
   if (value is String) return int.tryParse(value.trim());
+  return null;
+}
+
+bool _repoBool(Object? value, {bool fallback = false}) {
+  if (value is bool) return value;
+  if (value is num) return value != 0;
+  if (value is String) {
+    final normalized = value.trim().toLowerCase();
+    if (['true', '1', 'yes', 'y'].contains(normalized)) return true;
+    if (['false', '0', 'no', 'n'].contains(normalized)) return false;
+  }
+  return fallback;
+}
+
+T? _firstOrNull<T>(Iterable<T> values) {
+  for (final value in values) return value;
   return null;
 }

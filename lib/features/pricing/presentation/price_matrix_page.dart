@@ -1041,6 +1041,8 @@ class _CellsGridTab extends StatelessWidget {
         return BidirectionalScrollArea(
           child: DataTable(
               columnSpacing: 18,
+              dataRowMinHeight: 56,
+              dataRowMaxHeight: double.infinity,
               columns: [
                 const DataColumn(label: Text('Row \\ Col')),
                 for (var col = 1; col <= maxCol; col++) DataColumn(label: Text('C$col')),

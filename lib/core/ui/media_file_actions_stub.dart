@@ -1,6 +1,10 @@
 import 'dart:typed_data';
 
-void openMediaUrl(String url) {}
+void openMediaUrl(
+  String url, {
+  String target = '_blank',
+  bool keepCurrentFocus = false,
+}) {}
 
 void downloadMediaUrl(String url, {String? filename}) {}
 

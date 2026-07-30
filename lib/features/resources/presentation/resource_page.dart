@@ -26,6 +26,7 @@ import '../../calculator/data/calculator_models.dart';
 import '../../calculator/data/roof_geometry_calculation.dart';
 import '../../calculator/presentation/calculator_providers.dart';
 import '../../calculator/presentation/model_geometry_preview.dart';
+import '../../calculator/presentation/quote_documents_button.dart';
 import 'catalog_item_dependency_tree.dart';
 import 'organization_relation_tree.dart';
 
@@ -1151,9 +1152,9 @@ class _DetailsCardState extends ConsumerState<_DetailsCard> {
                     if (resource.key == 'quotes')
                       Padding(
                         padding: const EdgeInsets.only(right: 8),
-                        child: _QuoteDocumentsMenu(
-                          repository: repository,
-                          quote: data,
+                        child: QuoteDocumentsButton(
+                          quoteId: data['id']?.toString() ?? '',
+                          repository: ref.read(calculatorRepositoryProvider),
                         ),
                       ),
                     if (resource.key == 'quotes')
@@ -2291,82 +2292,6 @@ class _QuoteDocumentMenuAction {
 
   final String fileId;
   final String label;
-}
-
-class _QuoteDocumentsMenu extends StatelessWidget {
-  const _QuoteDocumentsMenu({
-    required this.repository,
-    required this.quote,
-  });
-
-  final AdminResourceRepository repository;
-  final Map<String, dynamic> quote;
-
-  @override
-  Widget build(BuildContext context) {
-    final quoteId = quote['id']?.toString().trim() ?? '';
-    if (quoteId.isEmpty) {
-      return OutlinedButton.icon(
-        onPressed: null,
-        icon: const Icon(Icons.picture_as_pdf_outlined, size: 18),
-        label: const Text('View documents'),
-      );
-    }
-
-    return FutureBuilder<ResourceListResponse>(
-      future: repository.fetchList(
-        findResourceByKey('generated_documents'),
-        limit: 20,
-        filters: {'quote_id': quoteId},
-      ),
-      builder: (context, snapshot) {
-        final rows = snapshot.data?.items ?? const <Map<String, dynamic>>[];
-        final actions = rows
-            .map(_quoteDocumentMenuAction)
-            .whereType<_QuoteDocumentMenuAction>()
-            .toList(growable: false);
-        final isLoading = snapshot.connectionState == ConnectionState.waiting;
-        final isEnabled = actions.isNotEmpty && !isLoading;
-
-        return PopupMenuButton<_QuoteDocumentMenuAction>(
-          tooltip: 'View generated quote documents',
-          enabled: isEnabled,
-          onSelected: (action) => _openQuoteGeneratedDocument(context, repository, action),
-          itemBuilder: (context) => [
-            for (final action in actions)
-              PopupMenuItem<_QuoteDocumentMenuAction>(
-                value: action,
-                child: Row(
-                  children: [
-                    const Icon(Icons.picture_as_pdf_outlined, size: 18),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        action.label,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-          ],
-          child: IgnorePointer(
-            child: OutlinedButton.icon(
-              onPressed: isEnabled ? () {} : null,
-              icon: isLoading
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.picture_as_pdf_outlined, size: 18),
-              label: const Text('View documents'),
-            ),
-          ),
-        );
-      },
-    );
-  }
 }
 
 _QuoteDocumentMenuAction? _quoteDocumentMenuAction(Map<String, dynamic> row) {

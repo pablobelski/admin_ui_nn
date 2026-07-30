@@ -18,6 +18,7 @@ import '../data/calculator_repository.dart';
 import '../data/roof_geometry_calculation.dart';
 import 'calculator_providers.dart';
 import 'model_geometry_preview.dart';
+import 'quote_documents_button.dart';
 
 const _steps = <_StepDefinition>[
   _StepDefinition('product', 'Product', Icons.inventory_2_outlined),
@@ -178,7 +179,7 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
                             needsRecalculation: needsRecalculation,
                             isSavingQuote: _isSavingQuote,
                             onSaveQuote: () => _showSaveQuoteDialog(context),
-                            onPrint: () => _showPrintDialog(context),
+                            documentsRepository: ref.read(calculatorRepositoryProvider),
                           ),
                         ),
                       ],
@@ -227,7 +228,7 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
                             needsRecalculation: needsRecalculation,
                             isSavingQuote: _isSavingQuote,
                             onSaveQuote: () => _showSaveQuoteDialog(context),
-                            onPrint: () => _showPrintDialog(context),
+                            documentsRepository: ref.read(calculatorRepositoryProvider),
                           ),
                         ),
                       ],
@@ -505,27 +506,6 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
     await _saveQuote(context, mode);
   }
 
-  Future<void> _showPrintDialog(BuildContext context) async {
-    final loadedQuote = ref.read(loadedQuoteProvider);
-    final quoteId = loadedQuote?.id ?? _savedQuote?.id;
-    if (quoteId == null || quoteId.isEmpty) {
-      showTopNotification(
-        context,
-        'Save the quote before printing.',
-        type: TopNotificationType.error,
-      );
-      return;
-    }
-
-    final repository = ref.read(calculatorRepositoryProvider);
-    await showDialog<void>(
-      context: context,
-      builder: (_) => _PrintDialog(
-        quoteId: quoteId,
-        repository: repository,
-      ),
-    );
-  }
 
   Future<void> _saveQuote(BuildContext context, SaveQuoteMode mode) async {
     final loadedQuote = ref.read(loadedQuoteProvider);
@@ -7373,7 +7353,7 @@ class _ResultPanel extends StatelessWidget {
     required this.highlightedGlassFieldIndex,
     required this.mediaRepository,
     required this.onSaveQuote,
-    required this.onPrint,
+    required this.documentsRepository,
     required this.isSavingQuote,
     required this.calculationNumber,
     required this.isCalculationSaved,
@@ -7392,7 +7372,7 @@ class _ResultPanel extends StatelessWidget {
   final AdminResourceRepository mediaRepository;
   final LoadedQuote? loadedQuote;
   final VoidCallback onSaveQuote;
-  final VoidCallback onPrint;
+  final CalculatorRepository documentsRepository;
   final bool isSavingQuote;
   final String? calculationNumber;
   final bool isCalculationSaved;
@@ -7431,7 +7411,8 @@ class _ResultPanel extends StatelessWidget {
                   savedQuote: savedQuote,
                   canPrint: loadedQuote != null || savedQuote != null,
                   onSaveQuote: onSaveQuote,
-                  onPrint: onPrint,
+                  quoteId: loadedQuote?.id ?? savedQuote?.id,
+                  documentsRepository: documentsRepository,
                 ),
               ],
             );
@@ -7488,7 +7469,8 @@ class _ResultPanel extends StatelessWidget {
                   savedQuote: savedQuote,
                   canPrint: loadedQuote != null || savedQuote != null,
                   onSaveQuote: onSaveQuote,
-                  onPrint: onPrint,
+                  quoteId: loadedQuote?.id ?? savedQuote?.id,
+                  documentsRepository: documentsRepository,
                 ),
               ],
             );
@@ -7564,7 +7546,8 @@ class _ResultPanel extends StatelessWidget {
                 savedQuote: savedQuote,
                 canPrint: loadedQuote != null || savedQuote != null,
                 onSaveQuote: onSaveQuote,
-                onPrint: onPrint,
+                quoteId: loadedQuote?.id ?? savedQuote?.id,
+                documentsRepository: documentsRepository,
               ),
             ],
           );
@@ -7644,7 +7627,8 @@ class _ResultPanel extends StatelessWidget {
           savedQuote: savedQuote,
           canPrint: loadedQuote != null || savedQuote != null,
           onSaveQuote: onSaveQuote,
-          onPrint: onPrint,
+          quoteId: loadedQuote?.id ?? savedQuote?.id,
+          documentsRepository: documentsRepository,
         ),
       ],
     );
@@ -7904,7 +7888,8 @@ class _ResultActions extends StatelessWidget {
     required this.savedQuote,
     required this.canPrint,
     required this.onSaveQuote,
-    required this.onPrint,
+    required this.quoteId,
+    required this.documentsRepository,
   });
 
   final bool canSaveQuote;
@@ -7913,7 +7898,8 @@ class _ResultActions extends StatelessWidget {
   final SavedQuote? savedQuote;
   final bool canPrint;
   final VoidCallback onSaveQuote;
-  final VoidCallback onPrint;
+  final String? quoteId;
+  final CalculatorRepository documentsRepository;
 
   @override
   Widget build(BuildContext context) {
@@ -7950,10 +7936,10 @@ class _ResultActions extends StatelessWidget {
             label: const Text('save quote'),
           ),
           const SizedBox(width: 8),
-          FilledButton.icon(
-            onPressed: canPrint && !isSavingQuote ? onPrint : null,
-            icon: const Icon(Icons.print_outlined),
-            label: const Text('print'),
+          QuoteDocumentsButton(
+            quoteId: quoteId ?? '',
+            repository: documentsRepository,
+            enabled: canPrint && !isSavingQuote && (quoteId ?? '').isNotEmpty,
           ),
         ],
       ),
@@ -7961,274 +7947,6 @@ class _ResultActions extends StatelessWidget {
   }
 }
 
-
-class _PrintDialog extends StatefulWidget {
-  const _PrintDialog({
-    required this.quoteId,
-    required this.repository,
-  });
-
-  final String quoteId;
-  final CalculatorRepository repository;
-
-  @override
-  State<_PrintDialog> createState() => _PrintDialogState();
-}
-
-class _PrintDialogState extends State<_PrintDialog> {
-  late final Future<PrintDialogData> _dataFuture;
-  PrintTemplateOption? _selectedTemplate;
-  List<GeneratedDocument> _documents = const [];
-  bool _isPrinting = false;
-  bool _showPayloadPreview = false;
-  String? _statusText;
-  String? _errorText;
-
-  @override
-  void initState() {
-    super.initState();
-    _dataFuture = _load();
-  }
-
-  Future<PrintDialogData> _load() async {
-    final data = await widget.repository.fetchPrintDialogData(widget.quoteId);
-    _selectedTemplate = data.templates.isNotEmpty ? data.templates.first : null;
-    _documents = data.recentDocuments.take(3).toList(growable: false);
-    return data;
-  }
-
-  String _prettyPayloadJson(PrintDialogData data) {
-    final payload = data.payloadPreview.isEmpty ? <String, dynamic>{} : data.payloadPreview;
-    return const JsonEncoder.withIndent('  ').convert(payload);
-  }
-
-  Future<void> _print() async {
-    final template = _selectedTemplate;
-    if (template == null || _isPrinting) return;
-
-    setState(() {
-      _isPrinting = true;
-      _statusText = null;
-      _errorText = null;
-    });
-
-    try {
-      final document = await widget.repository.printPdf(
-        quoteId: widget.quoteId,
-        documentTemplateId: template.id,
-      );
-      if (!mounted) return;
-      setState(() {
-        _documents = [
-          document,
-          ..._documents.where((entry) => entry.id != document.id),
-        ].take(3).toList(growable: false);
-        _statusText = 'PDF generated';
-      });
-    } catch (error) {
-      if (!mounted) return;
-      setState(() => _errorText = '$error');
-    } finally {
-      if (mounted) setState(() => _isPrinting = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Print'),
-      content: SizedBox(
-        width: 560,
-        child: FutureBuilder<PrintDialogData>(
-          future: _dataFuture,
-          builder: (context, snapshot) {
-            if (snapshot.connectionState != ConnectionState.done) {
-              return const SizedBox(
-                height: 120,
-                child: Center(child: CircularProgressIndicator()),
-              );
-            }
-
-            if (snapshot.hasError) {
-              return _HintCard(
-                icon: Icons.error_outline,
-                title: 'Print data failed',
-                text: '${snapshot.error}',
-              );
-            }
-
-            final data = snapshot.data!;
-            final templates = data.templates;
-            if (templates.isEmpty) {
-              return const _HintCard(
-                icon: Icons.print_disabled_outlined,
-                title: 'No print templates',
-                text: 'No active document_templates with settings_json.print.enabled = true and source_asset_file_id were found.',
-              );
-            }
-
-            final selectedId = templates.any((entry) => entry.id == _selectedTemplate?.id)
-                ? _selectedTemplate!.id
-                : templates.first.id;
-            _selectedTemplate = templates.firstWhere((entry) => entry.id == selectedId);
-            final payloadJsonText = _prettyPayloadJson(data);
-
-            return Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                DropdownButtonFormField<String>(
-                  initialValue: selectedId,
-                  decoration: const InputDecoration(
-                    labelText: 'Document type',
-                    border: OutlineInputBorder(),
-                  ),
-                  items: [
-                    for (final template in templates)
-                      DropdownMenuItem(
-                        value: template.id,
-                        child: Text(
-                          template.displayName,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                  ],
-                  onChanged: _isPrinting
-                      ? null
-                      : (value) {
-                    final next = templates.where((entry) => entry.id == value).firstOrNull;
-                    if (next == null) return;
-                    setState(() => _selectedTemplate = next);
-                  },
-                ),
-                const SizedBox(height: 8),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: TextButton.icon(
-                    onPressed: () => setState(() => _showPayloadPreview = !_showPayloadPreview),
-                    icon: Icon(_showPayloadPreview ? Icons.visibility_off_outlined : Icons.data_object_outlined),
-                    label: Text(_showPayloadPreview ? 'Hide render JSON' : 'Show render JSON'),
-                  ),
-                ),
-                if (_showPayloadPreview) ...[
-                  const SizedBox(height: 6),
-                  TextFormField(
-                    initialValue: payloadJsonText,
-                    readOnly: true,
-                    minLines: 5,
-                    maxLines: 10,
-                    decoration: const InputDecoration(
-                      labelText: 'Renderer payloadJson',
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                    ),
-                    style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
-                  ),
-                ],
-                if (_statusText != null) ...[
-                  const SizedBox(height: 12),
-                  Text(_statusText!, style: TextStyle(color: Theme.of(context).colorScheme.primary)),
-                ],
-                if (_errorText != null) ...[
-                  const SizedBox(height: 12),
-                  Text(_errorText!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
-                ],
-                const SizedBox(height: 18),
-                Text('Generated documents', style: Theme.of(context).textTheme.titleSmall),
-                const SizedBox(height: 8),
-                if (_documents.isEmpty)
-                  const Text('No generated PDF yet.')
-                else
-                  ..._documents.map((document) => _GeneratedDocumentTile(
-                    document: document,
-                    repository: widget.repository,
-                  )),
-              ],
-            );
-          },
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: _isPrinting ? null : () => Navigator.of(context).pop(),
-          child: const Text('Close'),
-        ),
-        FilledButton.icon(
-          onPressed: _selectedTemplate == null || _isPrinting ? null : _print,
-          icon: _isPrinting
-              ? const SizedBox(
-            width: 16,
-            height: 16,
-            child: CircularProgressIndicator(strokeWidth: 2),
-          )
-              : const Icon(Icons.print_outlined),
-          label: const Text('Print'),
-        ),
-      ],
-    );
-  }
-}
-
-class _GeneratedDocumentTile extends StatelessWidget {
-  const _GeneratedDocumentTile({
-    required this.document,
-    required this.repository,
-  });
-
-  final GeneratedDocument document;
-  final CalculatorRepository repository;
-
-  Future<void> _openPdf(BuildContext context) async {
-    final fileId = document.fileId.trim();
-    if (fileId.isEmpty) {
-      final url = document.url;
-      if (url != null && url.isNotEmpty) {
-        openMediaUrl(url);
-      }
-      return;
-    }
-
-    try {
-      final media = await repository.fetchMediaFileUrl(fileId);
-      final url = '${media['url'] ?? document.url ?? ''}'.trim();
-      if (url.isEmpty) {
-        throw StateError('Document URL is empty');
-      }
-      openMediaUrl(url);
-    } catch (error) {
-      if (!context.mounted) return;
-      showTopNotification(
-        context,
-        'Open PDF failed: $error',
-        type: TopNotificationType.error,
-      );
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final subtitle = [
-      if ((document.documentTypeCode ?? '').isNotEmpty) document.documentTypeCode,
-      if ((document.createdAt ?? '').isNotEmpty) document.createdAt,
-    ].whereType<String>().join(' · ');
-    final canOpen = document.fileId.trim().isNotEmpty || (document.url ?? '').isNotEmpty;
-
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      child: ListTile(
-        dense: true,
-        leading: const Icon(Icons.picture_as_pdf_outlined),
-        title: Text(document.filename, overflow: TextOverflow.ellipsis),
-        subtitle: subtitle.isEmpty ? null : Text(subtitle, overflow: TextOverflow.ellipsis),
-        trailing: TextButton.icon(
-          onPressed: canOpen ? () => _openPdf(context) : null,
-          icon: const Icon(Icons.open_in_new, size: 16),
-          label: const Text('View / Download PDF'),
-        ),
-      ),
-    );
-  }
-}
 
 class _SaveQuoteModeDialog extends StatelessWidget {
   const _SaveQuoteModeDialog({

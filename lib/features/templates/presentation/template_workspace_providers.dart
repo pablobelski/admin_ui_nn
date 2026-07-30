@@ -11,6 +11,7 @@ class TemplateWorkspaceState {
     this.moduleQuery = '',
     this.productFamilyId = '',
     this.roofModelId = '',
+    this.templateIdFilter = '',
     this.selectedTemplateId,
     this.selectedModuleId,
     this.offset = 0,
@@ -21,12 +22,14 @@ class TemplateWorkspaceState {
   final String moduleQuery;
   final String productFamilyId;
   final String roofModelId;
+  final String templateIdFilter;
   final String? selectedTemplateId;
   final String? selectedModuleId;
   final int offset;
   final int limit;
 
   Map<String, String> get activeFilters => <String, String>{
+        if (templateIdFilter.isNotEmpty) 'id': templateIdFilter,
         if (productFamilyId.isNotEmpty) 'product_family_id': productFamilyId,
         if (roofModelId.isNotEmpty) 'roof_model_id': roofModelId,
       };
@@ -36,6 +39,7 @@ class TemplateWorkspaceState {
     String? moduleQuery,
     String? productFamilyId,
     String? roofModelId,
+    String? templateIdFilter,
     String? selectedTemplateId,
     String? selectedModuleId,
     int? offset,
@@ -48,6 +52,7 @@ class TemplateWorkspaceState {
       moduleQuery: moduleQuery ?? this.moduleQuery,
       productFamilyId: productFamilyId ?? this.productFamilyId,
       roofModelId: roofModelId ?? this.roofModelId,
+      templateIdFilter: templateIdFilter ?? this.templateIdFilter,
       selectedTemplateId: clearTemplate ? null : (selectedTemplateId ?? this.selectedTemplateId),
       selectedModuleId: clearModule ? null : (selectedModuleId ?? this.selectedModuleId),
       offset: offset ?? this.offset,
@@ -60,19 +65,27 @@ class TemplateWorkspaceNotifier extends Notifier<TemplateWorkspaceState> {
   @override
   TemplateWorkspaceState build() {
     final filters = currentAdminResourceFilters(findResourceByKey('configurator_templates'));
+    final templateIdFilter = filters['id'] ?? '';
     return TemplateWorkspaceState(
       productFamilyId: filters['product_family_id'] ?? '',
       roofModelId: filters['roof_model_id'] ?? '',
+      templateIdFilter: templateIdFilter,
+      selectedTemplateId: templateIdFilter.isEmpty ? null : templateIdFilter,
     );
   }
 
   void setTemplateQuery(String value) {
     state = state.copyWith(
       templateQuery: value,
+      templateIdFilter: '',
       offset: 0,
       clearTemplate: true,
       clearModule: true,
     );
+    ref
+        .read(resourceBrowserProvider('configurator_templates').notifier)
+        .openWithFilters(state.activeFilters, updateUrl: false);
+    pushAdminResourceUrl('configurator_templates', filters: state.activeFilters);
   }
 
   void setModuleQuery(String value) {
@@ -85,6 +98,7 @@ class TemplateWorkspaceNotifier extends Notifier<TemplateWorkspaceState> {
     if (key == 'product_family_id') {
       nextState = state.copyWith(
         productFamilyId: normalizedValue,
+        templateIdFilter: '',
         offset: 0,
         clearTemplate: true,
         clearModule: true,
@@ -92,6 +106,7 @@ class TemplateWorkspaceNotifier extends Notifier<TemplateWorkspaceState> {
     } else if (key == 'roof_model_id') {
       nextState = state.copyWith(
         roofModelId: normalizedValue,
+        templateIdFilter: '',
         offset: 0,
         clearTemplate: true,
         clearModule: true,
@@ -107,16 +122,21 @@ class TemplateWorkspaceNotifier extends Notifier<TemplateWorkspaceState> {
   }
 
   void applyNavigationFilters(Map<String, String> filters) {
+    final templateIdFilter = filters['id'] ?? '';
     final productFamilyId = filters['product_family_id'] ?? '';
     final roofModelId = filters['roof_model_id'] ?? '';
-    if (productFamilyId == state.productFamilyId && roofModelId == state.roofModelId) {
+    if (templateIdFilter == state.templateIdFilter &&
+        productFamilyId == state.productFamilyId &&
+        roofModelId == state.roofModelId) {
       return;
     }
     state = state.copyWith(
+      templateIdFilter: templateIdFilter,
       productFamilyId: productFamilyId,
       roofModelId: roofModelId,
+      selectedTemplateId: templateIdFilter.isEmpty ? null : templateIdFilter,
       offset: 0,
-      clearTemplate: true,
+      clearTemplate: templateIdFilter.isEmpty,
       clearModule: true,
     );
   }
@@ -124,6 +144,7 @@ class TemplateWorkspaceNotifier extends Notifier<TemplateWorkspaceState> {
   void clearTemplateFilters() {
     state = state.copyWith(
       templateQuery: '',
+      templateIdFilter: '',
       productFamilyId: '',
       roofModelId: '',
       offset: 0,
@@ -181,6 +202,7 @@ final configuratorTemplateListProvider =
   final repository = ref.watch(configuratorTemplateRepositoryProvider);
   return repository.fetchTemplates(
     query: browserState.templateQuery,
+    id: browserState.templateIdFilter,
     productFamilyId: browserState.productFamilyId,
     roofModelId: browserState.roofModelId,
     limit: browserState.limit,

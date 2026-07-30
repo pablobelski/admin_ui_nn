@@ -4,9 +4,19 @@ import 'dart:typed_data';
 
 import 'package:web/web.dart' as web;
 
-void openMediaUrl(String url) {
+void openMediaUrl(
+  String url, {
+  String target = '_blank',
+  bool keepCurrentFocus = false,
+}) {
   if (url.trim().isEmpty) return;
-  web.window.open(url, '_blank');
+  final openedWindow = web.window.open(url, target);
+  if (keepCurrentFocus) {
+    openedWindow?.blur();
+    web.window.focus();
+  } else {
+    openedWindow?.focus();
+  }
 }
 
 void downloadMediaUrl(String url, {String? filename}) {

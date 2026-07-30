@@ -10,6 +10,7 @@ class ConfiguratorTemplateRepository {
 
   Future<ConfiguratorTemplateListResponse> fetchTemplates({
     String query = '',
+    String id = '',
     String productFamilyId = '',
     String roofModelId = '',
     int limit = 30,
@@ -19,6 +20,7 @@ class ConfiguratorTemplateRepository {
       _templatesEndpoint,
       query: {
         if (query.isNotEmpty) 'q': query,
+        if (id.isNotEmpty) 'id': id,
         if (productFamilyId.isNotEmpty) 'product_family_id': productFamilyId,
         if (roofModelId.isNotEmpty) 'roof_model_id': roofModelId,
         'limit': '$limit',

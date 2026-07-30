@@ -1417,6 +1417,7 @@ String _shortValue(Object? value) {
 
 Map<String, String> _templateNavigationFilters(Map<String, String> filters) {
   return <String, String>{
+    if ((filters['id'] ?? '').isNotEmpty) 'id': filters['id']!,
     if ((filters['product_family_id'] ?? '').isNotEmpty)
       'product_family_id': filters['product_family_id']!,
     if ((filters['roof_model_id'] ?? '').isNotEmpty) 'roof_model_id': filters['roof_model_id']!,
