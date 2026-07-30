@@ -17,6 +17,7 @@ class CalculatorContext {
     required this.templateSetCatalogVariants,
     required this.additionalHandlingByParentItemId,
     this.customPaintCatalogItem,
+    this.loadedCatalogWarnings = const [],
   });
 
   factory CalculatorContext.fromJson(Map<String, dynamic> json) {
@@ -69,15 +70,51 @@ class CalculatorContext {
   final List<CalculatorCatalogVariantOption> templateSetCatalogVariants;
   final Map<String, List<CalculatorAdditionalHandlingOption>> additionalHandlingByParentItemId;
   final CalculatorCatalogItemOption? customPaintCatalogItem;
+  final List<Map<String, dynamic>> loadedCatalogWarnings;
 
   List<CalculatorCatalogItemOption> templateSetCatalogItemsFor(String? templateId) {
     final normalizedTemplateId = templateId?.trim() ?? '';
     if (normalizedTemplateId.isEmpty) return const [];
     return templateSetCatalogItems.where((item) {
+      if (!item.isSelectable) return false;
       final rawTemplateIds = item.raw['template_ids'];
       if (rawTemplateIds is! List) return false;
       return rawTemplateIds.any((value) => '$value' == normalizedTemplateId);
     }).toList(growable: false);
+  }
+
+  CalculatorContext withRestoredCatalog({
+    required List<CalculatorCatalogItemOption> catalogItems,
+    required List<CalculatorCatalogVariantOption> catalogVariants,
+    required List<Map<String, dynamic>> warnings,
+  }) {
+    List<T> mergeById<T>(List<T> current, List<T> restored, String Function(T) idOf) {
+      final merged = <T>[...current];
+      final knownIds = current.map(idOf).toSet();
+      for (final entry in restored) {
+        if (knownIds.add(idOf(entry))) merged.add(entry);
+      }
+      return merged;
+    }
+
+    return CalculatorContext(
+      organizations: organizations,
+      relatedCustomers: relatedCustomers,
+      headBranding: headBranding,
+      productFamilies: productFamilies,
+      templates: templates,
+      references: references,
+      priceModes: priceModes,
+      defaultSteps: defaultSteps,
+      optionItemTypes: optionItemTypes,
+      optionCatalogItems: mergeById(optionCatalogItems, catalogItems, (entry) => entry.id),
+      optionCatalogVariants: mergeById(optionCatalogVariants, catalogVariants, (entry) => entry.id),
+      templateSetCatalogItems: templateSetCatalogItems,
+      templateSetCatalogVariants: templateSetCatalogVariants,
+      additionalHandlingByParentItemId: additionalHandlingByParentItemId,
+      customPaintCatalogItem: customPaintCatalogItem,
+      loadedCatalogWarnings: warnings,
+    );
   }
 
   CalculatorBuyerContact buyerContactFor(CalculatorDraft draft) {
@@ -372,6 +409,10 @@ class CalculatorCatalogItemOption {
   final String? mediaKind;
   final Map<String, dynamic> raw;
 
+  bool get isActive => _boolValue(raw['is_active'], true);
+  bool get isRestoredOnly => _boolValue(raw['restored_only'], false);
+  bool get isSelectable => isActive && !isRestoredOnly;
+
   String get displayName {
     final code = baseCode.isEmpty ? null : baseCode;
     return [code, name].whereType<String>().where((entry) => entry.isNotEmpty).join(' · ');
@@ -453,6 +494,11 @@ class CalculatorCatalogVariantOption {
   final String? imageFileId;
   final String? imageLargeFileId;
   final Map<String, dynamic> raw;
+
+  bool get isActive => _boolValue(raw['is_active'], true);
+  bool get parentItemIsActive => _boolValue(raw['parent_item_is_active'], true);
+  bool get isRestoredOnly => _boolValue(raw['restored_only'], false);
+  bool get isSelectable => isActive && parentItemIsActive && !isRestoredOnly;
 
   String get displayName {
     final parts = [
@@ -1353,6 +1399,9 @@ class LoadedQuote {
     this.quoteNoExternal,
     this.externalNotes,
     this.createdAt,
+    this.catalogItems = const [],
+    this.catalogVariants = const [],
+    this.catalogWarnings = const [],
   });
 
   factory LoadedQuote.fromJson(Map<String, dynamic> json) {
@@ -1362,20 +1411,33 @@ class LoadedQuote {
     final input = Map<String, dynamic>.from(_map(json['input'] ?? quote['input_json']));
     if (quoteNoExternal != null && quoteNoExternal.isNotEmpty) input['quote_no_external'] = quoteNoExternal;
     if (externalNotes != null && externalNotes.isNotEmpty) input['external_notes'] = externalNotes;
+    final catalogContext = _map(json['catalog_context'] ?? json['catalogContext']);
+    final catalogWarnings = _list(json['catalog_warnings'] ?? json['catalogWarnings']);
+    final rawResult = json['result'] ?? quote['result_json'];
+    final resultJson = rawResult is Map ? Map<String, dynamic>.from(rawResult) : null;
+    if (resultJson != null && catalogWarnings.isNotEmpty) {
+      final existingWarnings = _list(resultJson['warnings']);
+      resultJson['warnings'] = [...existingWarnings, ...catalogWarnings];
+    }
     return LoadedQuote(
       id: _string(quote['id'] ?? json['id']),
       quoteNo: _string(quote['quote_no'] ?? quote['quoteNo'] ?? json['quote_no'] ?? json['quoteNo']),
       statusCode: _string(quote['status_code'] ?? quote['statusCode'] ?? json['status_code'] ?? json['statusCode']),
       input: input,
       productFamilyId: _nullableString(quote['product_family_id'] ?? json['product_family_id']),
-      resultJson: (json['result'] ?? quote['result_json']) is Map
-          ? Map<String, dynamic>.from(json['result'] ?? quote['result_json'])
-          : null,
+      resultJson: resultJson,
       sellerOrganizationId: _nullableString(quote['seller_organization_id'] ?? json['seller_organization_id']),
       buyerOrganizationId: _nullableString(quote['buyer_organization_id'] ?? json['buyer_organization_id']),
       shipToOrganizationId: _nullableString(quote['ship_to_organization_id'] ?? json['ship_to_organization_id']),
       quoteNoExternal: quoteNoExternal,
       externalNotes: externalNotes,
+      catalogItems: _list(catalogContext['items'])
+          .map(CalculatorCatalogItemOption.fromJson)
+          .toList(growable: false),
+      catalogVariants: _list(catalogContext['variants'])
+          .map(CalculatorCatalogVariantOption.fromJson)
+          .toList(growable: false),
+      catalogWarnings: catalogWarnings,
       createdAt: _nullableString(
         quote['updated_at'] ??
             quote['updatedAt'] ??
@@ -1401,6 +1463,9 @@ class LoadedQuote {
   final String? quoteNoExternal;
   final String? externalNotes;
   final String? createdAt;
+  final List<CalculatorCatalogItemOption> catalogItems;
+  final List<CalculatorCatalogVariantOption> catalogVariants;
+  final List<Map<String, dynamic>> catalogWarnings;
 
   Map<String, dynamic> get normalizedInput => CalculatorDraft.fromCalculationJson(
         input,
@@ -1557,6 +1622,14 @@ List<String> _stringList(dynamic value) {
         .toList(growable: false);
   }
   return const [];
+}
+
+bool _boolValue(dynamic value, bool fallback) {
+  if (value is bool) return value;
+  final normalized = '$value'.trim().toLowerCase();
+  if (normalized == 'true' || normalized == '1') return true;
+  if (normalized == 'false' || normalized == '0') return false;
+  return fallback;
 }
 
 num _numOrDefault(dynamic value, num fallback) {

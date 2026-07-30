@@ -12,7 +12,14 @@ final calculatorRepositoryProvider = Provider<CalculatorRepository>((ref) {
 });
 
 final calculatorContextProvider = FutureProvider<CalculatorContext>((ref) async {
-  return ref.watch(calculatorRepositoryProvider).fetchContext();
+  final loadedQuote = ref.watch(loadedQuoteProvider);
+  final context = await ref.watch(calculatorRepositoryProvider).fetchContext();
+  if (loadedQuote == null) return context;
+  return context.withRestoredCatalog(
+    catalogItems: loadedQuote.catalogItems,
+    catalogVariants: loadedQuote.catalogVariants,
+    warnings: loadedQuote.catalogWarnings,
+  );
 });
 
 class CalculatorSetContentsRefreshTickNotifier extends Notifier<int> {

@@ -869,7 +869,7 @@ class _CellTable extends StatelessWidget {
             Expanded(
               child: HorizontalScrollArea(
                 child: SizedBox(
-                  width: adminRowNumberColumnWidth + 980,
+                  width: adminRowNumberColumnWidth + 1010 + 24,
                   child: ListView.separated(
                     key: PageStorageKey<String>(
                       'price-matrix-cell-list-${cells.isEmpty ? "empty" : cells.first.priceMatrixId}',

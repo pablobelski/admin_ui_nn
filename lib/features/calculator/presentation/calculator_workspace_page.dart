@@ -1019,6 +1019,7 @@ class _StepCard extends ConsumerWidget {
       draft: draft,
       result: result,
       setContentsPreview: setContentsPreview,
+      catalogWarnings: calculatorContext.loadedCatalogWarnings,
     )[step.key] ?? const [];
     return Card(
       clipBehavior: Clip.antiAlias,
@@ -4319,7 +4320,9 @@ class _SetContentsStepState extends State<_SetContentsStep> {
       context: context,
       builder: (_) => _ManualComponentDialog(
         candidates: candidates,
-        variants: widget.contextData.templateSetCatalogVariants,
+        variants: widget.contextData.templateSetCatalogVariants
+            .where((entry) => entry.isSelectable)
+            .toList(growable: false),
         mediaRepository: widget.mediaRepository,
       ),
     );
@@ -4543,7 +4546,7 @@ class _ManualComponentDialogState extends State<_ManualComponentDialog> {
       .firstOrNull;
 
   List<CalculatorCatalogVariantOption> _variantsFor(String itemId) => widget.variants
-      .where((entry) => entry.catalogItemId == itemId)
+      .where((entry) => entry.catalogItemId == itemId && entry.isSelectable)
       .toList(growable: false);
 
   void _selectItem(CalculatorCatalogItemOption item) {
@@ -6052,6 +6055,7 @@ class _OptionsStepState extends State<_OptionsStep> {
 
   List<CalculatorCatalogItemOption> _itemsForSelectedType() {
     return widget.contextData.optionCatalogItems.where((item) {
+      if (!item.isSelectable) return false;
       if (_itemTypeCode != null && item.itemTypeCode != _itemTypeCode) return false;
       return true;
     }).toList(growable: false);
@@ -6065,7 +6069,7 @@ class _OptionsStepState extends State<_OptionsStep> {
 
   List<CalculatorCatalogVariantOption> _variantsForItem(String itemId) {
     return widget.contextData.optionCatalogVariants
-        .where((entry) => entry.catalogItemId == itemId)
+        .where((entry) => entry.catalogItemId == itemId && entry.isSelectable)
         .toList(growable: false);
   }
 
@@ -6093,7 +6097,7 @@ class _OptionsStepState extends State<_OptionsStep> {
 
   String _itemSearchText(CalculatorCatalogItemOption item) {
     final variantText = widget.contextData.optionCatalogVariants
-        .where((variant) => variant.catalogItemId == item.id)
+        .where((variant) => variant.catalogItemId == item.id && variant.isSelectable)
         .map(_variantLabel)
         .join(' ');
     return '${_itemLabel(item)} ${item.shortName ?? ''} ${item.itemTypeCode} $variantText';
@@ -7012,6 +7016,7 @@ class _SelectedOptionsTable extends StatelessWidget {
               name: name,
               availableHandlings: availableHandlings,
               selectedHandlings: option.additionalHandlings,
+              catalogItems: contextData.optionCatalogItems,
             ),
             flex: 5,
           ),
@@ -7160,11 +7165,13 @@ class _SelectedOptionNameCell extends StatelessWidget {
     required this.name,
     required this.availableHandlings,
     required this.selectedHandlings,
+    required this.catalogItems,
   });
 
   final String name;
   final List<CalculatorAdditionalHandlingOption> availableHandlings;
   final List<CalculatorSelectedAdditionalHandling> selectedHandlings;
+  final List<CalculatorCatalogItemOption> catalogItems;
 
   @override
   Widget build(BuildContext context) {
@@ -7214,6 +7221,9 @@ class _SelectedOptionNameCell extends StatelessWidget {
   String _handlingLabel(CalculatorSelectedAdditionalHandling entry) {
     for (final option in availableHandlings) {
       if (option.catalogItemId == entry.catalogItemId) return option.displayName;
+    }
+    for (final item in catalogItems) {
+      if (item.id == entry.catalogItemId) return item.displayName;
     }
     return entry.catalogItemId;
   }
@@ -8319,11 +8329,20 @@ Map<String, List<String>> _calculatorWarningMessagesByStep({
   required CalculatorDraft draft,
   CalculatorResult? result,
   CalculatorSetContentsPreview? setContentsPreview,
+  Iterable<Map<String, dynamic>> catalogWarnings = const [],
 }) {
   final grouped = <String, List<String>>{};
 
   for (final message in _moduleDimensionWarningMessages(draft)) {
     _addWarningMessage(grouped, 'dimensions', message);
+  }
+
+  for (final warning in catalogWarnings) {
+    _addWarningMessage(
+      grouped,
+      _warningStepKey(warning),
+      warning['message'] ?? warning['code'],
+    );
   }
 
   for (final warning in setContentsPreview?.warnings ?? const []) {
