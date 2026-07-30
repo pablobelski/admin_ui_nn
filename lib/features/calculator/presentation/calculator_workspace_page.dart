@@ -3225,7 +3225,7 @@ class _CoveringStepState extends State<_CoveringStep> {
     final parsed = int.tryParse(value.trim());
     final maximum = _coveringMaxGlassFieldWidth(coveringCode);
     if (parsed == null || parsed <= 0) return 'Enter 1–$maximum mm';
-    if (parsed > maximum) return 'Maximum $maximum mm for selected glass';
+    if (parsed > maximum) return 'Maximum: $maximum mm';
     return null;
   }
 
@@ -3293,7 +3293,7 @@ class _CoveringStepState extends State<_CoveringStep> {
             onChanged: _onMaxGlassFieldWidthChanged,
             errorText: _maxGlassFieldErrorText,
             helperText:
-                'Maximum for selected glass: ${_coveringMaxGlassFieldWidth()} mm',
+                'Maximum: ${_coveringMaxGlassFieldWidth()} mm',
           ),
         ),
         if (roofCalculation.modules.isNotEmpty) ...[
