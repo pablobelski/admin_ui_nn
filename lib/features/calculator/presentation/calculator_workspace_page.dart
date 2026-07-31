@@ -1195,6 +1195,7 @@ class _StepCard extends ConsumerWidget {
         return _SetContentsStep(
           contextData: calculatorContext,
           draft: draft,
+          selectedTemplate: selectedTemplate,
           notifier: notifier,
           preview: preview,
           isLoadedCalculation: isLoadedCalculation,
@@ -3947,6 +3948,7 @@ class _SetContentsStep extends StatefulWidget {
   const _SetContentsStep({
     required this.contextData,
     required this.draft,
+    required this.selectedTemplate,
     required this.notifier,
     required this.preview,
     required this.isLoadedCalculation,
@@ -3962,6 +3964,7 @@ class _SetContentsStep extends StatefulWidget {
 
   final CalculatorContext contextData;
   final CalculatorDraft draft;
+  final CalculatorTemplateOption? selectedTemplate;
   final CalculatorDraftNotifier notifier;
   final AsyncValue<CalculatorSetContentsPreview> preview;
   final bool isLoadedCalculation;
@@ -4171,6 +4174,7 @@ class _SetContentsStepState extends State<_SetContentsStep> {
     List<CalculatorSetContentTab> tabs, {
     required bool hasMissingSetPieceAbzug,
   }) {
+    final overrideArticleKeys = _manualSetContentArticleKeys(widget.selectedTemplate);
     return DefaultTabController(
       key: ValueKey('set-content-tabs-${tabs.map((tab) => tab.moduleRole).join('-')}'),
       length: tabs.length,
@@ -4262,6 +4266,7 @@ class _SetContentsStepState extends State<_SetContentsStep> {
                     mediaRepository: widget.mediaRepository,
                     tab: tabs[tabIndex],
                     tabIndex: tabIndex,
+                    overrideArticleKeys: overrideArticleKeys,
                     diagnostics: _diagnosticsForTab(tabs, tabIndex),
                     onToggleItem: (itemIndex) => widget.notifier.toggleSetContentItemEnabled(tabIndex, itemIndex),
                     onQuantityChanged: (itemIndex, quantity) => widget.notifier.updateSetContentItemQuantity(tabIndex, itemIndex, quantity),
@@ -4285,11 +4290,23 @@ class _SetContentsStepState extends State<_SetContentsStep> {
   }
 
   Future<void> _showAddManualComponent(int tabIndex) async {
-    final candidates = widget.contextData.templateSetCatalogItemsFor(widget.draft.templateId);
+    final allowedArticleKeys = _manualSetContentArticleKeys(widget.selectedTemplate);
+    final candidates = widget.contextData
+        .templateSetCatalogItemsFor(widget.draft.templateId)
+        .where(
+          (item) => _catalogItemMatchesArticleKeys(
+            widget.contextData,
+            item,
+            allowedArticleKeys,
+          ),
+        )
+        .toList(growable: false);
     if (candidates.isEmpty) {
       showTopNotification(
         context,
-        'No Catalog Items are configured in the selected template set.',
+        allowedArticleKeys.isEmpty
+            ? 'No manual Set Contents articles are configured in the template Parameters module.'
+            : 'No active Catalog Items were found for the manual Set Contents article list.',
         type: TopNotificationType.error,
       );
       return;
@@ -4368,7 +4385,6 @@ class _ManualComponentDialogState extends State<_ManualComponentDialog> {
 
   String? _itemId;
   String? _variantId;
-  String? _salesUnitCode;
 
   @override
   void dispose() {
@@ -4387,12 +4403,11 @@ class _ManualComponentDialogState extends State<_ManualComponentDialog> {
     final variants = item == null ? const <CalculatorCatalogVariantOption>[] : _variantsFor(item.id);
     final variant = _selectedVariant;
     final requiresVariant = item != null && variants.isNotEmpty;
-    final units = _salesUnitOptions(item, variant);
-    final selectedUnit = units.contains(_salesUnitCode) ? _salesUnitCode! : units.first;
+    const selectedUnit = 'piece';
     final canAdd = item != null && (!requiresVariant || variant != null);
 
     return AlertDialog(
-      title: const Text('Add manual component from template set'),
+      title: const Text('Add manual Set Contents component'),
       content: SizedBox(
         width: 780,
         child: ConstrainedBox(
@@ -4402,11 +4417,11 @@ class _ManualComponentDialogState extends State<_ManualComponentDialog> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 const Text(
-                  'All Catalog Items configured in the selected template set are available, independent of the current geometry conditions and filters. Additional handling is intentionally not available here.',
+                  'Only articles configured in the template Parameters module are available. They can be added to any segment independently of the current geometry conditions. Quantity and cut length remain editable; the sales unit is always pieces.',
                 ),
                 const SizedBox(height: 14),
                 _SearchableOptionField<CalculatorCatalogItemOption>(
-                  label: 'Catalog item from template set',
+                  label: 'Catalog item from Parameters',
                   hintText: 'Type article number or name',
                   controller: _itemController,
                   focusNode: _itemFocusNode,
@@ -4475,11 +4490,10 @@ class _ManualComponentDialogState extends State<_ManualComponentDialog> {
                                     initialValue: selectedUnit,
                                     isExpanded: true,
                                     decoration: const InputDecoration(labelText: 'Sales unit'),
-                                    items: [
-                                      for (final unit in units)
-                                        DropdownMenuItem(value: unit, child: Text(_formatUnitLabel(unit))),
+                                    items: const [
+                                      DropdownMenuItem(value: 'piece', child: Text('Stück')),
                                     ],
-                                    onChanged: (value) => setState(() => _salesUnitCode = value),
+                                    onChanged: null,
                                   ),
                                 ),
                                 if (_isProfile(item))
@@ -4536,7 +4550,6 @@ class _ManualComponentDialogState extends State<_ManualComponentDialog> {
       _variantId = onlyVariant?.id;
       _itemController.text = _itemLabel(item);
       _variantController.text = onlyVariant == null ? '' : _variantLabel(onlyVariant);
-      _salesUnitCode = _defaultSalesUnit(item, onlyVariant);
       _lengthController.text = '${onlyVariant?.lengthMm ?? item.defaultLengthMm ?? ''}';
     });
     if (onlyVariant == null && variants.isNotEmpty) {
@@ -4551,7 +4564,6 @@ class _ManualComponentDialogState extends State<_ManualComponentDialog> {
     setState(() {
       _variantId = variant.id;
       _variantController.text = _variantLabel(variant);
-      _salesUnitCode = _defaultSalesUnit(item, variant);
       _lengthController.text = '${variant.lengthMm ?? item?.defaultLengthMm ?? ''}';
     });
   }
@@ -4599,86 +4611,6 @@ class _ManualComponentDialogState extends State<_ManualComponentDialog> {
         variant.coatingTypeCode,
       ]);
 
-  List<String> _salesUnitOptions(
-    CalculatorCatalogItemOption? item,
-    CalculatorCatalogVariantOption? variant,
-  ) {
-    final values = <String?>[
-      ...?variant?.allowedSalesUnitCodes,
-      ...?item?.allowedSalesUnitCodes,
-      variant?.defaultSalesUnitCode,
-      item?.defaultSalesUnitCode,
-      item?.measureTypeCode,
-      variant?.packageUnitCode,
-      item?.packageUnitCode,
-      variant?.packageContentUnitCode,
-      item?.packageContentUnitCode,
-      'piece',
-    ];
-    final result = <String>[];
-    for (final value in values) {
-      final normalized = _normalizeUnitCode(value);
-      if (normalized == null || result.contains(normalized)) continue;
-      result.add(normalized);
-    }
-    return result.isEmpty ? const ['piece'] : result;
-  }
-
-  String _defaultSalesUnit(
-    CalculatorCatalogItemOption? item,
-    CalculatorCatalogVariantOption? variant,
-  ) {
-    final units = _salesUnitOptions(item, variant);
-    for (final value in [
-      variant?.defaultSalesUnitCode,
-      item?.defaultSalesUnitCode,
-      item?.measureTypeCode,
-    ]) {
-      final normalized = _normalizeUnitCode(value);
-      if (normalized != null && units.contains(normalized)) return normalized;
-    }
-    return units.first;
-  }
-
-  String? _normalizeUnitCode(String? value) {
-    final text = value?.trim().toLowerCase().replaceAll(RegExp(r'\s+'), '_');
-    if (text == null || text.isEmpty) return null;
-    switch (text) {
-      case 'm':
-      case 'meter':
-      case 'meters':
-      case 'metre':
-      case 'metres':
-        return 'meter';
-      case 'karton':
-      case 'carton':
-      case 'box':
-      case 'package':
-        return 'carton';
-      case 'rolle':
-      case 'roll':
-        return 'roll';
-      case 'stk':
-      case 'stk.':
-      case 'st':
-      case 'pc':
-      case 'pcs':
-      case 'piece':
-      case 'pieces':
-        return 'piece';
-      case 'm2':
-      case 'sqm':
-      case 'square_meter':
-      case 'square_meters':
-        return 'sqm';
-      case 'prozent':
-      case 'percent':
-      case '%':
-        return 'percent';
-      default:
-        return text;
-    }
-  }
 }
 
 const _missingSetPieceAbzugArticleNos = {'15698', '15184', '15189'};
@@ -5075,6 +5007,56 @@ bool _catalogItemHasMedia(CalculatorCatalogItemOption item) {
       || (item.mediaFileId?.trim().isNotEmpty ?? false);
 }
 
+Set<String> _manualSetContentArticleKeys(CalculatorTemplateOption? template) {
+  final result = <String>{};
+  for (final articleNo in template?.manualSetContentArticleNos ?? const <String>[]) {
+    result.addAll(_catalogCodeKeys(articleNo));
+  }
+  return result;
+}
+
+bool _catalogItemMatchesArticleKeys(
+  CalculatorContext contextData,
+  CalculatorCatalogItemOption item,
+  Set<String> articleKeys,
+) {
+  if (articleKeys.isEmpty) return false;
+  final itemKeys = <String>{
+    ..._catalogCodeKeys(item.profileNo),
+    ..._catalogCodeKeys(item.baseCode),
+    ..._catalogCodeKeys(_stringFromRaw(item.raw['article_no'])),
+    ..._catalogCodeKeys(_stringFromRaw(item.raw['matched_code'])),
+  };
+  if (itemKeys.intersection(articleKeys).isNotEmpty) return true;
+  return contextData.templateSetCatalogVariants.any(
+    (variant) {
+      if (variant.catalogItemId != item.id) return false;
+      final variantKeys = <String>{
+        ..._catalogCodeKeys(variant.articleNo),
+        ..._catalogCodeKeys(variant.profileNo),
+      };
+      return variantKeys.intersection(articleKeys).isNotEmpty;
+    },
+  );
+}
+
+bool _setContentItemMatchesArticleKeys(
+  CalculatorContext contextData,
+  CalculatorSetContentItem item,
+  Set<String> articleKeys,
+) {
+  if (articleKeys.isEmpty) return false;
+  final directKeys = <String>{
+    ..._catalogCodeKeys(item.articleNo),
+    ..._catalogCodeKeys(item.profileNo),
+    ..._catalogCodeKeys(item.baseCode),
+  };
+  if (directKeys.intersection(articleKeys).isNotEmpty) return true;
+  final catalogItem = _catalogItemForSetContent(contextData, item);
+  return catalogItem != null &&
+      _catalogItemMatchesArticleKeys(contextData, catalogItem, articleKeys);
+}
+
 Set<String> _catalogCodeKeys(String? raw) {
   final value = raw?.trim().toLowerCase();
   if (value == null || value.isEmpty) return const <String>{};
@@ -5137,6 +5119,7 @@ class _SetContentTabTable extends StatefulWidget {
     required this.mediaRepository,
     required this.tab,
     required this.tabIndex,
+    required this.overrideArticleKeys,
     required this.diagnostics,
     required this.onQuantityChanged,
     required this.onLengthChanged,
@@ -5161,6 +5144,7 @@ class _SetContentTabTable extends StatefulWidget {
   final AdminResourceRepository mediaRepository;
   final CalculatorSetContentTab tab;
   final int tabIndex;
+  final Set<String> overrideArticleKeys;
   final List<Map<String, dynamic>> diagnostics;
   final void Function(int itemIndex, num quantity) onQuantityChanged;
   final void Function(int itemIndex, num? lengthMm) onLengthChanged;
@@ -5313,7 +5297,13 @@ class _SetContentTabTableState extends State<_SetContentTabTable> {
   Widget _row(BuildContext context, _SetContentVisibleRow visible) {
     final item = visible.item;
     final index = visible.itemIndex;
-    final editable = item.isManual || item.isOverridden;
+    final canOverrideCalculated = item.isCalculated &&
+        _setContentItemMatchesArticleKeys(
+          widget.contextData,
+          item,
+          widget.overrideArticleKeys,
+        );
+    final editable = item.isManual || (item.isOverridden && canOverrideCalculated);
     final manualIndex = widget.tab.items.take(index).where((entry) => entry.enabled && entry.isManual).length;
     final diagnostic = item.isManual && manualIndex < widget.diagnostics.length ? widget.diagnostics[manualIndex] : null;
     final amount = _num(diagnostic?['amount']);
@@ -5417,7 +5407,7 @@ class _SetContentTabTableState extends State<_SetContentTabTable> {
             width: _SetContentTabTable._actionsWidth,
             child: Row(
               children: [
-                if (item.isCalculated)
+                if (canOverrideCalculated)
                   IconButton(
                     tooltip: item.isOverridden ? 'Reset to calculated values' : 'Override calculated values',
                     onPressed: item.isOverridden

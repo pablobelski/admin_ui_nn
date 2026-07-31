@@ -301,6 +301,19 @@ class CalculatorTemplateOption {
 
   bool get hasCompleteRoofParameters => parametersModuleId != null && roofParameterMissingKeys.isEmpty && roofParameters.isNotEmpty;
 
+  List<String> get manualSetContentArticleNos {
+    final moduleParameters = _map(
+      parametersModuleData['tds_glass_params'] ??
+          parametersModuleData['tdsGlassParams'],
+    );
+    return _stringList(
+      roofParameters['manualSetContentArticleNos'] ??
+          roofParameters['manual_set_content_article_nos'] ??
+          moduleParameters['manualSetContentArticleNos'] ??
+          moduleParameters['manual_set_content_article_nos'],
+    );
+  }
+
   int? get defaultMaxGlassFieldWidthMm => _intOrNull(
         roofParameters['defaultMaxGlassFieldWidthMm'] ?? roofParameters['default_max_glass_field_width_mm'],
       );

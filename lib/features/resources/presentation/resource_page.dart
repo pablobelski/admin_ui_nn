@@ -1482,8 +1482,9 @@ class _ResourceDetailsContent extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (resource.key == 'quotes') {
+      final quoteId = data['id']?.toString() ?? '';
       return DefaultTabController(
-        length: 3,
+        length: 5,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -1494,6 +1495,8 @@ class _ResourceDetailsContent extends StatelessWidget {
               tabs: [
                 Tab(text: 'Preview'),
                 Tab(text: 'Details'),
+                Tab(text: 'Documents'),
+                Tab(text: 'Lines'),
                 Tab(text: 'Raw JSON'),
               ],
             ),
@@ -1508,6 +1511,17 @@ class _ResourceDetailsContent extends StatelessWidget {
                     roofModelLabelsByCode: roofModelLabelsByCode,
                   ),
                   _detailsListView(context),
+                  _QuoteDocumentsTab(
+                    key: ValueKey('quote-documents-$quoteId'),
+                    quoteId: quoteId,
+                    repository: repository,
+                    createdByLabels: lookupLabelsByKey['created_by'] ?? const {},
+                  ),
+                  _QuoteLinesTab(
+                    key: ValueKey('quote-lines-$quoteId'),
+                    quoteId: quoteId,
+                    repository: repository,
+                  ),
                   ListView(children: [JsonViewCard(title: 'Raw JSON', data: enrichedData)]),
                 ],
               ),
@@ -1641,6 +1655,476 @@ class _ResourceDetailsContent extends StatelessWidget {
           JsonViewCard(title: 'Metadata JSON', data: metadata),
         ],
       ],
+    );
+  }
+}
+
+class _QuoteDocumentsTab extends StatefulWidget {
+  const _QuoteDocumentsTab({
+    super.key,
+    required this.quoteId,
+    required this.repository,
+    required this.createdByLabels,
+  });
+
+  final String quoteId;
+  final AdminResourceRepository repository;
+  final Map<String, String> createdByLabels;
+
+  @override
+  State<_QuoteDocumentsTab> createState() => _QuoteDocumentsTabState();
+}
+
+class _QuoteDocumentsTabState extends State<_QuoteDocumentsTab> {
+  late Future<ResourceListResponse> _documentsFuture;
+  final Set<String> _deletingIds = <String>{};
+
+  AdminResourceDefinition get _resource => findResourceByKey('generated_documents');
+
+  @override
+  void initState() {
+    super.initState();
+    _documentsFuture = _fetchDocuments();
+  }
+
+  @override
+  void didUpdateWidget(covariant _QuoteDocumentsTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.quoteId != widget.quoteId) {
+      _documentsFuture = _fetchDocuments();
+    }
+  }
+
+  Future<ResourceListResponse> _fetchDocuments() {
+    if (widget.quoteId.isEmpty) {
+      return Future.value(const ResourceListResponse(items: [], total: 0));
+    }
+    return widget.repository.fetchList(
+      _resource,
+      limit: 500,
+      filters: {'quote_id': widget.quoteId},
+    );
+  }
+
+  void _reload() {
+    setState(() => _documentsFuture = _fetchDocuments());
+  }
+
+  Future<void> _deleteDocument(Map<String, dynamic> row) async {
+    final id = _firstText(row['id']);
+    if (id == null || _deletingIds.contains(id)) return;
+
+    final filename = _firstText(
+          row['output_filename'],
+          row['original_filename'],
+        ) ??
+        'document';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete generated document?'),
+        content: Text('Delete "$filename"?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton.tonal(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _deletingIds.add(id));
+    try {
+      await widget.repository.delete(_resource, id);
+      if (!mounted) return;
+      setState(() {
+        _deletingIds.remove(id);
+        _documentsFuture = _fetchDocuments();
+      });
+      showTopNotification(
+        context,
+        'Generated document deleted.',
+        type: TopNotificationType.success,
+      );
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _deletingIds.remove(id));
+      showTopNotification(
+        context,
+        'Document deletion failed: $error',
+        type: TopNotificationType.error,
+      );
+    }
+  }
+
+  String _createdByLabel(Map<String, dynamic> row) {
+    final directLabel = _firstText(
+      row['created_by_name'],
+      row['created_by_email'],
+    );
+    if (directLabel != null) return directLabel;
+    return _displayValue(
+      row['created_by'],
+      lookupLabels: widget.createdByLabels,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<ResourceListResponse>(
+      future: _documentsFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snapshot.hasError) {
+          return _QuoteRelatedTabError(
+            message: 'Generated documents could not be loaded: ${snapshot.error}',
+            onRetry: _reload,
+          );
+        }
+
+        final rows = snapshot.data?.items ?? const <Map<String, dynamic>>[];
+        if (rows.isEmpty) {
+          return _QuoteRelatedTabEmpty(
+            icon: Icons.description_outlined,
+            message: 'No generated documents for this quote.',
+            onRefresh: _reload,
+          );
+        }
+
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final tableWidth = math.max(760.0, constraints.maxWidth);
+            return HorizontalScrollArea(
+              child: SizedBox(
+                width: tableWidth,
+                child: Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      child: Row(
+                        children: [
+                          const AdminTableHeaderCell(label: 'Generated', width: 132),
+                          const AdminTableHeaderCell(label: 'Type', width: 132),
+                          const AdminTableHeaderCell(label: 'Filename', flex: 3),
+                          const AdminTableHeaderCell(label: 'Generated by', flex: 2),
+                          SizedBox(
+                            width: 84,
+                            child: Align(
+                              alignment: Alignment.centerRight,
+                              child: IconButton(
+                                tooltip: 'Refresh documents',
+                                onPressed: _reload,
+                                visualDensity: VisualDensity.compact,
+                                icon: const Icon(Icons.refresh_rounded, size: 18),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Divider(height: 2),
+                    Expanded(
+                      child: ListView.separated(
+                        itemCount: rows.length,
+                        separatorBuilder: (_, __) => const Divider(height: 1),
+                        itemBuilder: (context, index) {
+                          final row = rows[index];
+                          final id = _firstText(row['id']);
+                          final action = _quoteDocumentMenuAction(row);
+                          final isDeleting = id != null && _deletingIds.contains(id);
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            child: Row(
+                              children: [
+                                AdminTableValueCell(
+                                  value: _displayValue(row['created_at']),
+                                  width: 132,
+                                ),
+                                AdminTableValueCell(
+                                  value: _generatedDocumentTypeLabel(row),
+                                  width: 132,
+                                ),
+                                AdminTableValueCell(
+                                  value: _firstText(
+                                        row['output_filename'],
+                                        row['original_filename'],
+                                      ) ??
+                                      '—',
+                                  flex: 3,
+                                  strong: true,
+                                ),
+                                AdminTableValueCell(
+                                  value: _createdByLabel(row),
+                                  flex: 2,
+                                ),
+                                SizedBox(
+                                  width: 84,
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.end,
+                                    children: [
+                                      IconButton(
+                                        tooltip: 'Open document in new tab',
+                                        onPressed: action == null
+                                            ? null
+                                            : () => _openQuoteGeneratedDocument(
+                                                  context,
+                                                  widget.repository,
+                                                  action,
+                                                ),
+                                        padding: EdgeInsets.zero,
+                                        visualDensity: VisualDensity.compact,
+                                        constraints: const BoxConstraints.tightFor(
+                                          width: 36,
+                                          height: 32,
+                                        ),
+                                        icon: const Icon(Icons.open_in_new_rounded, size: 18),
+                                      ),
+                                      IconButton(
+                                        tooltip: 'Delete document',
+                                        onPressed: id == null || isDeleting
+                                            ? null
+                                            : () => _deleteDocument(row),
+                                        padding: EdgeInsets.zero,
+                                        visualDensity: VisualDensity.compact,
+                                        constraints: const BoxConstraints.tightFor(
+                                          width: 36,
+                                          height: 32,
+                                        ),
+                                        icon: isDeleting
+                                            ? const SizedBox.square(
+                                                dimension: 16,
+                                                child: CircularProgressIndicator(strokeWidth: 2),
+                                              )
+                                            : const Icon(Icons.delete_outline, size: 18),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
+class _QuoteLinesTab extends StatefulWidget {
+  const _QuoteLinesTab({
+    super.key,
+    required this.quoteId,
+    required this.repository,
+  });
+
+  final String quoteId;
+  final AdminResourceRepository repository;
+
+  @override
+  State<_QuoteLinesTab> createState() => _QuoteLinesTabState();
+}
+
+class _QuoteLinesTabState extends State<_QuoteLinesTab> {
+  late Future<ResourceListResponse> _linesFuture;
+
+  AdminResourceDefinition get _resource => findResourceByKey('quote_lines');
+
+  @override
+  void initState() {
+    super.initState();
+    _linesFuture = _fetchLines();
+  }
+
+  @override
+  void didUpdateWidget(covariant _QuoteLinesTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.quoteId != widget.quoteId) {
+      _linesFuture = _fetchLines();
+    }
+  }
+
+  Future<ResourceListResponse> _fetchLines() {
+    if (widget.quoteId.isEmpty) {
+      return Future.value(const ResourceListResponse(items: [], total: 0));
+    }
+    return widget.repository.fetchList(
+      _resource,
+      limit: 500,
+      filters: {'quote_id': widget.quoteId},
+    );
+  }
+
+  void _reload() {
+    setState(() => _linesFuture = _fetchLines());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<ResourceListResponse>(
+      future: _linesFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snapshot.hasError) {
+          return _QuoteRelatedTabError(
+            message: 'Quote lines could not be loaded: ${snapshot.error}',
+            onRetry: _reload,
+          );
+        }
+
+        final rows = snapshot.data?.items ?? const <Map<String, dynamic>>[];
+        if (rows.isEmpty) {
+          return const _QuoteRelatedTabEmpty(
+            icon: Icons.format_list_bulleted_rounded,
+            message: 'No quote lines found.',
+          );
+        }
+
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final tableWidth = math.max(620.0, constraints.maxWidth);
+            return HorizontalScrollArea(
+              child: SizedBox(
+                width: tableWidth,
+                child: Column(
+                  children: [
+                    const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      child: Row(
+                        children: [
+                          AdminTableHeaderCell(label: 'Description', flex: 5),
+                          AdminTableHeaderCell(label: 'Qty', width: 72),
+                          AdminTableHeaderCell(label: 'Unit', width: 88),
+                          AdminTableHeaderCell(label: 'Amount', width: 112),
+                        ],
+                      ),
+                    ),
+                    const Divider(height: 2),
+                    Expanded(
+                      child: ListView.separated(
+                        itemCount: rows.length,
+                        separatorBuilder: (_, __) => const Divider(height: 1),
+                        itemBuilder: (context, index) {
+                          final row = rows[index];
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            child: Row(
+                              children: [
+                                AdminTableValueCell(
+                                  value: _firstText(
+                                        row['description'],
+                                        row['sku_snapshot'],
+                                        row['base_code_snapshot'],
+                                      ) ??
+                                      '—',
+                                  flex: 5,
+                                  strong: true,
+                                ),
+                                AdminTableValueCell(
+                                  value: _displayValue(row['quantity']),
+                                  width: 72,
+                                ),
+                                AdminTableValueCell(
+                                  value: _displayValue(row['unit_code']),
+                                  width: 88,
+                                ),
+                                AdminTableValueCell(
+                                  value: _displayValue(row['amount']),
+                                  width: 112,
+                                  strong: true,
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
+class _QuoteRelatedTabEmpty extends StatelessWidget {
+  const _QuoteRelatedTabEmpty({
+    required this.icon,
+    required this.message,
+    this.onRefresh,
+  });
+
+  final IconData icon;
+  final String message;
+  final VoidCallback? onRefresh;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 34, color: Theme.of(context).colorScheme.outline),
+          const SizedBox(height: 8),
+          Text(message),
+          if (onRefresh != null) ...[
+            const SizedBox(height: 8),
+            IconButton(
+              tooltip: 'Refresh',
+              onPressed: onRefresh,
+              icon: const Icon(Icons.refresh_rounded),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _QuoteRelatedTabError extends StatelessWidget {
+  const _QuoteRelatedTabError({
+    required this.message,
+    required this.onRetry,
+  });
+
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.error_outline, size: 34),
+          const SizedBox(height: 8),
+          Text(message, textAlign: TextAlign.center),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: onRetry,
+            icon: const Icon(Icons.refresh_rounded),
+            label: const Text('Retry'),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -2641,6 +3125,7 @@ Map<String, AdminLookup> _quoteRelationLookupsByKey(String resourceKey) {
     'buyer_organization_id': organizationLookup,
     'ship_to_organization_id': organizationLookup,
     'organization_id': organizationLookup,
+    'created_by': userLookup,
     'created_by_user_id': userLookup,
     'updated_by_user_id': userLookup,
     'actor_user_id': userLookup,

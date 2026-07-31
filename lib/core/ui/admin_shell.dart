@@ -26,6 +26,8 @@ class AdminShell extends ConsumerStatefulWidget {
 }
 
 class _AdminShellState extends ConsumerState<AdminShell> {
+  bool _navigationCollapsed = false;
+
   @override
   void initState() {
     super.initState();
@@ -116,14 +118,20 @@ class _AdminShellState extends ConsumerState<AdminShell> {
       body: Row(
         children: [
           if (!isNarrow)
-            SizedBox(
-              width: 280,
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              curve: Curves.easeOut,
+              width: _navigationCollapsed ? 72 : 280,
               child: Material(
                 color: Colors.white,
                 child: SafeArea(
                   child: _NavigationTree(
                     selectedKey: effectiveSelectedKey,
                     roleCode: authSession.roleCode,
+                    collapsed: _navigationCollapsed,
+                    onToggleCollapsed: () {
+                      setState(() => _navigationCollapsed = !_navigationCollapsed);
+                    },
                     onSelect: (key) {
                       ref.read(selectedResourceProvider.notifier).select(key);
                     },
@@ -326,50 +334,106 @@ class _NavigationTree extends StatelessWidget {
     required this.roleCode,
     required this.onSelect,
     required this.onOpenInNewTab,
+    this.collapsed = false,
+    this.onToggleCollapsed,
   });
 
   final String selectedKey;
   final String? roleCode;
   final ValueChanged<String> onSelect;
   final ValueChanged<String> onOpenInNewTab;
+  final bool collapsed;
+  final VoidCallback? onToggleCollapsed;
 
   @override
   Widget build(BuildContext context) {
     return ListView(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
+      padding: EdgeInsets.fromLTRB(collapsed ? 8 : 12, 8, collapsed ? 8 : 12, 24),
       children: [
+        if (onToggleCollapsed != null) ...[
+          Align(
+            alignment: collapsed ? Alignment.center : Alignment.centerRight,
+            child: IconButton(
+              tooltip: collapsed ? 'Expand navigation' : 'Collapse navigation',
+              onPressed: onToggleCollapsed,
+              icon: Icon(
+                collapsed
+                    ? Icons.keyboard_double_arrow_right_rounded
+                    : Icons.keyboard_double_arrow_left_rounded,
+              ),
+            ),
+          ),
+          const SizedBox(height: 4),
+        ],
         _NavTile(
           resourceKey: dashboardResource.key,
           title: dashboardResource.title,
           icon: dashboardResource.icon,
           selected: selectedKey == dashboardResource.key,
+          compact: collapsed,
           onTap: () => onSelect(dashboardResource.key),
           onOpenInNewTab: () => onOpenInNewTab(dashboardResource.key),
         ),
         const SizedBox(height: 8),
         for (final group in _navigationGroupsForUi())
-          if (_visibleResources(group).isNotEmpty)
-          Card(
-            child: ExpansionTile(
-              leading: Icon(group.icon),
-              title: Text(group.title),
-              initiallyExpanded: _visibleResources(group).any((r) => r.key == selectedKey),
-              childrenPadding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
-              children: [
-                for (final resource in _visibleResources(group))
-                  _NavTile(
-                    resourceKey: resource.key,
-                    title: resource.title,
-                    icon: resource.icon,
-                    selected: selectedKey == resource.key,
-                    onTap: () => onSelect(resource.key),
-                    onOpenInNewTab: () => onOpenInNewTab(resource.key),
-                  ),
-              ],
-            ),
-          ),
+          ..._buildGroup(group),
       ],
     );
+  }
+
+  List<Widget> _buildGroup(AdminNavGroup group) {
+    final resources = _visibleResources(group);
+    if (resources.isEmpty) return const [];
+
+    if (resources.length == 1) {
+      final resource = resources.single;
+      return [
+        _NavTile(
+          resourceKey: resource.key,
+          title: resource.title,
+          icon: resource.icon,
+          selected: selectedKey == resource.key,
+          compact: collapsed,
+          onTap: () => onSelect(resource.key),
+          onOpenInNewTab: () => onOpenInNewTab(resource.key),
+        ),
+        const SizedBox(height: 4),
+      ];
+    }
+
+    if (collapsed) {
+      return [
+        _CollapsedNavGroup(
+          group: group,
+          resources: resources,
+          selectedKey: selectedKey,
+          onSelect: onSelect,
+        ),
+        const SizedBox(height: 4),
+      ];
+    }
+
+    return [
+      Card(
+        child: ExpansionTile(
+          leading: Icon(group.icon),
+          title: Text(group.title),
+          initiallyExpanded: resources.any((resource) => resource.key == selectedKey),
+          childrenPadding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+          children: [
+            for (final resource in resources)
+              _NavTile(
+                resourceKey: resource.key,
+                title: resource.title,
+                icon: resource.icon,
+                selected: selectedKey == resource.key,
+                onTap: () => onSelect(resource.key),
+                onOpenInNewTab: () => onOpenInNewTab(resource.key),
+              ),
+          ],
+        ),
+      ),
+    ];
   }
 
   List<AdminResourceDefinition> _visibleResources(AdminNavGroup group) {
@@ -380,6 +444,53 @@ class _NavigationTree extends StatelessWidget {
   }
 }
 
+class _CollapsedNavGroup extends StatelessWidget {
+  const _CollapsedNavGroup({
+    required this.group,
+    required this.resources,
+    required this.selectedKey,
+    required this.onSelect,
+  });
+
+  final AdminNavGroup group;
+  final List<AdminResourceDefinition> resources;
+  final String selectedKey;
+  final ValueChanged<String> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final selected = resources.any((resource) => resource.key == selectedKey);
+    return Material(
+      color: selected ? scheme.primaryContainer : Colors.transparent,
+      borderRadius: BorderRadius.circular(12),
+      child: PopupMenuButton<String>(
+        tooltip: group.title,
+        onSelected: onSelect,
+        itemBuilder: (context) => [
+          for (final resource in resources)
+            PopupMenuItem<String>(
+              value: resource.key,
+              child: Row(
+                children: [
+                  Icon(resource.icon, size: 20),
+                  const SizedBox(width: 12),
+                  Expanded(child: Text(resource.title)),
+                  if (resource.key == selectedKey)
+                    Icon(Icons.check_rounded, size: 18, color: scheme.primary),
+                ],
+              ),
+            ),
+        ],
+        child: SizedBox(
+          height: 48,
+          width: double.infinity,
+          child: Icon(group.icon, size: 22),
+        ),
+      ),
+    );
+  }
+}
 
 const _catalogSectionResourceKeys = {
   'catalog_item_types',
@@ -431,6 +542,7 @@ class _NavTile extends StatelessWidget {
     required this.selected,
     required this.onTap,
     required this.onOpenInNewTab,
+    this.compact = false,
   });
 
   final String resourceKey;
@@ -439,10 +551,33 @@ class _NavTile extends StatelessWidget {
   final bool selected;
   final VoidCallback onTap;
   final VoidCallback onOpenInNewTab;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final tile = compact
+        ? Material(
+            color: selected ? scheme.primaryContainer : Colors.transparent,
+            borderRadius: BorderRadius.circular(12),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: onTap,
+              child: SizedBox(
+                height: 48,
+                width: double.infinity,
+                child: Icon(icon, size: 22),
+              ),
+            ),
+          )
+        : ListTile(
+            dense: true,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            tileColor: selected ? scheme.primaryContainer : null,
+            leading: Icon(icon, size: 20),
+            title: Text(title),
+            onTap: onTap,
+          );
     return Listener(
       onPointerDown: (event) {
         if (event.buttons == kMiddleMouseButton) {
@@ -453,15 +588,8 @@ class _NavTile extends StatelessWidget {
         behavior: HitTestBehavior.opaque,
         onSecondaryTapDown: (details) => _showContextMenu(context, details),
         child: Tooltip(
-          message: adminHrefForResourceKey(resourceKey),
-          child: ListTile(
-            dense: true,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            tileColor: selected ? scheme.primaryContainer : null,
-            leading: Icon(icon, size: 20),
-            title: Text(title),
-            onTap: onTap,
-          ),
+          message: compact ? title : adminHrefForResourceKey(resourceKey),
+          child: tile,
         ),
       ),
     );
