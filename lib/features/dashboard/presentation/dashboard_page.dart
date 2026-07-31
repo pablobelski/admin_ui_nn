@@ -28,7 +28,8 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
   int _days = 30;
 
   Future<void> _refresh() async {
-    await ref.refresh(dashboardProvider(_days).future);
+    final refreshed = ref.refresh(dashboardProvider(_days).future);
+    await refreshed;
   }
 
   void _openResource(

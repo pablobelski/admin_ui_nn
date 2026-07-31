@@ -462,80 +462,88 @@ class _ListCard extends ConsumerWidget {
                       return HorizontalScrollArea(
                         child: SizedBox(
                           width: tableWidth,
-                          child: ListView.separated(
-                            key: PageStorageKey<String>(
-                              'resource-list-${resource.key}-${browserState.query}-$filtersKey-${browserState.offset}-${browserState.limit}',
-                            ),
-                            itemCount: response.items.length + 1,
-                            separatorBuilder: (_, index) => index == 0
-                                ? const Divider(height: 2)
-                                : const Divider(height: 1),
-                            itemBuilder: (context, index) {
-                              if (index == 0) {
-                                return Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: _rowHorizontalPadding,
-                                    vertical: _rowVerticalPadding,
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.max,
-                                    children: [
-                                      const AdminRowNumberHeader(),
-                                      if (hasLeadingPreview)
-                                        const AdminTableHeaderCell(
-                                          label: 'Media',
-                                          width: _previewColumnWidth,
-                                          align: TextAlign.left,
-                                        ),
-                                      for (final column in visibleColumns)
-                                        AdminTableHeaderCell(
-                                          label: column.label,
-                                          width: useCompactLayout ? columnWidths[column.key] : null,
-                                          flex: useCompactLayout ? null : column.flex,
-                                          align: TextAlign.left,
-                                        ),
-                                    ],
-                                  ),
-                                );
-                              }
-
-                              final rowIndex = index - 1;
-                              final row = response.items[rowIndex];
-                              final rowId = row['id']?.toString();
-                              final isSelected = browserState.selectedId == rowId;
-                              return InkWell(
-                                onTap: () => browser.select(rowId),
-                                child: Container(
-                                  color: isSelected ? Theme.of(context).colorScheme.primaryContainer : null,
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: _rowHorizontalPadding,
-                                    vertical: _rowVerticalPadding,
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.max,
-                                    children: [
-                                      AdminRowNumberCell(index: rowIndex, offset: browserState.offset),
-                                      if (hasLeadingPreview)
-                                        _MediaPreviewListCell(
-                                          repository: repository,
-                                          mediaRef: _leadingListMediaRef(resource, row),
-                                          width: _previewColumnWidth,
-                                        ),
-                                      for (final column in visibleColumns)
-                                        _buildListValueCell(
-                                          resource: resource,
-                                          repository: repository,
-                                          row: row,
-                                          column: column,
-                                          lookupLabels: lookupLabelsByColumn[column.key],
-                                          useCompactLayout: useCompactLayout,
-                                          width: useCompactLayout ? columnWidths[column.key] : null,
-                                        ),
-                                    ],
-                                  ),
+                          child: Column(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: _rowHorizontalPadding,
+                                  vertical: _rowVerticalPadding,
                                 ),
-                              );
-                            },
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.max,
+                                  children: [
+                                    const AdminRowNumberHeader(),
+                                    if (hasLeadingPreview)
+                                      const AdminTableHeaderCell(
+                                        label: 'Media',
+                                        width: _previewColumnWidth,
+                                        align: TextAlign.left,
+                                      ),
+                                    for (final column in visibleColumns)
+                                      AdminTableHeaderCell(
+                                        label: column.label,
+                                        width: useCompactLayout ? columnWidths[column.key] : null,
+                                        flex: useCompactLayout ? null : column.flex,
+                                        align: TextAlign.left,
+                                      ),
+                                  ],
+                                ),
+                              ),
+                              const Divider(height: 2),
+                              Expanded(
+                                child: ListView.separated(
+                                  key: PageStorageKey<String>(
+                                    'resource-list-${resource.key}-${browserState.query}-$filtersKey-${browserState.offset}-${browserState.limit}',
+                                  ),
+                                  itemCount: response.items.length,
+                                  separatorBuilder: (_, __) => const Divider(height: 1),
+                                  itemBuilder: (context, rowIndex) {
+                                    final row = response.items[rowIndex];
+                                    final rowId = row['id']?.toString();
+                                    final isSelected = browserState.selectedId == rowId;
+                                    return InkWell(
+                                      onTap: () => browser.select(rowId),
+                                      child: Container(
+                                        color: isSelected
+                                            ? Theme.of(context).colorScheme.primaryContainer
+                                            : null,
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: _rowHorizontalPadding,
+                                          vertical: _rowVerticalPadding,
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.max,
+                                          children: [
+                                            AdminRowNumberCell(
+                                              index: rowIndex,
+                                              offset: browserState.offset,
+                                            ),
+                                            if (hasLeadingPreview)
+                                              _MediaPreviewListCell(
+                                                repository: repository,
+                                                mediaRef: _leadingListMediaRef(resource, row),
+                                                width: _previewColumnWidth,
+                                              ),
+                                            for (final column in visibleColumns)
+                                              _buildListValueCell(
+                                                resource: resource,
+                                                repository: repository,
+                                                row: row,
+                                                column: column,
+                                                lookupLabels: lookupLabelsByColumn[column.key],
+                                                useCompactLayout: useCompactLayout,
+                                                width: useCompactLayout
+                                                    ? columnWidths[column.key]
+                                                    : null,
+                                              ),
+                                          ],
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       );
@@ -1953,47 +1961,6 @@ String? _quoteTextField(Map<String, dynamic> data, String dbKey, String camelKey
   return normalized(input[dbKey] ?? input[camelKey]);
 }
 
-class _DetailsHintCard extends StatelessWidget {
-  const _DetailsHintCard({
-    required this.icon,
-    required this.title,
-    required this.text,
-  });
-
-  final IconData icon;
-  final String title;
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    return Card(
-      color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(icon, color: colorScheme.primary),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title, style: Theme.of(context).textTheme.titleSmall),
-                  const SizedBox(height: 4),
-                  Text(text, style: Theme.of(context).textTheme.bodySmall),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-
 class _QuotePreviewInfoCard extends StatelessWidget {
   const _QuotePreviewInfoCard({required this.rows});
 
@@ -2651,7 +2618,8 @@ bool _usesReadableDetails(AdminResourceDefinition resource) {
       resource.key == 'quote_lines' ||
       resource.key == 'generated_documents' ||
       resource.key == 'roof_models' ||
-      resource.key == 'organization_relations';
+      resource.key == 'organization_relations' ||
+      resource.formFields.any((field) => field.lookup != null);
 }
 
 Map<String, AdminLookup> _detailRelationLookupsByKey(AdminResourceDefinition resource) {

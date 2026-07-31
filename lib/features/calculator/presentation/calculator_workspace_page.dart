@@ -10,7 +10,6 @@ import '../../../core/http/admin_resource_repository.dart';
 import '../../../core/http/api_client.dart';
 import '../../../core/navigation/admin_providers.dart';
 import '../../../core/ui/json_view_card.dart';
-import '../../../core/ui/media_file_actions.dart';
 import '../../../core/ui/media_preview_dialog.dart';
 import '../../../core/ui/top_notification.dart';
 import '../data/calculator_models.dart';
@@ -4991,22 +4990,6 @@ class _InfoChip extends StatelessWidget {
   }
 }
 
-
-List<CalculatorCatalogItemOption> _catalogItemsForBomLines(
-  CalculatorContext contextData,
-  List<Map<String, dynamic>> lines,
-) {
-  final result = <CalculatorCatalogItemOption>[];
-  final seen = <String>{};
-  for (final line in lines) {
-    final item = _catalogItemForBomLine(contextData, line);
-    if (item == null || !seen.add(item.id)) continue;
-    result.add(item);
-  }
-  result.sort((a, b) => '${a.profileNo ?? a.baseCode} ${a.name}'.compareTo('${b.profileNo ?? b.baseCode} ${b.name}'));
-  return result;
-}
-
 CalculatorCatalogItemOption? _catalogItemForBomLine(
   CalculatorContext contextData,
   Map<String, dynamic> line,
@@ -9123,7 +9106,6 @@ class _NumberField extends StatelessWidget {
     required this.controller,
     required this.onChanged,
     this.focusNode,
-    this.readOnly = false,
     this.suffixText = 'mm',
     this.errorText,
     this.helperText,
@@ -9133,7 +9115,6 @@ class _NumberField extends StatelessWidget {
   final TextEditingController controller;
   final ValueChanged<String> onChanged;
   final FocusNode? focusNode;
-  final bool readOnly;
   final String suffixText;
   final String? errorText;
   final String? helperText;
@@ -9145,7 +9126,6 @@ class _NumberField extends StatelessWidget {
       child: TextField(
         controller: controller,
         focusNode: focusNode,
-        readOnly: readOnly,
         keyboardType: TextInputType.number,
         decoration: InputDecoration(
           labelText: label,

@@ -523,7 +523,7 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
                                                       sideRect.bottom +
                                                       8,
                                                   child: QrImageView(
-                                                    data: calculationNumber!,
+                                                    data: calculationNumber,
                                                     version: QrVersions.auto,
                                                     size: qrSize,
                                                     padding:
@@ -924,12 +924,11 @@ class _RoofProfile {
   const _RoofProfile({
     required this.shape,
     required this.smallPartOnLeft,
-    this.mirrorView = false,
   });
 
   final _RoofShape shape;
   final bool smallPartOnLeft;
-  final bool mirrorView;
+  final bool mirrorView = false;
 }
 
 class _RoofLayout {
