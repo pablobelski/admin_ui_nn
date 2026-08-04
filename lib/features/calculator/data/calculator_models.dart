@@ -914,7 +914,9 @@ class CalculatorDraft {
     this.roofRearHeightMm,
     this.roofFrontHeightMm,
     this.forceOddBeams = false,
-    this.wallMounted = false,
+    this.wallMounted = true,
+    this.addStaticBeamAssembly = false,
+    this.staticBeamPositionCode = 'front_overhang',
     this.maxGlassFieldWidthMm,
     this.coveringCode,
     this.colorCode,
@@ -958,6 +960,25 @@ class CalculatorDraft {
     );
     final roofModules = _list(roof['modules']);
     final setContents = _restoreRoofModuleGeometry(savedSetContents, roofModules);
+    final wallMounted = roof['wall_mounted'] is bool
+        ? roof['wall_mounted'] as bool
+        : true;
+    final savedStaticBeamPositionCode = _string(
+      roof['static_beam_position_code'] ?? roof['staticBeamPositionCode'],
+    );
+    const validStaticBeamPositionCodes = {
+      'rear_wall',
+      'under_gutter',
+      'front_overhang',
+      'wall_extension',
+    };
+    final normalizedStaticBeamPositionCode =
+        validStaticBeamPositionCodes.contains(savedStaticBeamPositionCode)
+            ? savedStaticBeamPositionCode
+            : 'front_overhang';
+    final staticBeamPositionCode = !wallMounted && normalizedStaticBeamPositionCode == 'rear_wall'
+        ? 'front_overhang'
+        : normalizedStaticBeamPositionCode;
 
     return CalculatorDraft(
       organizationId: _nullableString(json['organization_id']),
@@ -972,7 +993,11 @@ class CalculatorDraft {
       roofRearHeightMm: _intOrNull(roof['rear_height_mm']),
       roofFrontHeightMm: _intOrNull(roof['front_height_mm']),
       forceOddBeams: roof['force_odd_beams'] is bool ? roof['force_odd_beams'] as bool : false,
-      wallMounted: roof['wall_mounted'] is bool ? roof['wall_mounted'] as bool : false,
+      wallMounted: wallMounted,
+      addStaticBeamAssembly: (roof['add_static_beam_assembly'] ?? roof['addStaticBeamAssembly']) is bool
+          ? (roof['add_static_beam_assembly'] ?? roof['addStaticBeamAssembly']) as bool
+          : false,
+      staticBeamPositionCode: staticBeamPositionCode,
       maxGlassFieldWidthMm: _intOrNull(roof['max_glass_field_width_mm']),
       coveringCode: _nullableString(json['covering_code']),
       colorCode: _nullableString(json['color_code']),
@@ -1007,6 +1032,8 @@ class CalculatorDraft {
   final int? roofFrontHeightMm;
   final bool forceOddBeams;
   final bool wallMounted;
+  final bool addStaticBeamAssembly;
+  final String staticBeamPositionCode;
   final int? maxGlassFieldWidthMm;
   final String? coveringCode;
   final String? colorCode;
@@ -1045,6 +1072,8 @@ class CalculatorDraft {
     bool clearRoofFrontHeight = false,
     bool? forceOddBeams,
     bool? wallMounted,
+    bool? addStaticBeamAssembly,
+    String? staticBeamPositionCode,
     int? maxGlassFieldWidthMm,
     bool clearMaxGlassFieldWidth = false,
     String? coveringCode,
@@ -1083,6 +1112,10 @@ class CalculatorDraft {
       roofFrontHeightMm: clearRoofFrontHeight ? null : roofFrontHeightMm ?? this.roofFrontHeightMm,
       forceOddBeams: forceOddBeams ?? this.forceOddBeams,
       wallMounted: wallMounted ?? this.wallMounted,
+      addStaticBeamAssembly:
+          addStaticBeamAssembly ?? this.addStaticBeamAssembly,
+      staticBeamPositionCode:
+          staticBeamPositionCode ?? this.staticBeamPositionCode,
       maxGlassFieldWidthMm: clearMaxGlassFieldWidth ? null : maxGlassFieldWidthMm ?? this.maxGlassFieldWidthMm,
       coveringCode: clearCovering ? null : coveringCode ?? this.coveringCode,
       colorCode: clearColor ? null : colorCode ?? this.colorCode,
@@ -1134,6 +1167,8 @@ class CalculatorDraft {
       if (roofFrontHeightMm != null) 'front_height_mm': roofFrontHeightMm,
       'force_odd_beams': forceOddBeams,
       'wall_mounted': wallMounted,
+      'add_static_beam_assembly': addStaticBeamAssembly,
+      'static_beam_position_code': staticBeamPositionCode,
       if (maxGlassFieldWidthMm != null) 'max_glass_field_width_mm': maxGlassFieldWidthMm,
       if (moduleJson.isNotEmpty) 'modules': moduleJson,
     };

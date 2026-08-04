@@ -66,6 +66,8 @@ String _setContentsRequestSignature(CalculatorDraft draft) {
     'roof_front_height_mm': draft.roofFrontHeightMm,
     'force_odd_beams': draft.forceOddBeams,
     'wall_mounted': draft.wallMounted,
+    'add_static_beam_assembly': draft.addStaticBeamAssembly,
+    'static_beam_position_code': draft.staticBeamPositionCode,
     'max_glass_field_width_mm': draft.maxGlassFieldWidthMm,
     'missing_set_piece_abzug_article_nos': [
       ...draft.missingSetPieceAbzugArticleNos,
@@ -235,7 +237,22 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
 
   void setForceOddBeams(bool value) => state = state.copyWith(forceOddBeams: value);
 
-  void setWallMounted(bool value) => state = state.copyWith(wallMounted: value);
+  void setWallMounted(bool value) => state = state.copyWith(
+        wallMounted: value,
+        staticBeamPositionCode: !value && state.staticBeamPositionCode == 'rear_wall'
+            ? 'front_overhang'
+            : state.staticBeamPositionCode,
+      );
+
+  void setAddStaticBeamAssembly(bool value) =>
+      state = state.copyWith(addStaticBeamAssembly: value);
+
+  void setStaticBeamPositionCode(String? value) {
+    final normalized = value?.trim();
+    if (normalized == null || normalized.isEmpty) return;
+    if (!state.wallMounted && normalized == 'rear_wall') return;
+    state = state.copyWith(staticBeamPositionCode: normalized);
+  }
 
   void setMaxGlassFieldWidthValue(int? value) => state = state.copyWith(
         maxGlassFieldWidthMm: value,

@@ -122,22 +122,27 @@ class _AdminShellState extends ConsumerState<AdminShell> {
               duration: const Duration(milliseconds: 180),
               curve: Curves.easeOut,
               width: _navigationCollapsed ? 72 : 280,
-              child: Material(
-                color: Colors.white,
-                child: SafeArea(
-                  child: _NavigationTree(
-                    selectedKey: effectiveSelectedKey,
-                    roleCode: authSession.roleCode,
-                    collapsed: _navigationCollapsed,
-                    onToggleCollapsed: () {
-                      setState(() => _navigationCollapsed = !_navigationCollapsed);
-                    },
-                    onSelect: (key) {
-                      ref.read(selectedResourceProvider.notifier).select(key);
-                    },
-                    onOpenInNewTab: (key) => openAdminResourceInNewTab(key),
-                  ),
-                ),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final useCompactNavigation = constraints.maxWidth < 180;
+                  return Material(
+                    color: Colors.white,
+                    child: SafeArea(
+                      child: _NavigationTree(
+                        selectedKey: effectiveSelectedKey,
+                        roleCode: authSession.roleCode,
+                        collapsed: useCompactNavigation,
+                        onToggleCollapsed: () {
+                          setState(() => _navigationCollapsed = !_navigationCollapsed);
+                        },
+                        onSelect: (key) {
+                          ref.read(selectedResourceProvider.notifier).select(key);
+                        },
+                        onOpenInNewTab: (key) => openAdminResourceInNewTab(key),
+                      ),
+                    ),
+                  );
+                },
               ),
             ),
           Expanded(

@@ -1707,7 +1707,9 @@ class _QuoteDocumentsTabState extends State<_QuoteDocumentsTab> {
   }
 
   void _reload() {
-    setState(() => _documentsFuture = _fetchDocuments());
+    setState(() {
+      _documentsFuture = _fetchDocuments();
+    });
   }
 
   Future<void> _deleteDocument(Map<String, dynamic> row) async {
@@ -1969,7 +1971,9 @@ class _QuoteLinesTabState extends State<_QuoteLinesTab> {
   }
 
   void _reload() {
-    setState(() => _linesFuture = _fetchLines());
+    setState(() {
+      _linesFuture = _fetchLines();
+    });
   }
 
   @override

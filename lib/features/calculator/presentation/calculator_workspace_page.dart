@@ -35,6 +35,12 @@ const _steps = <_StepDefinition>[
 
 final _moneyFormat = NumberFormat.currency(locale: 'de_DE', symbol: '€');
 const _customRalOptionCode = '__custom_ral__';
+const _staticBeamPositionOptions = <CalculatorOption>[
+  CalculatorOption(id: 'rear_wall', code: 'rear_wall', label: 'Hinten+Wand'),
+  CalculatorOption(id: 'under_gutter', code: 'under_gutter', label: 'Unter Rinne'),
+  CalculatorOption(id: 'front_overhang', code: 'front_overhang', label: 'Überstand vorne'),
+  CalculatorOption(id: 'wall_extension', code: 'wall_extension', label: 'Wanderweiterung'),
+];
 final _catalogMediaFutureCache = <String, Future<ApiBinaryResponse>>{};
 
 Future<ApiBinaryResponse> _catalogMediaFuture(
@@ -999,6 +1005,15 @@ class _StepCard extends ConsumerWidget {
       result: result,
       setContentsPreview: setContentsPreview,
       catalogWarnings: calculatorContext.loadedCatalogWarnings,
+      standardColorCodes: (calculatorContext.references['colors'] ?? const [])
+          .map((option) => option.code),
+    )[step.key] ?? const [];
+    final attentionMessages = _calculatorAttentionMessagesByStep(
+      draft: draft,
+      result: result,
+      setContentsPreview: setContentsPreview,
+      selectedTemplate: selectedTemplate,
+      calculatorContext: calculatorContext,
     )[step.key] ?? const [];
     return Card(
       clipBehavior: Clip.antiAlias,
@@ -1019,11 +1034,16 @@ class _StepCard extends ConsumerWidget {
                     style: Theme.of(context).textTheme.titleLarge,
                   ),
                 ),
+                if (attentionMessages.isNotEmpty) ...[
+                  const SizedBox(width: 12),
+                  _AttentionDropdown(messages: attentionMessages),
+                ],
                 if (warningMessages.isNotEmpty) ...[
                   const SizedBox(width: 12),
                   _WarningsDropdown(messages: warningMessages),
-                  const SizedBox(width: 12),
                 ],
+                if (attentionMessages.isNotEmpty || warningMessages.isNotEmpty)
+                  const SizedBox(width: 12),
                 Text('${selectedStep + 1}/${_steps.length}', style: Theme.of(context).textTheme.labelLarge),
               ],
             ),
@@ -1160,6 +1180,8 @@ class _StepCard extends ConsumerWidget {
           mediaRepository: ref.read(resourceRepositoryProvider),
           onChanged: onModelChanged,
           onWallMountedChanged: notifier.setWallMounted,
+          onAddStaticBeamAssemblyChanged: notifier.setAddStaticBeamAssembly,
+          onStaticBeamPositionChanged: notifier.setStaticBeamPositionCode,
         );
       case 'dimensions':
         return _DimensionsStep(
@@ -2866,6 +2888,8 @@ class _ModelStep extends StatelessWidget {
     required this.mediaRepository,
     required this.onChanged,
     required this.onWallMountedChanged,
+    required this.onAddStaticBeamAssemblyChanged,
+    required this.onStaticBeamPositionChanged,
   });
 
   final _RoofModelStepState roofModelState;
@@ -2873,6 +2897,8 @@ class _ModelStep extends StatelessWidget {
   final AdminResourceRepository mediaRepository;
   final ValueChanged<String?> onChanged;
   final ValueChanged<bool> onWallMountedChanged;
+  final ValueChanged<bool> onAddStaticBeamAssemblyChanged;
+  final ValueChanged<String?> onStaticBeamPositionChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -2910,6 +2936,10 @@ class _ModelStep extends StatelessWidget {
         _ModelCalculationParamsCard(
           wallMounted: draft.wallMounted,
           onWallMountedChanged: onWallMountedChanged,
+          addStaticBeamAssembly: draft.addStaticBeamAssembly,
+          staticBeamPositionCode: draft.staticBeamPositionCode,
+          onAddStaticBeamAssemblyChanged: onAddStaticBeamAssemblyChanged,
+          onStaticBeamPositionChanged: onStaticBeamPositionChanged,
         ),
         const SizedBox(height: 20),
         _RoofModelMediaPreview(
@@ -2926,13 +2956,24 @@ class _ModelCalculationParamsCard extends StatelessWidget {
   const _ModelCalculationParamsCard({
     required this.wallMounted,
     required this.onWallMountedChanged,
+    required this.addStaticBeamAssembly,
+    required this.staticBeamPositionCode,
+    required this.onAddStaticBeamAssemblyChanged,
+    required this.onStaticBeamPositionChanged,
   });
 
   final bool wallMounted;
   final ValueChanged<bool> onWallMountedChanged;
+  final bool addStaticBeamAssembly;
+  final String staticBeamPositionCode;
+  final ValueChanged<bool> onAddStaticBeamAssemblyChanged;
+  final ValueChanged<String?> onStaticBeamPositionChanged;
 
   @override
   Widget build(BuildContext context) {
+    final positionOptions = _staticBeamPositionOptions
+        .where((option) => wallMounted || option.code != 'rear_wall')
+        .toList(growable: false);
     return SizedBox(
       width: double.infinity,
       child: Card(
@@ -2944,19 +2985,55 @@ class _ModelCalculationParamsCard extends StatelessWidget {
             children: [
               Text('Calculation parameters', style: Theme.of(context).textTheme.labelLarge),
               const SizedBox(height: 4),
-              Row(
-                mainAxisSize: MainAxisSize.min,
+              Wrap(
+                spacing: 18,
+                runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
-                  Transform.scale(
-                    scale: 0.82,
-                    alignment: Alignment.centerLeft,
-                    child: Switch(
-                      value: wallMounted,
-                      onChanged: onWallMountedChanged,
-                    ),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Transform.scale(
+                        scale: 0.82,
+                        alignment: Alignment.centerLeft,
+                        child: Switch(
+                          value: wallMounted,
+                          onChanged: onWallMountedChanged,
+                        ),
+                      ),
+                      const SizedBox(width: 2),
+                      Text('Wandmontage', style: Theme.of(context).textTheme.bodySmall),
+                    ],
                   ),
-                  const SizedBox(width: 2),
-                  Text('Wandmontage', style: Theme.of(context).textTheme.bodySmall),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Transform.scale(
+                        scale: 0.82,
+                        alignment: Alignment.centerLeft,
+                        child: Switch(
+                          value: addStaticBeamAssembly,
+                          onChanged: onAddStaticBeamAssemblyChanged,
+                        ),
+                      ),
+                      const SizedBox(width: 2),
+                      Text(
+                        'Add Statikträger assembly',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
+                  if (addStaticBeamAssembly)
+                    SizedBox(
+                      width: 310,
+                      child: _DropdownField(
+                        label: 'Mounting type for Statikträger',
+                        value: staticBeamPositionCode,
+                        options: positionOptions,
+                        idSelector: (option) => option.code,
+                        onChanged: onStaticBeamPositionChanged,
+                      ),
+                    ),
                 ],
               ),
             ],
@@ -7464,6 +7541,10 @@ class _ResultPanel extends StatelessWidget {
                         child: _PriceHeader(
                           result: result,
                           draft: draft,
+                          selectedTemplate: calculatorContext.templates
+                              .where((template) => template.id == draft.templateId)
+                              .firstOrNull,
+                          calculatorContext: calculatorContext,
                           calculationNumber: calculationNumber ?? 'new quote',
                           isCalculationSaved: isCalculationSaved,
                           needsRecalculation: needsRecalculation,
@@ -7972,6 +8053,380 @@ class _SaveQuoteModeDialog extends StatelessWidget {
   }
 }
 
+void _addAttentionMessage(
+  Map<String, List<String>> grouped,
+  Iterable<String> stepKeys,
+  String message,
+) {
+  final text = message.trim();
+  if (text.isEmpty) return;
+  for (final stepKey in stepKeys) {
+    final messages = grouped.putIfAbsent(stepKey, () => <String>[]);
+    if (!messages.contains(text)) messages.add(text);
+  }
+}
+
+Map<String, dynamic> _attentionRecord(Object? value) {
+  return value is Map ? Map<String, dynamic>.from(value) : const {};
+}
+
+String _staticBeamPositionLabel(String code) {
+  return _staticBeamPositionOptions
+      .where((option) => option.code == code)
+      .map((option) => option.label)
+      .firstOrNull ?? code;
+}
+
+const _staticBeamAssemblyArticles = {'15187', '15186', '6010', '6122'};
+const _staticBeamAssemblyRoles = {
+  'static_beam',
+  'static_beam_cover',
+  'static_end_cap',
+  'static_end_cap_gasket',
+};
+
+String? _staticBeamAssemblyArticle(Iterable<Object?> values) {
+  for (final value in values) {
+    final normalized = '${value ?? ''}'.trim();
+    for (final article in _staticBeamAssemblyArticles) {
+      if (normalized == article || normalized.startsWith('$article ')) {
+        return article;
+      }
+    }
+  }
+  return null;
+}
+
+String? _staticBeamAssemblyLineArticle(Map<String, dynamic> line) {
+  final source = _attentionRecord(line['source']);
+  return _staticBeamAssemblyArticle([
+    line['profile_no'],
+    line['article_no'],
+    source['profile_no'],
+    source['article_no'],
+  ]);
+}
+
+bool _isStaticBeamAssemblyLine(Map<String, dynamic> line) {
+  final source = _attentionRecord(line['source']);
+  final article = _staticBeamAssemblyLineArticle(line);
+  final role = '${line['role'] ?? source['component_role'] ?? ''}'.trim();
+  return article != null || _staticBeamAssemblyRoles.contains(role);
+}
+
+bool _isManualOrChangedLine(Map<String, dynamic> line) {
+  final source = _attentionRecord(line['source']);
+  if ('${source['source_type'] ?? ''}'.trim().toLowerCase() == 'manual') {
+    return true;
+  }
+  if (source['override_applied'] == true || source['overrideApplied'] == true) {
+    return true;
+  }
+  final segments = line['segments'] is List ? line['segments'] as List : const [];
+  return segments.whereType<Map>().any((raw) {
+    final state = '${raw['override_state'] ?? raw['overrideState'] ?? ''}'
+        .trim()
+        .toLowerCase();
+    return state == 'overridden' || state == 'excluded';
+  });
+}
+
+String _attentionBomLineLabel(Map<String, dynamic> line) {
+  final source = _attentionRecord(line['source']);
+  final article = '${line['article_no'] ?? line['profile_no'] ?? ''}'.trim();
+  final name = '${line['name'] ?? source['component_name'] ?? 'Component'}'.trim();
+  final quantity = _num(line['quantity']);
+  final unit = _formatUnitLabel('${line['unit_code'] ?? 'piece'}');
+  final segments = line['segments'] is List ? line['segments'] as List : const [];
+  final dimensions = segments.whereType<Map>().map((raw) {
+    final segment = Map<String, dynamic>.from(raw);
+    final count = _num(segment['quantity']);
+    final length = _num(segment['length_mm']);
+    return length > 1
+        ? '${_formatLengthNumber(count)} × ${_formatLengthNumber(length)} mm'
+        : null;
+  }).whereType<String>().toSet().join(', ');
+  final state = '${source['source_type'] ?? ''}'.trim().toLowerCase() == 'manual'
+      ? 'manual'
+      : (_isManualOrChangedLine(line) ? 'changed' : null);
+  final identity = [article, name].where((part) => part.isNotEmpty).join(' · ');
+  return '$identity: ${_formatLengthNumber(quantity)} $unit'
+      '${dimensions.isEmpty ? '' : ' ($dimensions)'}'
+      '${state == null ? '' : ' [$state]'}';
+}
+
+List<Map<String, dynamic>> _staticBeamAssemblyLines({
+  CalculatorResult? result,
+  CalculatorSetContentsPreview? preview,
+}) {
+  final sourceLines = <Map<String, dynamic>>[
+    ...(result?.effectiveSetBom ?? preview?.effectiveBom ?? const []),
+    ...(result?.manualBom ?? preview?.manualBom ?? const []),
+    ...(result?.derivedAccessories ?? preview?.derivedAccessories ?? const []),
+  ];
+  final resultLines = <Map<String, dynamic>>[];
+  final seen = <String>{};
+  for (final line in sourceLines.where(_isStaticBeamAssemblyLine)) {
+    final label = _attentionBomLineLabel(line);
+    if (seen.add(label)) resultLines.add(line);
+  }
+  return resultLines;
+}
+
+bool _isStaticBeamAssemblySetContentItem(CalculatorSetContentItem item) {
+  final article = _staticBeamAssemblyArticle({
+    item.articleNo,
+    item.profileNo,
+    item.baseCode,
+    item.variantSku,
+  });
+  final role = '${item.sourceComponent['component_role'] ?? ''}'.trim();
+  return article != null || _staticBeamAssemblyRoles.contains(role);
+}
+
+bool _isManualOrChangedSetContentItem(CalculatorSetContentItem item) {
+  return item.isManual ||
+      item.isDerivedOverride ||
+      !item.enabled ||
+      item.overrideApplied ||
+      item.isOverridden;
+}
+
+String _attentionSetContentItemLabel(CalculatorSetContentItem item) {
+  final article = [
+    item.articleNo,
+    item.profileNo,
+    item.baseCode,
+  ].whereType<String>().map((value) => value.trim()).where((value) => value.isNotEmpty).firstOrNull ?? '';
+  final name = item.name?.trim() ?? 'Component';
+  final identity = [article, name].where((part) => part.isNotEmpty).join(' · ');
+  final length = item.lengthMm != null && item.lengthMm! > 1
+      ? ', ${_formatLengthNumber(item.lengthMm!)} mm'
+      : '';
+  final state = !item.enabled
+      ? 'excluded'
+      : (item.isManual ? 'manual' : 'changed');
+  return '$identity: ${_formatLengthNumber(item.quantity)}'
+      '${item.unitCode == null ? '' : ' ${_formatUnitLabel(item.unitCode!)}'}'
+      '$length [$state]';
+}
+
+List<CalculatorSetContentItem> _staticBeamManualOrChangedSetContentItems(
+  CalculatorDraft draft,
+) {
+  final items = <CalculatorSetContentItem>[];
+  final seen = <String>{};
+  for (final tab in draft.setContents) {
+    for (final item in tab.items) {
+      if (!_isStaticBeamAssemblySetContentItem(item) ||
+          !_isManualOrChangedSetContentItem(item)) {
+        continue;
+      }
+      final label = _attentionSetContentItemLabel(item);
+      if (seen.add(label)) items.add(item);
+    }
+  }
+  return items;
+}
+
+bool _isPaintHandling(String label, {String? itemTypeCode}) {
+  final normalized = '$label ${itemTypeCode ?? ''}'.toLowerCase();
+  return normalized.contains('lack') ||
+      normalized.contains('paint') ||
+      normalized.contains('coating') ||
+      normalized.contains('pulver') ||
+      normalized.contains('farbe') ||
+      normalized.contains('colour');
+}
+
+Map<String, List<String>> _calculatorAttentionMessagesByStep({
+  required CalculatorDraft draft,
+  CalculatorResult? result,
+  CalculatorSetContentsPreview? setContentsPreview,
+  CalculatorTemplateOption? selectedTemplate,
+  CalculatorContext? calculatorContext,
+}) {
+  final grouped = <String, List<String>>{};
+
+  if (draft.addStaticBeamAssembly) {
+    const assemblySteps = ['model', 'set_contents', 'accessory'];
+    final positionLabel = _staticBeamPositionLabel(
+      draft.staticBeamPositionCode,
+    );
+    _addAttentionMessage(
+      grouped,
+      assemblySteps,
+      'Statikträger assembly is enabled. Mounting type: $positionLabel.',
+    );
+
+    final assemblyLines = _staticBeamAssemblyLines(
+      result: result,
+      preview: setContentsPreview,
+    );
+    final profileLines = assemblyLines.where((line) {
+      final article = _staticBeamAssemblyLineArticle(line);
+      return article == '15187' || article == '15186';
+    }).toList(growable: false);
+    final accessoryLines = assemblyLines.where((line) {
+      final article = _staticBeamAssemblyLineArticle(line);
+      return article == '6010' || article == '6122';
+    }).toList(growable: false);
+    if (profileLines.isNotEmpty) {
+      final message = 'Statikträger set components: '
+          '${profileLines.map(_attentionBomLineLabel).join('; ')}.';
+      _addAttentionMessage(grouped, const ['model', 'set_contents'], message);
+    }
+    if (accessoryLines.isNotEmpty) {
+      final message = 'Statikträger accessories: '
+          '${accessoryLines.map(_attentionBomLineLabel).join('; ')}.';
+      _addAttentionMessage(grouped, const ['model', 'accessory'], message);
+    }
+    final changedLines = assemblyLines.where(_isManualOrChangedLine).toList();
+    final changedSetContentItems =
+        _staticBeamManualOrChangedSetContentItems(draft);
+    if (changedLines.isNotEmpty || changedSetContentItems.isNotEmpty) {
+      final labels = <String>{
+        ...changedLines.map(_attentionBomLineLabel),
+        ...changedSetContentItems.map(_attentionSetContentItemLabel),
+      };
+      _addAttentionMessage(
+        grouped,
+        assemblySteps,
+        'Manual or changed Statikträger positions: '
+        '${labels.join('; ')}.',
+      );
+    }
+
+    if (draft.staticBeamPositionCode == 'rear_wall') {
+      final geometry = _attentionRecord(result?.sources['roof_geometry']);
+      final width = _num(
+        geometry['static_beam_overall_width_mm'] ?? draft.widthMm,
+      );
+      if (width > 0) {
+        _addAttentionMessage(
+          grouped,
+          assemblySteps,
+          'Hinten+Wand selected. Blech - ${_formatLengthNumber(width)} mm.',
+        );
+      }
+    }
+  }
+
+  final deltaLines = result?.setDeltaBom ??
+      setContentsPreview?.setDeltaBom ??
+      const <Map<String, dynamic>>[];
+  final priceSwitchLines = deltaLines.where(_isMissingSetPieceAbzugCase).toList();
+  if (priceSwitchLines.isNotEmpty) {
+    final enabled = <String>[];
+    final disabled = <String>[];
+    for (final line in priceSwitchLines) {
+      final article = _bomArticleNo(line);
+      final label = article.isEmpty ? '${line['name'] ?? 'Position'}' : article;
+      (draft.missingSetPieceAbzugArticleNos.contains(article)
+              ? enabled
+              : disabled)
+          .add(label);
+    }
+    if (enabled.isNotEmpty) {
+      _addAttentionMessage(
+        grouped,
+        const ['set_contents'],
+        'Current set delta price inclusion is ON for: ${enabled.toSet().join(', ')}.',
+      );
+    }
+    if (disabled.isNotEmpty) {
+      _addAttentionMessage(
+        grouped,
+        const ['set_contents'],
+        'Current set delta price inclusion is OFF for: ${disabled.toSet().join(', ')}.',
+      );
+    }
+  }
+
+  final defaultMaxGlassWidth = selectedTemplate?.defaultMaxGlassFieldWidthMm;
+  final maxGlassWidth = draft.maxGlassFieldWidthMm;
+  if (defaultMaxGlassWidth != null &&
+      maxGlassWidth != null &&
+      maxGlassWidth != defaultMaxGlassWidth) {
+    _addAttentionMessage(
+      grouped,
+      const ['covering'],
+      'Max glass field width is $maxGlassWidth mm; template default is '
+      '$defaultMaxGlassWidth mm.',
+    );
+  }
+
+  final selectedColor = _normalizeRalCode(draft.colorCode);
+  final standardColors = (calculatorContext?.references['colors'] ?? const [])
+      .map((option) => _normalizeRalCode(option.code))
+      .whereType<String>()
+      .toSet();
+  final isSpecialColor = selectedColor != null &&
+      standardColors.isNotEmpty &&
+      !standardColors.contains(selectedColor);
+  if (isSpecialColor) {
+    final specialColorLine = result?.visibleLines
+        .where((line) => '${line['label'] ?? ''}'.toLowerCase().contains('sonderfarbe'))
+        .firstOrNull;
+    if (specialColorLine != null) {
+      _addAttentionMessage(
+        grouped,
+        const ['color'],
+        'Additional coating service: ${specialColorLine['label']}.',
+      );
+    }
+  }
+
+  final handlingLabels = <String>{};
+  final paintHandlingLabels = <String>{};
+  for (final line in result?.optionBom ?? const <Map<String, dynamic>>[]) {
+    final source = _attentionRecord(line['source']);
+    if ('${source['source_type'] ?? ''}'.trim() != 'additional_handling') {
+      continue;
+    }
+    final label = '${line['name'] ?? line['article_no'] ?? 'Additional handling'}'.trim();
+    handlingLabels.add(label);
+    if (_isPaintHandling(label)) paintHandlingLabels.add(label);
+  }
+  if (handlingLabels.isEmpty && calculatorContext != null) {
+    final itemsById = {
+      for (final item in calculatorContext.optionCatalogItems) item.id: item,
+    };
+    for (final option in draft.options) {
+      for (final handling in option.additionalHandlings) {
+        final item = itemsById[handling.catalogItemId];
+        final label = item == null
+            ? handling.catalogItemId
+            : [item.profileNo, item.baseCode, item.name]
+                .whereType<String>()
+                .where((value) => value.trim().isNotEmpty)
+                .toSet()
+                .join(' · ');
+        handlingLabels.add(label);
+        if (_isPaintHandling(label, itemTypeCode: item?.itemTypeCode)) {
+          paintHandlingLabels.add(label);
+        }
+      }
+    }
+  }
+  if (handlingLabels.isNotEmpty) {
+    _addAttentionMessage(
+      grouped,
+      const ['options'],
+      'Additional processing services: ${handlingLabels.join('; ')}.',
+    );
+  }
+  if (paintHandlingLabels.isNotEmpty) {
+    _addAttentionMessage(
+      grouped,
+      const ['color'],
+      'Additional painting services: ${paintHandlingLabels.join('; ')}.',
+    );
+  }
+
+  return grouped;
+}
+
 void _addWarningMessage(
   Map<String, List<String>> grouped,
   String stepKey,
@@ -8021,11 +8476,28 @@ Map<String, List<String>> _calculatorWarningMessagesByStep({
   CalculatorResult? result,
   CalculatorSetContentsPreview? setContentsPreview,
   Iterable<Map<String, dynamic>> catalogWarnings = const [],
+  Iterable<String> standardColorCodes = const [],
 }) {
   final grouped = <String, List<String>>{};
 
   for (final message in _moduleDimensionWarningMessages(draft)) {
     _addWarningMessage(grouped, 'dimensions', message);
+  }
+
+  final selectedColor = _normalizeRalCode(draft.colorCode);
+  final normalizedStandardColors = standardColorCodes
+      .map(_normalizeRalCode)
+      .whereType<String>()
+      .toSet();
+  if (selectedColor != null &&
+      normalizedStandardColors.isNotEmpty &&
+      !normalizedStandardColors.contains(selectedColor) &&
+      (draft.productionColorCode?.trim().isEmpty ?? true)) {
+    _addWarningMessage(
+      grouped,
+      'color',
+      'Production color code is required for the selected non-standard color.',
+    );
   }
 
   for (final warning in catalogWarnings) {
@@ -8137,6 +8609,8 @@ class _PriceHeader extends StatelessWidget {
   const _PriceHeader({
     required this.result,
     required this.draft,
+    required this.selectedTemplate,
+    required this.calculatorContext,
     required this.calculationNumber,
     required this.isCalculationSaved,
     required this.needsRecalculation,
@@ -8144,6 +8618,8 @@ class _PriceHeader extends StatelessWidget {
 
   final CalculatorResult result;
   final CalculatorDraft draft;
+  final CalculatorTemplateOption? selectedTemplate;
+  final CalculatorContext calculatorContext;
   final String calculationNumber;
   final bool isCalculationSaved;
   final bool needsRecalculation;
@@ -8203,6 +8679,14 @@ class _PriceHeader extends StatelessWidget {
       _calculatorWarningMessagesByStep(
         draft: draft,
         result: result,
+      ),
+    );
+    final attentionMessages = _flattenWarningMessages(
+      _calculatorAttentionMessagesByStep(
+        draft: draft,
+        result: result,
+        selectedTemplate: selectedTemplate,
+        calculatorContext: calculatorContext,
       ),
     );
 
@@ -8287,9 +8771,18 @@ class _PriceHeader extends StatelessWidget {
             style: Theme.of(context).textTheme.labelMedium,
           ),
         ],
-        if (warningMessages.isNotEmpty) ...[
+        if (attentionMessages.isNotEmpty || warningMessages.isNotEmpty) ...[
           const SizedBox(height: 10),
-          _WarningsDropdown(messages: warningMessages),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              if (attentionMessages.isNotEmpty)
+                _AttentionDropdown(messages: attentionMessages),
+              if (warningMessages.isNotEmpty)
+                _WarningsDropdown(messages: warningMessages),
+            ],
+          ),
         ],
       ],
     );
@@ -8297,16 +8790,60 @@ class _PriceHeader extends StatelessWidget {
 }
 
 
+class _AttentionDropdown extends StatelessWidget {
+  const _AttentionDropdown({required this.messages});
+
+  final List<String> messages;
+
+  @override
+  Widget build(BuildContext context) => _MessagesDropdown(
+    messages: messages,
+    attention: true,
+  );
+}
+
 class _WarningsDropdown extends StatelessWidget {
   const _WarningsDropdown({required this.messages});
 
   final List<String> messages;
 
   @override
+  Widget build(BuildContext context) => _MessagesDropdown(
+    messages: messages,
+    attention: false,
+  );
+}
+
+class _MessagesDropdown extends StatelessWidget {
+  const _MessagesDropdown({
+    required this.messages,
+    required this.attention,
+  });
+
+  final List<String> messages;
+  final bool attention;
+
+  @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final icon = attention
+        ? Icons.info_outline_rounded
+        : Icons.warning_amber_rounded;
+    final accentColor = attention
+        ? colorScheme.onSurfaceVariant
+        : colorScheme.error;
+    final foregroundColor = attention
+        ? colorScheme.onSurfaceVariant
+        : colorScheme.onErrorContainer;
+    final backgroundColor = attention
+        ? colorScheme.surfaceContainerHighest.withValues(alpha: 0.72)
+        : colorScheme.errorContainer.withValues(alpha: 0.55);
+    final borderColor = attention
+        ? colorScheme.outline.withValues(alpha: 0.5)
+        : colorScheme.error.withValues(alpha: 0.5);
+
     return PopupMenuButton<void>(
-      tooltip: 'Show warnings',
+      tooltip: attention ? 'Show attention notes' : 'Show warnings',
       position: PopupMenuPosition.under,
       padding: EdgeInsets.zero,
       borderRadius: BorderRadius.circular(8),
@@ -8328,11 +8865,7 @@ class _WarningsDropdown extends StatelessWidget {
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(
-                    Icons.warning_amber_rounded,
-                    size: 18,
-                    color: colorScheme.error,
-                  ),
+                  Icon(icon, size: 18, color: accentColor),
                   const SizedBox(width: 9),
                   Expanded(
                     child: SelectionArea(
@@ -8351,8 +8884,8 @@ class _WarningsDropdown extends StatelessWidget {
       ],
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: colorScheme.errorContainer.withValues(alpha: 0.55),
-          border: Border.all(color: colorScheme.error.withValues(alpha: 0.5)),
+          color: backgroundColor,
+          border: Border.all(color: borderColor),
           borderRadius: BorderRadius.circular(8),
         ),
         child: Padding(
@@ -8360,16 +8893,12 @@ class _WarningsDropdown extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(
-                Icons.warning_amber_rounded,
-                size: 17,
-                color: colorScheme.error,
-              ),
+              Icon(icon, size: 17, color: accentColor),
               const SizedBox(width: 6),
               Text(
-                'Warnings: ${messages.length}',
+                '${attention ? 'Attention' : 'Warnings'}: ${messages.length}',
                 style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                      color: colorScheme.onErrorContainer,
+                      color: foregroundColor,
                       fontWeight: FontWeight.w600,
                     ),
               ),
@@ -8377,7 +8906,7 @@ class _WarningsDropdown extends StatelessWidget {
               Icon(
                 Icons.arrow_drop_down,
                 size: 18,
-                color: colorScheme.onErrorContainer,
+                color: foregroundColor,
               ),
             ],
           ),
