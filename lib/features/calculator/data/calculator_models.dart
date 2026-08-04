@@ -900,6 +900,32 @@ class CalculatorSetContentItem {
   }
 }
 
+class CalculatorMarkiseSelection {
+  const CalculatorMarkiseSelection({
+    required this.moduleIndex,
+    required this.moduleRole,
+    required this.typeCode,
+  });
+
+  factory CalculatorMarkiseSelection.fromJson(Map<String, dynamic> json) {
+    return CalculatorMarkiseSelection(
+      moduleIndex: _intOrNull(json['module_index'] ?? json['moduleIndex']),
+      moduleRole: _string(json['module_role'] ?? json['moduleRole']),
+      typeCode: _string(json['type_code'] ?? json['typeCode']),
+    );
+  }
+
+  final int? moduleIndex;
+  final String moduleRole;
+  final String typeCode;
+
+  Map<String, dynamic> toJson() => {
+        if (moduleIndex != null) 'module_index': moduleIndex,
+        'module_role': moduleRole,
+        'type_code': typeCode,
+      };
+}
+
 class CalculatorDraft {
   const CalculatorDraft({
     this.organizationId,
@@ -915,6 +941,9 @@ class CalculatorDraft {
     this.roofFrontHeightMm,
     this.forceOddBeams = false,
     this.wallMounted = true,
+    this.markiseEnabled = false,
+    this.markiseExcludeFromPrice = false,
+    this.markiseSelections = const [],
     this.addStaticBeamAssembly = false,
     this.staticBeamPositionCode = 'front_overhang',
     this.maxGlassFieldWidthMm,
@@ -939,6 +968,7 @@ class CalculatorDraft {
   }) {
     final dimensions = _map(json['dimensions']);
     final roof = _map(json['roof']);
+    final markise = _map(json['markise']);
     final options = json['options'] is List
         ? (json['options'] as List)
             .whereType<Map>()
@@ -994,6 +1024,14 @@ class CalculatorDraft {
       roofFrontHeightMm: _intOrNull(roof['front_height_mm']),
       forceOddBeams: roof['force_odd_beams'] is bool ? roof['force_odd_beams'] as bool : false,
       wallMounted: wallMounted,
+      markiseEnabled: markise['enabled'] is bool ? markise['enabled'] as bool : false,
+      markiseExcludeFromPrice: markise['exclude_from_price'] is bool
+          ? markise['exclude_from_price'] as bool
+          : false,
+      markiseSelections: _list(markise['segments'])
+          .map(CalculatorMarkiseSelection.fromJson)
+          .where((entry) => entry.moduleRole.isNotEmpty && entry.typeCode.isNotEmpty)
+          .toList(growable: false),
       addStaticBeamAssembly: (roof['add_static_beam_assembly'] ?? roof['addStaticBeamAssembly']) is bool
           ? (roof['add_static_beam_assembly'] ?? roof['addStaticBeamAssembly']) as bool
           : false,
@@ -1032,6 +1070,9 @@ class CalculatorDraft {
   final int? roofFrontHeightMm;
   final bool forceOddBeams;
   final bool wallMounted;
+  final bool markiseEnabled;
+  final bool markiseExcludeFromPrice;
+  final List<CalculatorMarkiseSelection> markiseSelections;
   final bool addStaticBeamAssembly;
   final String staticBeamPositionCode;
   final int? maxGlassFieldWidthMm;
@@ -1072,6 +1113,9 @@ class CalculatorDraft {
     bool clearRoofFrontHeight = false,
     bool? forceOddBeams,
     bool? wallMounted,
+    bool? markiseEnabled,
+    bool? markiseExcludeFromPrice,
+    List<CalculatorMarkiseSelection>? markiseSelections,
     bool? addStaticBeamAssembly,
     String? staticBeamPositionCode,
     int? maxGlassFieldWidthMm,
@@ -1112,6 +1156,10 @@ class CalculatorDraft {
       roofFrontHeightMm: clearRoofFrontHeight ? null : roofFrontHeightMm ?? this.roofFrontHeightMm,
       forceOddBeams: forceOddBeams ?? this.forceOddBeams,
       wallMounted: wallMounted ?? this.wallMounted,
+      markiseEnabled: markiseEnabled ?? this.markiseEnabled,
+      markiseExcludeFromPrice:
+          markiseExcludeFromPrice ?? this.markiseExcludeFromPrice,
+      markiseSelections: markiseSelections ?? this.markiseSelections,
       addStaticBeamAssembly:
           addStaticBeamAssembly ?? this.addStaticBeamAssembly,
       staticBeamPositionCode:
@@ -1186,6 +1234,11 @@ class CalculatorDraft {
         if (heightMm != null) 'height_mm': heightMm,
       },
       if (_roofJson().isNotEmpty) 'roof': _roofJson(),
+      'markise': {
+        'enabled': markiseEnabled,
+        'exclude_from_price': markiseExcludeFromPrice,
+        'segments': markiseSelections.map((entry) => entry.toJson()).toList(),
+      },
       if (coveringCode != null && coveringCode!.isNotEmpty) 'covering_code': coveringCode,
       if (colorCode != null && colorCode!.isNotEmpty) 'color_code': colorCode,
       if (productionColorCode != null && productionColorCode!.trim().isNotEmpty)

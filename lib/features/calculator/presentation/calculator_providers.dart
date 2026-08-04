@@ -136,6 +136,7 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
       clearTemplate: true,
       clearModel: true,
       clearMaxGlassFieldWidth: true,
+      markiseSelections: const [],
       setContents: const [],
       missingSetPieceAbzugArticleNos: const [],
     );
@@ -150,6 +151,7 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
       clearTemplate: nextValue == null,
       clearModel: true,
       clearMaxGlassFieldWidth: true,
+      markiseSelections: const [],
       setContents: const [],
       missingSetPieceAbzugArticleNos: const [],
     );
@@ -168,6 +170,7 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
       state.copyWith(
         modelCode: nextValue,
         clearModel: nextValue == null,
+        markiseSelections: const [],
         setContents: preserveSetContents ? state.setContents : const [],
         missingSetPieceAbzugArticleNos:
             preserveSetContents ? state.missingSetPieceAbzugArticleNos : const [],
@@ -243,6 +246,36 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
             ? 'front_overhang'
             : state.staticBeamPositionCode,
       );
+
+  void setMarkiseEnabled(bool value) => state = state.copyWith(
+        markiseEnabled: value,
+        markiseExcludeFromPrice:
+            value ? state.markiseExcludeFromPrice : false,
+        markiseSelections: value ? state.markiseSelections : const [],
+      );
+
+  void setMarkiseExcludeFromPrice(bool value) => state = state.copyWith(
+        markiseExcludeFromPrice: value,
+      );
+
+  void setMarkiseType({
+    required int moduleIndex,
+    required String moduleRole,
+    required String? typeCode,
+  }) {
+    final normalized = typeCode?.trim() ?? '';
+    final next = [
+      for (final entry in state.markiseSelections)
+        if (entry.moduleIndex != moduleIndex) entry,
+      if (normalized.isNotEmpty)
+        CalculatorMarkiseSelection(
+          moduleIndex: moduleIndex,
+          moduleRole: moduleRole,
+          typeCode: normalized,
+        ),
+    ]..sort((a, b) => (a.moduleIndex ?? 0).compareTo(b.moduleIndex ?? 0));
+    state = state.copyWith(markiseSelections: next);
+  }
 
   void setAddStaticBeamAssembly(bool value) =>
       state = state.copyWith(addStaticBeamAssembly: value);

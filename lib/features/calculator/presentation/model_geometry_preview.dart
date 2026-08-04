@@ -29,11 +29,16 @@ Rect _geometryPreviewSideRect(Size size, double pad) {
   );
 }
 
-String _firstSentence(String value) {
-  final text = value.trim().replaceAll(RegExp(r'\s+'), ' ');
-  if (text.isEmpty) return '';
-  final match = RegExp(r'^.*?[.!?](?:\s|$)').firstMatch(text);
-  return match?.group(0)?.trim() ?? text;
+class GeometryPreviewMarkiseSegment {
+  const GeometryPreviewMarkiseSegment({
+    required this.moduleIndex,
+    required this.typeLabel,
+    required this.quantity,
+  });
+
+  final int moduleIndex;
+  final String typeLabel;
+  final int quantity;
 }
 
 class ModelGeometryPreview extends ConsumerStatefulWidget {
@@ -62,6 +67,7 @@ class ModelGeometryPreview extends ConsumerStatefulWidget {
     this.colorSwatchColor,
     this.isSpecialColor = false,
     this.coveringName,
+    this.markiseSegments = const [],
     this.wallMounted = false,
     this.postCount = 0,
     this.quoteNotes,
@@ -97,6 +103,7 @@ class ModelGeometryPreview extends ConsumerStatefulWidget {
   final Color? colorSwatchColor;
   final bool isSpecialColor;
   final String? coveringName;
+  final List<GeometryPreviewMarkiseSegment> markiseSegments;
   final bool wallMounted;
   final int postCount;
   final String? quoteNotes;
@@ -211,6 +218,7 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
     ColorScheme colorScheme, {
     bool clearHighlight = false,
     double sideInfoBottomReserve = 0.0,
+    bool alignRoofTop = false,
   }) {
     return FutureBuilder<ui.Image?>(
       future: _humanImageFuture,
@@ -240,7 +248,11 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
             calculatedModules: widget.calculatedModules,
             wallMounted: widget.wallMounted,
             postCount: widget.postCount,
+            hasMarkise: widget.markiseSegments.any(
+              (segment) => segment.quantity > 0,
+            ),
             sideInfoBottomReserve: sideInfoBottomReserve,
+            alignRoofTop: alignRoofTop,
           ),
         );
       },
@@ -324,6 +336,7 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
                                   colorCode: widget.colorCode,
                                   isSpecialColor: widget.isSpecialColor,
                                   coveringName: widget.coveringName,
+                                  markiseSegments: widget.markiseSegments,
                                   wallMounted: widget.wallMounted,
                                   calculatedModules: widget.calculatedModules,
                                   postCount: widget.postCount,
@@ -358,6 +371,13 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
                                           );
                                           final hasQr = calculationNumber != null &&
                                               calculationNumber.isNotEmpty;
+                                          final warningText = widget.warnings
+                                              .map((message) => message.trim())
+                                              .where((message) => message.isNotEmpty)
+                                              .toSet()
+                                              .join('\n\n');
+                                          final notesText =
+                                              widget.quoteNotes?.trim() ?? '';
                                           return Stack(
                                             fit: StackFit.expand,
                                             children: [
@@ -366,6 +386,7 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
                                                 clearHighlight: true,
                                                 sideInfoBottomReserve:
                                                     hasQr ? qrSize + 16 : 0.0,
+                                                alignRoofTop: true,
                                               ),
                                               Positioned(
                                                 left: 12,
@@ -413,103 +434,36 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
                                                   ],
                                                 ),
                                               ),
-                                              if (widget.warnings.isNotEmpty ||
-                                                  widget.quoteNotes
-                                                          ?.trim()
-                                                          .isNotEmpty ==
-                                                      true)
+                                              if (warningText.isNotEmpty ||
+                                                  notesText.isNotEmpty)
                                                 Positioned(
                                                   left: 12,
-                                                  right: 12,
-                                                  bottom: 8,
-                                                  child: Column(
-                                                    mainAxisSize:
-                                                        MainAxisSize.min,
+                                                  right: dateRightInset,
+                                                  bottom: 0,
+                                                  child: Row(
                                                     crossAxisAlignment:
-                                                        CrossAxisAlignment.start,
+                                                        CrossAxisAlignment.end,
                                                     children: [
-                                                      if (widget
-                                                          .warnings.isNotEmpty)
-                                                        Container(
-                                                          padding:
-                                                              const EdgeInsets
-                                                                  .symmetric(
-                                                            horizontal: 5,
-                                                            vertical: 3,
-                                                          ),
-                                                          decoration:
-                                                              BoxDecoration(
-                                                            color: colorScheme
-                                                                .surface
-                                                                .withValues(
-                                                                  alpha: 0.86,
-                                                                ),
-                                                            borderRadius:
-                                                                BorderRadius
-                                                                    .circular(4),
-                                                          ),
-                                                          child: Text(
-                                                            widget.warnings
-                                                                .map(
-                                                                  _firstSentence,
-                                                                )
-                                                                .where(
-                                                                  (message) =>
-                                                                      message
-                                                                          .isNotEmpty,
-                                                                )
-                                                                .toSet()
-                                                                .join('\n'),
-                                                            maxLines: 3,
-                                                            overflow:
-                                                                TextOverflow
-                                                                    .ellipsis,
-                                                            style: Theme.of(
-                                                              dialogContext,
-                                                            )
-                                                                .textTheme
-                                                                .labelSmall
-                                                                ?.copyWith(
-                                                                  fontSize: 9,
-                                                                  height: 1.15,
-                                                                  color:
-                                                                      colorScheme
-                                                                          .error,
-                                                                  fontWeight:
-                                                                      FontWeight
-                                                                          .w600,
-                                                                ),
+                                                      if (warningText.isNotEmpty)
+                                                        Expanded(
+                                                          child:
+                                                              _ExpandedPreviewTextBlock(
+                                                            title: 'Warnings',
+                                                            text: warningText,
+                                                            textColor:
+                                                                colorScheme.error,
                                                           ),
                                                         ),
-                                                      if (widget.warnings
-                                                              .isNotEmpty &&
-                                                          widget.quoteNotes
-                                                                  ?.trim()
-                                                                  .isNotEmpty ==
-                                                              true)
-                                                        const SizedBox(height: 4),
-                                                      if (widget.quoteNotes
-                                                              ?.trim()
-                                                              .isNotEmpty ==
-                                                          true)
-                                                        Text(
-                                                          widget.quoteNotes!
-                                                              .trim(),
-                                                          maxLines: 3,
-                                                          overflow: TextOverflow
-                                                              .ellipsis,
-                                                          style: Theme.of(
-                                                            dialogContext,
-                                                          )
-                                                              .textTheme
-                                                              .bodySmall
-                                                              ?.copyWith(
-                                                                color:
-                                                                    Colors.black,
-                                                                fontWeight:
-                                                                    FontWeight
-                                                                        .w500,
-                                                              ),
+                                                      if (warningText.isNotEmpty &&
+                                                          notesText.isNotEmpty)
+                                                        const SizedBox(width: 8),
+                                                      if (notesText.isNotEmpty)
+                                                        Expanded(
+                                                          child:
+                                                              _ExpandedPreviewTextBlock(
+                                                            title: 'Notes',
+                                                            text: notesText,
+                                                          ),
                                                         ),
                                                     ],
                                                   ),
@@ -541,6 +495,7 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
                                       calculatedModules: widget.calculatedModules,
                                       modules: widget.modules,
                                       moduleRoles: widget.moduleRoles,
+                                      markiseSegments: widget.markiseSegments,
                                     ),
                                   ],
                                 ),
@@ -591,6 +546,52 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
   }
 }
 
+class _ExpandedPreviewTextBlock extends StatelessWidget {
+  const _ExpandedPreviewTextBlock({
+    required this.title,
+    required this.text,
+    this.textColor = Colors.black,
+  });
+
+  final String title;
+  final String text;
+  final Color textColor;
+
+  @override
+  Widget build(BuildContext context) {
+    const textShadows = <Shadow>[
+      Shadow(color: Colors.white, blurRadius: 2),
+      Shadow(color: Colors.white, offset: Offset(0, 1), blurRadius: 1),
+    ];
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                fontSize: 9,
+                color: textColor,
+                fontWeight: FontWeight.w700,
+                shadows: textShadows,
+              ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          text,
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                fontSize: 9,
+                height: 1.18,
+                color: textColor,
+                fontWeight: FontWeight.w500,
+                shadows: textShadows,
+              ),
+        ),
+      ],
+    );
+  }
+}
+
 class _ExpandedPreviewInfo extends StatelessWidget {
   const _ExpandedPreviewInfo({
     required this.modelLabel,
@@ -609,6 +610,7 @@ class _ExpandedPreviewInfo extends StatelessWidget {
     required this.colorCode,
     required this.isSpecialColor,
     required this.coveringName,
+    required this.markiseSegments,
     required this.wallMounted,
     required this.calculatedModules,
     required this.postCount,
@@ -632,6 +634,7 @@ class _ExpandedPreviewInfo extends StatelessWidget {
   final String? colorCode;
   final bool isSpecialColor;
   final String? coveringName;
+  final List<GeometryPreviewMarkiseSegment> markiseSegments;
   final bool wallMounted;
   final List<RoofModuleCalculation> calculatedModules;
   final int postCount;
@@ -668,6 +671,10 @@ class _ExpandedPreviewInfo extends StatelessWidget {
       0,
       (sum, module) => sum + module.beamCount,
     );
+    final totalMarkiseCount = markiseSegments.fold<int>(
+      0,
+      (sum, segment) => sum + segment.quantity,
+    );
     final glassName = coveringName?.trim() ?? '';
 
     return Container(
@@ -702,10 +709,14 @@ class _ExpandedPreviewInfo extends StatelessWidget {
                 label: isSpecialColor ? 'Color (Sonderfarbe)' : 'Color',
                 value: colorCode!.trim(),
               ),
-            if (glassName.isNotEmpty || totalGlassCount > 0)
+            if (glassName.isNotEmpty || totalGlassCount > 0 || totalMarkiseCount > 0)
               _PreviewMetadataRow(
                 label: 'Covering',
-                value: 'Glas: ${glassName.isEmpty ? '—' : glassName} · $totalGlassCount stk.',
+                value: [
+                  if (glassName.isNotEmpty || totalGlassCount > 0)
+                    'Glas: ${glassName.isEmpty ? '—' : glassName} · $totalGlassCount stk.',
+                  if (totalMarkiseCount > 0) 'Markise: $totalMarkiseCount stk.',
+                ].join('\n'),
               ),
             _PreviewMetadataRow(
               label: 'Set content',
@@ -723,8 +734,10 @@ class _ExpandedPreviewInfo extends StatelessWidget {
               ),
             _PreviewMetadataRow(
               label: 'Gewicht',
-              value: '${weights.isEmpty ? '—' : '${nonGlassWeight.toStringAsFixed(1)} kg${nonGlassComplete ? '' : '*'}'} / '
+              value: 'Set+Zub.+Zus.: '
+                  '${weights.isEmpty ? '—' : '${nonGlassWeight.toStringAsFixed(1)} kg${nonGlassComplete ? '' : '*'}'}\n'
                   'Glas: ${weightText('glass_kg', 'glass_complete')} / '
+                  'Markise: ${weightText('markise_kg', 'markise_complete')} / '
                   'Gesamt: ${weightText('total_kg', 'total_complete')}',
             ),
             _PreviewMetadataRow(
@@ -747,11 +760,13 @@ class _ExpandedPreviewModules extends StatelessWidget {
     required this.calculatedModules,
     required this.modules,
     required this.moduleRoles,
+    required this.markiseSegments,
   });
 
   final List<RoofModuleCalculation> calculatedModules;
   final List<CalculatorSetContentTab> modules;
   final List<String> moduleRoles;
+  final List<GeometryPreviewMarkiseSegment> markiseSegments;
 
   @override
   Widget build(BuildContext context) {
@@ -771,13 +786,21 @@ class _ExpandedPreviewModules extends StatelessWidget {
             for (var index = 0; index < modules.length; index++)
               Padding(
                 padding: const EdgeInsets.only(bottom: 4),
-                child: Text(
-                  '${index + 1} · ${_moduleLabel(_effectiveModuleRole(modules[index], index, moduleRoles), index + 1)} · '
-                  'T: ${_dimensionValue(modules[index].moduleDepthMm)} mm × '
-                  'B: ${_dimensionValue(modules[index].moduleWidthMm)} mm · '
-                  'Glas: ${calculatedModules.where((entry) => entry.moduleIndex == index + 1).firstOrNull?.glassCount ?? '—'} · '
-                  'Träger: ${calculatedModules.where((entry) => entry.moduleIndex == index + 1).firstOrNull?.beamCount ?? '—'}',
-                  style: theme.textTheme.bodyMedium,
+                child: Builder(
+                  builder: (context) {
+                    final markise = markiseSegments
+                        .where((entry) => entry.moduleIndex == index + 1)
+                        .firstOrNull;
+                    return Text(
+                      '${index + 1} · ${_moduleLabel(_effectiveModuleRole(modules[index], index, moduleRoles), index + 1)} · '
+                      'T: ${_dimensionValue(modules[index].moduleDepthMm)} mm × '
+                      'B: ${_dimensionValue(modules[index].moduleWidthMm)} mm · '
+                      'Glas: ${calculatedModules.where((entry) => entry.moduleIndex == index + 1).firstOrNull?.glassCount ?? '—'} · '
+                      'Träger: ${calculatedModules.where((entry) => entry.moduleIndex == index + 1).firstOrNull?.beamCount ?? '—'}'
+                      '${markise == null ? '' : ' · Markise: ${markise.typeLabel} · ${markise.quantity} stk.'}',
+                      style: theme.textTheme.bodyMedium,
+                    );
+                  },
                 ),
               ),
         ],
@@ -1061,7 +1084,9 @@ Future<Uint8List> renderGeometryOnlyPreviewPng({
     calculatedModules: calculatedModules,
     wallMounted: wallMounted,
     postCount: postCount,
+    hasMarkise: false,
     sideInfoBottomReserve: 0,
+    alignRoofTop: false,
     geometryOnly: true,
   );
   painter.paint(canvas, size);
@@ -1111,7 +1136,9 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     required this.calculatedModules,
     required this.wallMounted,
     required this.postCount,
+    required this.hasMarkise,
     required this.sideInfoBottomReserve,
+    required this.alignRoofTop,
     this.geometryOnly = false,
   });
 
@@ -1138,7 +1165,9 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
   final List<RoofModuleCalculation> calculatedModules;
   final bool wallMounted;
   final int postCount;
+  final bool hasMarkise;
   final double sideInfoBottomReserve;
+  final bool alignRoofTop;
   final bool geometryOnly;
 
   static const double _ddx = 0.52;
@@ -1237,7 +1266,9 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     final availH = size.height - pad - labelBottom;
     final k = _min(availW / contentW, availH / contentH);
     final ox = pad + (availW - contentW * k) / 2 + leftReserveMm * k - minProjectedX * k;
-    final oy = pad - top * k + (availH - contentH * k) / 2;
+    final freeVerticalSpace = _max(0.0, availH - contentH * k);
+    final verticalAlignment = alignRoofTop ? 0.16 : 0.5;
+    final oy = pad - top * k + freeVerticalSpace * verticalAlignment;
 
     Offset s(double xMm, double yMm, double zMm) {
       final projected = projectPlan(xMm, yMm);
@@ -2158,6 +2189,7 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
 
     const heightBlockHeight = 28.0;
     const countsBlockHeight = 28.0;
+    final markiseBlockHeight = hasMarkise ? 26.0 : 0.0;
     final colorBlockHeight = hasColor ? 30.0 + (isSpecialColor ? 24.0 : 0.0) : 0.0;
     final infoHeight = _min(
       240.0,
@@ -2167,11 +2199,16 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
 
     var insetHeight = _min(58, _max(34, infoHeight * 0.24));
     var slopeBlockHeight = hasSlope ? 52.0 : 0.0;
-    final blockCount = 3 + (hasColor ? 1 : 0) + (hasSlope ? 1 : 0);
+    final blockCount = 3 +
+        (hasColor ? 1 : 0) +
+        (hasSlope ? 1 : 0) +
+        (hasMarkise ? 1 : 0);
     final gapCount = blockCount - 1;
     const minimumGap = 3.0;
-    final fixedBlockHeight =
-        heightBlockHeight + colorBlockHeight + countsBlockHeight;
+    final fixedBlockHeight = heightBlockHeight +
+        colorBlockHeight +
+        countsBlockHeight +
+        markiseBlockHeight;
     final availableFlexibleHeight = _max(
       0.0,
       infoHeight - fixedBlockHeight - gapCount * minimumGap,
@@ -2295,6 +2332,10 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
         countsBlockHeight,
       ),
     );
+    blockTop += countsBlockHeight + blockGap;
+    if (hasMarkise) {
+      _drawMarkiseInset(canvas, rect, blockTop);
+    }
   }
 
   double _drawColorInset(Canvas canvas, Rect planRect, double top) {
@@ -2487,6 +2528,42 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
       isBold: true,
       hAlign: 0.5,
     );
+  }
+
+  double _drawMarkiseInset(Canvas canvas, Rect planRect, double top) {
+    const tileHeight = 26.0;
+    final tileWidth = planRect.width + 12;
+    final tileRect = Rect.fromLTWH(
+      planRect.center.dx - tileWidth / 2,
+      top,
+      tileWidth,
+      tileHeight,
+    );
+    final rrect = RRect.fromRectAndRadius(tileRect, const Radius.circular(7));
+
+    canvas.drawRRect(
+      rrect,
+      Paint()
+        ..color = const Color(0xFF2D6F9F)
+        ..style = PaintingStyle.fill,
+    );
+    canvas.drawRRect(
+      rrect,
+      Paint()
+        ..color = Colors.white.withValues(alpha: 0.18)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 0.8,
+    );
+    _drawText(
+      canvas,
+      'Markise',
+      tileRect.center,
+      Colors.white,
+      _sideInfoFontSize,
+      isBold: true,
+      hAlign: 0.5,
+    );
+    return tileRect.bottom;
   }
 
   String _paramText(_GeometryParamBag params, String code, int? fallback) {
@@ -3043,7 +3120,9 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
         oldDelegate.calculatedModules != calculatedModules ||
         oldDelegate.wallMounted != wallMounted ||
         oldDelegate.postCount != postCount ||
+        oldDelegate.hasMarkise != hasMarkise ||
         oldDelegate.sideInfoBottomReserve != sideInfoBottomReserve ||
+        oldDelegate.alignRoofTop != alignRoofTop ||
         oldDelegate.geometryOnly != geometryOnly;
   }
 }
