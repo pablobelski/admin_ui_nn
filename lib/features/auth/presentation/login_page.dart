@@ -51,7 +51,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'Вход в административную панель каталогов, цен, шаблонов и правил.',
+                      'Sign in to the administration workspace for catalogs, prices, templates, and rules.',
                       style: Theme.of(context).textTheme.bodyMedium,
                       textAlign: TextAlign.center,
                     ),
@@ -67,7 +67,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                       ),
                       validator: (value) {
                         if (value == null || value.trim().isEmpty) {
-                          return 'Введите email';
+                          return 'Enter your email address';
                         }
                         return null;
                       },
@@ -90,7 +90,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                       ),
                       validator: (value) {
                         if (value == null || value.isEmpty) {
-                          return 'Введите пароль';
+                          return 'Enter your password';
                         }
                         return null;
                       },

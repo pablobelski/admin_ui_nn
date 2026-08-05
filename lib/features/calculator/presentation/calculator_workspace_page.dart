@@ -1932,41 +1932,41 @@ class _TemplateConstantsCard extends StatelessWidget {
 
     return Card(
       margin: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+      clipBehavior: Clip.antiAlias,
+      child: ExpansionTile(
+        initiallyExpanded: false,
+        leading: Icon(Icons.data_object_outlined, size: 19, color: colorScheme.primary),
+        title: Text('Template calculation parameters', style: Theme.of(context).textTheme.titleSmall),
+        subtitle: Text(
+          'Effective values from the selected template Parameters module.',
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+              ),
+        ),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Row(
-              children: [
-                Icon(Icons.data_object_outlined, size: 19, color: colorScheme.primary),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text('Template constants', style: Theme.of(context).textTheme.titleSmall),
-                ),
-                Text('${entries.length}', style: Theme.of(context).textTheme.labelLarge),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'Effective constants from the selected template Parameters module.',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: colorScheme.onSurfaceVariant,
-                  ),
-            ),
-            const SizedBox(height: 14),
-            if (entries.isEmpty)
-              Text(
-                'No Parameters-module constants are configured for this template.',
-                style: Theme.of(context).textTheme.bodyMedium,
-              )
-            else
-              for (var i = 0; i < entries.length; i++) ...[
-                _TemplateConstantRow(entry: entries[i]),
-                if (i < entries.length - 1) const Divider(height: 18),
-              ],
+            Text('${entries.length}', style: Theme.of(context).textTheme.labelLarge),
+            const SizedBox(width: 6),
+            const Icon(Icons.expand_more),
           ],
         ),
+        childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        children: [
+          if (entries.isEmpty)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'No Parameters-module values are configured for this template.',
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+            )
+          else
+            for (var i = 0; i < entries.length; i++) ...[
+              _TemplateConstantRow(entry: entries[i]),
+              if (i < entries.length - 1) const Divider(height: 18),
+            ],
+        ],
       ),
     );
   }
@@ -2086,48 +2086,88 @@ String _templateConstantValue(Object? value) {
 }
 
 String _templateConstantDescription(String path) {
-  final key = path.split('.').last;
+  final parts = path.split('.');
+  final key = parts.last;
   final normalizedKey = _constantCamelKey(key);
   const descriptions = <String, String>{
-    'beamWidthMm': 'Structural beam width used in roof field and beam-spacing formulas, in millimetres.',
-    'backOffsetMm': 'Rear deduction from the module depth when calculating the effective beam length, in millimetres.',
-    'frontOffsetMm': 'Front deduction from the module depth when calculating the effective beam length, in millimetres.',
-    'glassListFrontAddMm': 'Additional front length applied to glass-list profiles, in millimetres.',
-    'glassFrontAddMm': 'Additional front length applied to calculated glass panels, in millimetres.',
-    'glassOverlapMm': 'Glass overlap included in the calculated glass-field width, in millimetres.',
-    'defaultMaxGlassFieldWidthMm': 'Default maximum permitted glass-field width, in millimetres.',
-    'screwSpacingMm': 'Target spacing between fixing screws, in millimetres.',
-    'profileSplitThresholdMm': 'Profile length above which the profile is split into multiple pieces, in millimetres.',
-    'gutterSplitThresholdMm': 'Gutter length above which the gutter is split into multiple pieces, in millimetres.',
-    'coatingMaxLengthMm': 'Maximum profile length that can be coated in a special colour, in millimetres.',
-    'manualProfileReviewLengthMm': 'Profile length above which the calculation components must be reviewed manually, in millimetres.',
-    'defaultGlassDepthFieldCount': 'Minimum number of glass panels along the roof depth when the single-field beam-length threshold is exceeded.',
-    'glassDepthJointGapMm': 'Gap deducted between glass panels split along the roof depth, in millimetres.',
-    'singleGlassFieldMaxBeamLengthMm': 'Maximum calculated beam length for one glass field along the roof depth, in millimetres.',
-    'coatingMinOrderValue': 'Minimum charge used for the special-colour coating calculation.',
-    'coatingExtraPct': 'Additional percentage applied by the coating calculation.',
-    'postLengthMm': 'Standard stock length used for post quantity calculations, in millimetres.',
-    'pvcPipeLengthMm': 'Standard stock length used for PVC pipe quantity calculations, in millimetres.',
-    'wallSealExtraM': 'Additional wall-seal allowance added to the calculated length, in metres.',
+    'beamWidthMm': 'Visible structural-beam width used to calculate the number and spacing of roof fields, in millimetres.',
+    'backOffsetMm': 'Rear deduction from the entered module depth before the sloped beam length is calculated, in millimetres.',
+    'frontOffsetMm': 'Front deduction from the entered module depth before the sloped beam length is calculated, in millimetres.',
+    'glassListFrontAddMm': 'Length added to the calculated beam length for glass-list and side-glass-list cut lengths, in millimetres.',
+    'glassFrontAddMm': 'Length added to the calculated beam length before a glass panel is divided along the roof depth, in millimetres.',
+    'glassOverlapMm': 'Overlap added to the clear field width when the glass-panel width is calculated, in millimetres.',
+    'defaultMaxGlassFieldWidthMm': 'Fallback maximum glass-panel width used when no covering-specific or manually entered limit is available, in millimetres.',
+    'screwSpacingMm': 'Legacy compatibility value loaded from Parameters. The current roof engine does not use it to derive screw quantities.',
+    'profileSplitThresholdMm': 'Maximum one-piece length for general profiles; longer calculated lengths are divided into the required number of pieces, in millimetres.',
+    'gutterSplitThresholdMm': 'Maximum one-piece length used by gutter-related width profiles before they are divided, in millimetres.',
+    'coatingMaxLengthMm': 'Legacy special-color parameter retained for compatibility. The current roof engine does not consume it directly.',
+    'manualProfileReviewLengthMm': 'Legacy profile-review threshold retained in Parameters. The current roof engine does not consume it directly.',
+    'defaultGlassDepthFieldCount': 'Legacy compatibility value retained in Parameters. The current engine starts with one depth field and increases the count from singleGlassFieldMaxBeamLengthMm.',
+    'glassDepthJointGapMm': 'Clear gap deducted for every joint between glass panels divided along the roof depth, in millimetres.',
+    'singleGlassFieldMaxBeamLengthMm': 'Maximum sloped beam length covered by one glass field along the roof depth, in millimetres.',
+    'coatingMinOrderValue': 'Legacy special-color minimum-order value retained for compatibility. The current roof engine does not consume it directly.',
+    'coatingExtraPct': 'Legacy special-color overhead percentage retained for compatibility. The current roof engine does not consume it directly.',
+    'postLengthMm': 'Fallback standard post length used when a more specific set or catalog length is unavailable, in millimetres.',
+    'pvcPipeLengthMm': 'Calculated length of one PVC downpipe piece, in millimetres.',
+    'wallSealExtraM': 'Extra allowance added to the calculated wall-profile length when the wall-seal quantity is derived, in metres.',
+    'maxPostSpanMm': 'Maximum target distance between front posts used to derive the required post count, in millimetres.',
+    'minRoofAngleDeg': 'Smallest roof angle accepted by the calculation, in degrees.',
+    'maxRoofAngleDeg': 'Largest roof angle accepted by the calculation, in degrees.',
+    'wallGutterBlendeClearanceMm': 'Clearance deducted from the beam step before the glass-panel width is calculated, in millimetres.',
+    'wallGutterBlendePerGlassBay': 'Number of wall/gutter cover pieces calculated for each glass bay.',
+    'beamStockLengthsMm': 'Commercial beam lengths used by the legacy-compatible glass-seal quantity formula, in millimetres.',
+    'manualSetContentArticleNos': 'Catalog articles that may be added manually and whose calculated quantity or length may be overridden in Set Contents.',
+    'sourceWorkbook': 'Workbook from which this parameter set was imported; retained for traceability only.',
+    'sourceSheet': 'Workbook sheet from which the value was imported; retained for traceability only.',
+    'sourceRange': 'Workbook range from which the value was imported; retained for traceability only.',
   };
   final known = descriptions[normalizedKey];
   if (known != null) return known;
 
   if (path.startsWith('componentArticleMap.') || path.startsWith('component_article_map.')) {
-    return 'Catalog article number used for the ${_constantWords(key)} construction component.';
+    return 'Catalog article used for the ${_constantWords(key)} construction component generated by the roof BOM.';
   }
   if (path.startsWith('accessoryArticleMap.') || path.startsWith('accessory_article_map.')) {
-    return 'Catalog article number used for the ${_constantWords(key)} accessory.';
+    return 'Catalog article used for the calculated ${_constantWords(key)} accessory.';
+  }
+  if (path.startsWith('glassMaxFieldWidthByThicknessMm.') ||
+      path.startsWith('glass_max_field_width_by_thickness_mm.')) {
+    return 'Maximum permitted glass-panel width for ${key.trim()} mm glass, in millimetres.';
+  }
+  if (path.startsWith('staticBeamPositionRules.') ||
+      path.startsWith('static_beam_position_rules.')) {
+    final position = parts.length > 1 ? _constantWords(parts[1]) : 'selected mounting position';
+    const fieldDescriptions = <String, String>{
+      'label': 'Display label for this Statikträger mounting position.',
+      'lengthSubtractMm': 'Length deducted from the overall roof width for this Statikträger mounting position, in millimetres.',
+      'endCapCount': 'Number of Statikträger end caps calculated for this mounting position.',
+      'instructionCode': 'Instruction type used to generate additional installation information for this mounting position.',
+      'instructionMediaFilename': 'Original media filename displayed with the installation instruction for this mounting position.',
+    };
+    return '${fieldDescriptions[normalizedKey] ?? 'Calculation setting for this Statikträger mounting position.'} Position: $position.';
   }
   if (path.startsWith('glassCountOffsetsByModel.') || path.startsWith('glass_count_offsets_by_model.')) {
-    final parts = path.split('.');
     final model = parts.length > 1 ? parts[1] : 'selected';
     final role = parts.length > 2 ? parts[2] : 'module';
-    return 'Glass-count adjustment for model $model and module role $role.';
+    return 'Adjustment applied to the calculated number of glass fields for model $model and module role $role.';
   }
-  return 'Template constant used by the selected calculation template.';
+  if (path.startsWith('source_settings.source_cells.') ||
+      path.startsWith('sourceSettings.sourceCells.')) {
+    return 'Original workbook cell used to import ${_constantWords(key)}; retained for traceability only.';
+  }
+  if (path.startsWith('source_settings.') || path.startsWith('sourceSettings.')) {
+    return 'Import-source metadata retained for traceability; it does not change the calculation by itself.';
+  }
+  if (RegExp(r'^beamStockLengthsMm\.\d+$').hasMatch(path) ||
+      RegExp(r'^beam_stock_lengths_mm\.\d+$').hasMatch(path)) {
+    return 'One available beam stock length, in millimetres.';
+  }
+  if (RegExp(r'^manualSetContentArticleNos\.\d+$').hasMatch(path) ||
+      RegExp(r'^manual_set_content_article_nos\.\d+$').hasMatch(path)) {
+    return 'One catalog article allowed for manual insertion and calculated-value override in Set Contents.';
+  }
+  return 'Template parameter used by the selected roof calculation.';
 }
-
 
 String _constantCamelKey(String value) {
   final parts = value.split('_');
@@ -3762,6 +3802,14 @@ class _MarkiseStep extends StatelessWidget {
             ),
           ),
         ),
+        const SizedBox(height: 16),
+        _MarkiseReferenceParametersCard(
+          options: selectableOptions,
+          selectedTypeCodes: draft.markiseSelections
+              .map((entry) => entry.typeCode.trim())
+              .where((code) => code.isNotEmpty)
+              .toSet(),
+        ),
       ],
     );
   }
@@ -3810,6 +3858,208 @@ class _MarkiseParametersCard extends StatelessWidget {
       ),
     );
   }
+}
+
+class _MarkiseReferenceParametersCard extends StatelessWidget {
+  const _MarkiseReferenceParametersCard({
+    required this.options,
+    required this.selectedTypeCodes,
+  });
+
+  final List<CalculatorOption> options;
+  final Set<String> selectedTypeCodes;
+
+  @override
+  Widget build(BuildContext context) {
+    final selected = options
+        .where((option) => selectedTypeCodes.contains(option.code))
+        .toList(growable: false);
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Card(
+      margin: EdgeInsets.zero,
+      clipBehavior: Clip.antiAlias,
+      child: ExpansionTile(
+        initiallyExpanded: false,
+        leading: Icon(Icons.tune_outlined, size: 19, color: colorScheme.primary),
+        title: Text(
+          'Markise calculation parameters',
+          style: Theme.of(context).textTheme.titleSmall,
+        ),
+        subtitle: Text(
+          selected.isEmpty
+              ? 'Select a Markise type to inspect the reference values used by its calculation.'
+              : 'Reference values used for dimensions, splitting, weight and matrix pricing.',
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+              ),
+        ),
+        childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        children: [
+          if (selected.isEmpty)
+            const Align(
+              alignment: Alignment.centerLeft,
+              child: Text('No Markise type is selected.'),
+            )
+          else
+            for (var optionIndex = 0; optionIndex < selected.length; optionIndex++) ...[
+              _MarkiseReferenceParameterGroup(option: selected[optionIndex]),
+              if (optionIndex < selected.length - 1) const Divider(height: 24),
+            ],
+        ],
+      ),
+    );
+  }
+}
+
+class _MarkiseReferenceParameterGroup extends StatelessWidget {
+  const _MarkiseReferenceParameterGroup({required this.option});
+
+  final CalculatorOption option;
+
+  @override
+  Widget build(BuildContext context) {
+    final entries = _markiseReferenceParameterEntries(option);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          '${option.label} (${option.code})',
+          style: Theme.of(context).textTheme.labelLarge,
+        ),
+        const SizedBox(height: 10),
+        for (var index = 0; index < entries.length; index++) ...[
+          _MarkiseReferenceParameterRow(entry: entries[index]),
+          if (index < entries.length - 1) const Divider(height: 18),
+        ],
+      ],
+    );
+  }
+}
+
+class _MarkiseReferenceParameterRow extends StatelessWidget {
+  const _MarkiseReferenceParameterRow({required this.entry});
+
+  final _MarkiseReferenceParameterEntry entry;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 680;
+        final name = SelectableText(
+          entry.key,
+          style: theme.textTheme.bodySmall?.copyWith(
+            fontFamily: 'monospace',
+            fontWeight: FontWeight.w700,
+          ),
+        );
+        final value = SelectableText(
+          entry.value,
+          style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+        );
+        final description = Text(
+          entry.description,
+          style: theme.textTheme.bodySmall?.copyWith(color: colorScheme.onSurfaceVariant),
+        );
+        if (compact) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              name,
+              const SizedBox(height: 4),
+              value,
+              const SizedBox(height: 3),
+              description,
+            ],
+          );
+        }
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(width: 220, child: name),
+            const SizedBox(width: 12),
+            SizedBox(width: 145, child: value),
+            const SizedBox(width: 12),
+            Expanded(child: description),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _MarkiseReferenceParameterEntry {
+  const _MarkiseReferenceParameterEntry({
+    required this.key,
+    required this.value,
+    required this.description,
+  });
+
+  final String key;
+  final String value;
+  final String description;
+}
+
+List<_MarkiseReferenceParameterEntry> _markiseReferenceParameterEntries(
+  CalculatorOption option,
+) {
+  final metadata = _markiseMetadata(option);
+  const visibleKeys = <String>[
+    'mount_type',
+    'mount_position',
+    'zip_enabled',
+    'max_roof_width_mm',
+    'max_width_mm',
+    'max_order_width_mm',
+    'min_depth_mm',
+    'max_depth_mm',
+    'standard_width_deduction_mm',
+    'width_deduction_mm',
+    'depth_deduction_mm',
+    'weight_per_sqm_kg',
+    'average_weight_kg_per_sqm',
+    'average_weight_kg',
+    'weight_formula',
+    'matrix_type_code',
+    'price_product_family_code',
+  ];
+  const descriptions = <String, String>{
+    'mount_type': 'Construction or mounting variant defined by the reference entry.',
+    'mount_position': 'Position in which this Markise model is mounted on the roof structure.',
+    'zip_enabled': 'Indicates whether this Markise model uses ZIP-guided fabric.',
+    'max_roof_width_mm': 'Imported reference limit for the supported roof-segment width, in millimetres. It is shown for verification; the current server calculation uses max_width_mm for splitting.',
+    'max_width_mm': 'Maximum width of one Markise part; a wider segment is divided into multiple parts, in millimetres.',
+    'max_order_width_mm': 'Maximum permissible order width for one produced Markise part, in millimetres.',
+    'min_depth_mm': 'Minimum permissible order depth, in millimetres.',
+    'max_depth_mm': 'Maximum permissible order depth, in millimetres.',
+    'standard_width_deduction_mm': 'Imported baseline deduction retained for reference. The current calculation applies width_deduction_mm directly.',
+    'width_deduction_mm': 'Deduction from each calculated Markise part width to obtain its order width, in millimetres.',
+    'depth_deduction_mm': 'Deduction from the sloped beam length to obtain the Markise order depth, in millimetres.',
+    'weight_per_sqm_kg': 'Weight factor multiplied by the calculated Markise area, in kilograms per square metre.',
+    'average_weight_kg_per_sqm': 'Imported compatibility weight factor, in kilograms per square metre. The current calculation reads weight_per_sqm_kg first.',
+    'average_weight_kg': 'Legacy fallback interpreted by the current calculation as kilograms per square metre when weight_per_sqm_kg is absent.',
+    'weight_formula': 'Reference description of the weight formula used for this Markise model.',
+    'matrix_type_code': 'Price-matrix type used to select the matching width/depth price cell.',
+    'price_product_family_code': 'Pricing product family used to resolve the applicable Markise matrix.',
+  };
+
+  final entries = <_MarkiseReferenceParameterEntry>[];
+  for (final key in visibleKeys) {
+    if (!metadata.containsKey(key) || metadata[key] == null || '${metadata[key]}'.trim().isEmpty) {
+      continue;
+    }
+    entries.add(
+      _MarkiseReferenceParameterEntry(
+        key: key,
+        value: _templateConstantValue(metadata[key]),
+        description: descriptions[key] ?? 'Reference value used by the Markise calculation.',
+      ),
+    );
+  }
+  return entries;
 }
 
 class _MarkiseSegmentCard extends StatelessWidget {
@@ -4409,7 +4659,7 @@ class _ColorStepState extends State<_ColorStep> {
     final customMode = _customRalMode || customSelected;
     final dropdownOptions = [
       ..._standardColorOptions,
-      const CalculatorOption(id: _customRalOptionCode, code: _customRalOptionCode, label: 'Указать свой цвет'),
+      const CalculatorOption(id: _customRalOptionCode, code: _customRalOptionCode, label: 'Specify a custom color'),
     ];
     final dropdownValue = customMode ? _customRalOptionCode : selectedCode;
     final customColor = _colorForCode(selectedCode);
@@ -4420,7 +4670,7 @@ class _ColorStepState extends State<_ColorStep> {
         Text('Frame color', style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 8),
         Text(
-          'Стандартные цвета берутся из reference domain colors. Для нестандартного RAL надбавка рассчитывается по окрашиваемым погонным метрам алюминиевых профилей.',
+          'Standard colors are loaded from the Colors reference domain. For a non-standard RAL color, the surcharge is calculated from the coated linear metres of aluminium profiles.',
           style: Theme.of(context).textTheme.bodyMedium,
         ),
         const SizedBox(height: 20),
@@ -4484,7 +4734,7 @@ class _ColorStepState extends State<_ColorStep> {
                 },
               ),
             _RalColorTile(
-              label: customSelected ? _labelForCode(selectedCode) : 'Указать свой цвет',
+              label: customSelected ? _labelForCode(selectedCode) : 'Specify a custom color',
               color: customSelected ? customColor : null,
               selected: customMode,
               onTap: _selectCustomColor,
@@ -4496,8 +4746,8 @@ class _ColorStepState extends State<_ColorStep> {
           TextField(
             controller: _customRalController,
             decoration: const InputDecoration(
-              labelText: 'Свой RAL код',
-              hintText: 'Например: 3024',
+              labelText: 'Custom RAL code',
+              hintText: 'For example: 3024',
             ),
             keyboardType: TextInputType.number,
             onChanged: (value) {
@@ -4516,7 +4766,7 @@ class _ColorStepState extends State<_ColorStep> {
           ),
           const SizedBox(height: 8),
           Text(
-            'Sonderfarbe рассчитывается отдельно и не получает скидку организации.',
+            'The special-color surcharge is calculated separately and is not affected by the organization discount.',
             style: Theme.of(context).textTheme.bodySmall,
           ),
         ],
@@ -8485,6 +8735,7 @@ class _GeometryPreviewTab extends StatelessWidget {
               isSpecialColor: colorPreview != null && !colorPreview.isStandard,
               coveringName: previewData.coveringName,
               markiseSegments: markiseSegments,
+              staticBeam: previewData.roofCalculation.staticBeam,
               wallMounted: draft.wallMounted,
               postCount: previewData.postCount,
               quoteNotes: draft.externalNotes,

@@ -68,6 +68,7 @@ class ModelGeometryPreview extends ConsumerStatefulWidget {
     this.isSpecialColor = false,
     this.coveringName,
     this.markiseSegments = const [],
+    this.staticBeam,
     this.wallMounted = false,
     this.postCount = 0,
     this.quoteNotes,
@@ -104,6 +105,7 @@ class ModelGeometryPreview extends ConsumerStatefulWidget {
   final bool isSpecialColor;
   final String? coveringName;
   final List<GeometryPreviewMarkiseSegment> markiseSegments;
+  final RoofStaticBeamCalculation? staticBeam;
   final bool wallMounted;
   final int postCount;
   final String? quoteNotes;
@@ -121,11 +123,24 @@ class ModelGeometryPreview extends ConsumerStatefulWidget {
 
 class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
   late Future<ui.Image?> _humanImageFuture;
+  late Future<Uint8List?> _staticBeamInstructionImageFuture;
 
   @override
   void initState() {
     super.initState();
     _humanImageFuture = _loadHumanImage();
+    _staticBeamInstructionImageFuture = _loadStaticBeamInstructionImage();
+  }
+
+  @override
+  void didUpdateWidget(covariant ModelGeometryPreview oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final oldFilename = oldWidget.staticBeam?.instructionMediaFilename?.trim();
+    final newFilename = widget.staticBeam?.instructionMediaFilename?.trim();
+    if (oldFilename != newFilename ||
+        oldWidget.staticBeam?.enabled != widget.staticBeam?.enabled) {
+      _staticBeamInstructionImageFuture = _loadStaticBeamInstructionImage();
+    }
   }
 
   Future<ui.Image?> _loadHumanImage() async {
@@ -137,6 +152,21 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
       final completer = Completer<ui.Image>();
       ui.decodeImageFromList(response.bytes, completer.complete);
       return completer.future;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<Uint8List?> _loadStaticBeamInstructionImage() async {
+    final staticBeam = widget.staticBeam;
+    final filename = staticBeam?.instructionMediaFilename?.trim() ?? '';
+    if (staticBeam?.enabled != true || filename.isEmpty) return null;
+    try {
+      final mediaFile = await widget.mediaRepository.findMediaFileByOriginalFilename(filename);
+      final fileId = mediaFile?['id']?.toString().trim() ?? '';
+      if (fileId.isEmpty) return null;
+      final response = await widget.mediaRepository.viewMediaFile(fileId);
+      return response.bytes;
     } catch (_) {
       return null;
     }
@@ -166,11 +196,11 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
                 Text('Geometry preview', style: theme.textTheme.titleSmall),
                 const Spacer(),
                 IconButton(
-                  tooltip: 'Open printable geometry preview',
+                  tooltip: 'Open enlarged geometry preview',
                   onPressed: hasSelection ? () => _showExpandedPreview(context, currentUser) : null,
                   padding: EdgeInsets.zero,
                   constraints: const BoxConstraints.tightFor(width: 28, height: 28),
-                  icon: const Icon(Icons.print_outlined, size: 18),
+                  icon: const Icon(Icons.open_in_full, size: 18),
                 ),
               ],
             ),
@@ -337,6 +367,7 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
                                   isSpecialColor: widget.isSpecialColor,
                                   coveringName: widget.coveringName,
                                   markiseSegments: widget.markiseSegments,
+                                  staticBeam: widget.staticBeam,
                                   wallMounted: widget.wallMounted,
                                   calculatedModules: widget.calculatedModules,
                                   postCount: widget.postCount,
@@ -371,6 +402,23 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
                                           );
                                           final hasQr = calculationNumber != null &&
                                               calculationNumber.isNotEmpty;
+                                          final instructionFilename = widget
+                                                  .staticBeam
+                                                  ?.instructionMediaFilename
+                                                  ?.trim() ??
+                                              '';
+                                          final hasStaticBeamInstructionImage =
+                                              widget.staticBeam?.enabled == true &&
+                                                  instructionFilename.isNotEmpty;
+                                          final instructionImageHeight = math.min(
+                                            88.0,
+                                            math.max(54.0, sideRect.height * 0.18),
+                                          );
+                                          final sideBottomReserve =
+                                              (hasQr ? qrSize + 16 : 0.0) +
+                                                  (hasStaticBeamInstructionImage
+                                                      ? instructionImageHeight + 14
+                                                      : 0.0);
                                           final warningText = widget.warnings
                                               .map((message) => message.trim())
                                               .where((message) => message.isNotEmpty)
@@ -385,7 +433,7 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
                                                 colorScheme,
                                                 clearHighlight: true,
                                                 sideInfoBottomReserve:
-                                                    hasQr ? qrSize + 16 : 0.0,
+                                                    sideBottomReserve,
                                                 alignRoofTop: true,
                                               ),
                                               Positioned(
@@ -466,6 +514,43 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
                                                           ),
                                                         ),
                                                     ],
+                                                  ),
+                                                ),
+                                              if (hasStaticBeamInstructionImage)
+                                                Positioned(
+                                                  left: sideRect.left + 8,
+                                                  width: sideRect.width - 16,
+                                                  height: instructionImageHeight,
+                                                  bottom: constraints.maxHeight -
+                                                      sideRect.bottom +
+                                                      8 +
+                                                      (hasQr ? qrSize + 10 : 0),
+                                                  child: FutureBuilder<Uint8List?>(
+                                                    future:
+                                                        _staticBeamInstructionImageFuture,
+                                                    builder: (context, snapshot) {
+                                                      final bytes = snapshot.data;
+                                                      if (bytes == null || bytes.isEmpty) {
+                                                        return const SizedBox.shrink();
+                                                      }
+                                                      return Container(
+                                                        padding: const EdgeInsets.all(5),
+                                                        decoration: BoxDecoration(
+                                                          color: Colors.white,
+                                                          borderRadius:
+                                                              BorderRadius.circular(8),
+                                                          border: Border.all(
+                                                            color: colorScheme
+                                                                .outlineVariant,
+                                                          ),
+                                                        ),
+                                                        child: Image.memory(
+                                                          bytes,
+                                                          fit: BoxFit.contain,
+                                                          gaplessPlayback: true,
+                                                        ),
+                                                      );
+                                                    },
                                                   ),
                                                 ),
                                               if (hasQr)
@@ -611,6 +696,7 @@ class _ExpandedPreviewInfo extends StatelessWidget {
     required this.isSpecialColor,
     required this.coveringName,
     required this.markiseSegments,
+    required this.staticBeam,
     required this.wallMounted,
     required this.calculatedModules,
     required this.postCount,
@@ -635,6 +721,7 @@ class _ExpandedPreviewInfo extends StatelessWidget {
   final bool isSpecialColor;
   final String? coveringName;
   final List<GeometryPreviewMarkiseSegment> markiseSegments;
+  final RoofStaticBeamCalculation? staticBeam;
   final bool wallMounted;
   final List<RoofModuleCalculation> calculatedModules;
   final int postCount;
@@ -724,6 +811,11 @@ class _ExpandedPreviewInfo extends StatelessWidget {
             ),
             if (wallMounted)
               const _PreviewMetadataRow(label: 'Montage', value: 'Wandmontage'),
+            if (staticBeam?.enabled == true)
+              _PreviewMetadataRow(
+                label: 'Statikträger mounting',
+                value: _staticBeamDetails(staticBeam!),
+              ),
             if ((deliveryName ?? '').trim().isNotEmpty || completionWeek != null)
               _PreviewMetadataRow(
                 label: 'Delivery',
@@ -835,6 +927,26 @@ class _PreviewMetadataRow extends StatelessWidget {
       ),
     );
   }
+}
+
+String _staticBeamDetails(RoofStaticBeamCalculation value) {
+  final pieceLength = value.pieceLengthMm;
+  final pieceText = pieceLength == null || value.pieceCount <= 0
+      ? null
+      : '${value.pieceCount} pcs. × ${_compactMillimetres(pieceLength)} mm';
+  return [
+    value.positionLabel,
+    if (pieceText != null) pieceText,
+    if (value.totalLengthMm > 0) 'total ${value.totalLengthMm} mm',
+    if (value.endCapCount > 0) 'end caps: ${value.endCapCount}',
+    if ((value.instructionText ?? '').trim().isNotEmpty)
+      value.instructionText!.trim(),
+  ].join(' · ');
+}
+
+String _compactMillimetres(double value) {
+  final rounded = value.round();
+  return (value - rounded).abs() < 0.01 ? '$rounded' : value.toStringAsFixed(1);
 }
 
 String _currentUserLabel(AuthSessionState session) {

@@ -385,7 +385,7 @@ const dashboardResource = AdminResourceDefinition(
   supportsEdit: false,
   columns: [],
   formFields: [],
-  description: 'Обзор доменных модулей configurator и быстрые переходы в справочники.',
+  description: 'Overview of configurator domain modules with quick links to reference data.',
 );
 
 const calculatorWorkspaceResource = AdminResourceDefinition(
@@ -398,7 +398,7 @@ const calculatorWorkspaceResource = AdminResourceDefinition(
       supportsDelete: false,
       columns: [],
       formFields: [],
-      description: 'Внутренний пошаговый конфигуратор и workspace для отладки расчетов.',
+      description: 'Internal step-by-step configurator and workspace for calculation diagnostics.',
     );
 
 const adminNavGroups = <AdminNavGroup>[
@@ -433,7 +433,7 @@ const adminNavGroups = <AdminNavGroup>[
             key: 'setting_code',
             label: 'Setting',
             options: systemSettingCodeOptions,
-            helperText: 'head_organization = головная организация; standard_ral_colors = стандартные RAL; media_storage = MinIO/S3 параметры.',
+            helperText: 'head_organization = head organization; standard_ral_colors = standard RAL colors; media_storage = MinIO/S3 settings.',
           ),
           AdminField(
             key: 'organization_id',
@@ -455,7 +455,7 @@ const adminNavGroups = <AdminNavGroup>[
           AdminField(key: 'notes', label: 'Notes', type: AdminFieldType.longText),
           AdminField(key: 'is_active', label: 'Active', type: AdminFieldType.boolType),
         ],
-        description: 'Системные параметры платформы: головная организация, стандартные RAL-цвета и MinIO media_storage.',
+        description: 'Platform settings: head organization, standard RAL colors, and MinIO media storage.',
       ),
       AdminResourceDefinition(
         key: 'asset_files',
@@ -534,7 +534,7 @@ const adminNavGroups = <AdminNavGroup>[
             icon: Icons.request_quote_outlined,
           ),
         ],
-        description: 'Прайслисты scope_code=sales, из которых калькулятор берет цены для выбранных Options.',
+        description: 'Price lists with scope_code=sales used by the calculator to price selected options.',
       ),
       AdminResourceDefinition(
         key: 'catalog_item_types',
@@ -566,7 +566,7 @@ const adminNavGroups = <AdminNavGroup>[
           AdminField(key: 'metadata_json', label: 'Metadata JSON', type: AdminFieldType.json),
           AdminField(key: 'is_active', label: 'Active', type: AdminFieldType.boolType),
         ],
-        description: 'Типы catalog items. Public-типы доступны как опции калькулятора, internal-типы используются как внутренние доп. работы.',
+        description: 'Catalog item types. Public types are available as calculator options; internal types are used for internal additional work.',
       ),
       AdminResourceDefinition(
         key: 'catalog_item_type_relations',
@@ -593,27 +593,27 @@ const adminNavGroups = <AdminNavGroup>[
             key: 'parent_item_type_id',
             label: 'Public option type',
             lookup: catalogItemTypeLookup,
-            helperText: 'Выбирается тип catalog item с visibility = public: profile, glass, awning и т.п.',
+            helperText: 'Select a catalog item type with visibility = public, such as profile, glass, or awning.',
           ),
           AdminField(
             key: 'child_item_type_id',
             label: 'Internal handling type',
             lookup: catalogItemTypeLookup,
-            helperText: 'Выбирается внутренний тип catalog item с visibility = internal: service или handling.',
+            helperText: 'Select an internal catalog item type with visibility = internal, such as service or handling.',
           ),
           AdminField(key: 'relation_type_code', label: 'Relation', options: additionalHandlingDependencyTypeOptions),
           AdminField(
             key: 'max_quantity',
             label: 'Max quantity',
             type: AdminFieldType.number,
-            helperText: 'Максимальное количество, которое будет записано в quantity_formula_json дочерних catalog_item_relations.',
+            helperText: 'Maximum quantity written to quantity_formula_json for child catalog_item_relations.',
           ),
           AdminField(key: 'quantity_formula_json', label: 'Quantity formula JSON', type: AdminFieldType.json),
           AdminField(key: 'metadata_json', label: 'Metadata JSON', type: AdminFieldType.json),
           AdminField(key: 'sort_order', label: 'Sort order', type: AdminFieldType.number),
           AdminField(key: 'is_active', label: 'Active', type: AdminFieldType.boolType),
         ],
-        description: 'Настройка Additional Handling на уровне типов: public-тип опции -> internal-тип доп. работ. После сохранения сервер создает/обновляет соответствующие catalog_item_relations для всех catalog items этих типов.',
+        description: 'Configure Additional Handling by type: public option type → internal additional-work type. After saving, the server creates or updates the corresponding catalog_item_relations for all catalog items of those types.',
       ),
       AdminResourceDefinition(
         key: 'catalog_item_relations',
@@ -661,7 +661,7 @@ const adminNavGroups = <AdminNavGroup>[
             icon: Icons.inventory_outlined,
           ),
         ],
-        description: 'Родительские/дочерние отношения catalog items для комплектов, узлов, зависимостей и будущего состава изделий.',
+        description: 'Parent/child catalog item relations for sets, assemblies, dependencies, and future product structures.',
       ),
     ],
   ),
@@ -1378,7 +1378,7 @@ const adminNavGroups = <AdminNavGroup>[
           AdminField(key: 'metadata_json', label: 'Metadata JSON', type: AdminFieldType.json),
           AdminField(key: 'is_active', label: 'Active', type: AdminFieldType.boolType),
         ],
-        description: 'Матрицы цен, импортированные из spreadsheet-блоков или подготовленные вручную.',
+        description: 'Price matrices imported from spreadsheet blocks or maintained manually.',
       ),
       AdminResourceDefinition(
         key: 'price_matrix_cells',
@@ -1414,7 +1414,7 @@ const adminNavGroups = <AdminNavGroup>[
           AdminField(key: 'dimensions_json', label: 'Dimensions JSON', type: AdminFieldType.json),
           AdminField(key: 'metadata_json', label: 'Metadata JSON', type: AdminFieldType.json),
         ],
-        description: 'Ячейки матрицы: row / col, размеры, бакеты и итоговая цена.',
+        description: 'Matrix cells: row/column coordinates, dimensions, buckets, and final price.',
       ),
       AdminResourceDefinition(
         key: 'special_prices',
@@ -2154,7 +2154,7 @@ const adminNavGroups = <AdminNavGroup>[
             icon: Icons.apartment_outlined,
           ),
         ],
-        description: 'Зависимости между организациями на базе configurator.organization_relations: B2B-клиенты, партнеры, родительские и дочерние связи.',
+        description: 'Organization dependencies based on configurator.organization_relations: B2B customers, partners, and parent/child relationships.',
       ),
       AdminResourceDefinition(
         key: 'organization_product_access',

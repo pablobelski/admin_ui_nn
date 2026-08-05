@@ -117,8 +117,8 @@ class _PageHeader extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         Text(
-          'Специализированный экран для live-export шаблонов конфигуратора и их модулей. '
-          'Слева — список шаблонов, справа — детали, UI schema, defaults и связанные workbook-модули.',
+          'Dedicated workspace for live-export configurator templates and their modules. '
+          'Templates are listed on the left; details, UI schema, defaults, and linked workbook modules are shown on the right.',
           style: Theme.of(context).textTheme.bodyMedium,
         ),
       ],

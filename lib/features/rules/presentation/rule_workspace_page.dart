@@ -108,7 +108,7 @@ class _PageHeader extends StatelessWidget {
         Text('Rule Sets workspace', style: Theme.of(context).textTheme.headlineMedium),
         const SizedBox(height: 6),
         Text(
-          'Управление версиями правил, матрицами правил и строками key/result из live-imported workbook logic.',
+          'Manage rule versions, rule matrices, and key/result rows imported from live workbook logic.',
           style: Theme.of(context).textTheme.bodyMedium,
         ),
       ],

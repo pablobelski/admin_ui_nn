@@ -100,8 +100,8 @@ class _PageHeader extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         Text(
-          'Специализированный экран для матриц цен и их ячеек. '
-          'Слева — список матриц, справа — детали, ячейки и grid-preview.',
+          'Dedicated workspace for price matrices and their cells. '
+          'Matrices are listed on the left; details, cells, and the grid preview are shown on the right.',
           style: Theme.of(context).textTheme.bodyMedium,
         ),
       ],

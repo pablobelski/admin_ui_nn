@@ -106,8 +106,8 @@ class _PageHeader extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         Text(
-          'Общий экран для справочных доменов и их значений. '
-          'Слева — domains, справа — детали выбранного domain и связанные reference values.',
+          'Workspace for reference domains and their values. '
+          'Domains are listed on the left; the selected domain and its reference values are shown on the right.',
           style: Theme.of(context).textTheme.bodyMedium,
         ),
       ],

@@ -77,18 +77,48 @@ class RoofModuleCalculation {
   final double glassAreaM2;
 }
 
+class RoofStaticBeamCalculation {
+  const RoofStaticBeamCalculation({
+    required this.enabled,
+    required this.positionCode,
+    required this.positionLabel,
+    required this.overallWidthMm,
+    required this.totalLengthMm,
+    required this.pieceCount,
+    required this.pieceLengthMm,
+    required this.endCapCount,
+    this.instructionCode,
+    this.instructionText,
+    this.instructionMediaFilename,
+  });
+
+  final bool enabled;
+  final String positionCode;
+  final String positionLabel;
+  final int overallWidthMm;
+  final int totalLengthMm;
+  final int pieceCount;
+  final double? pieceLengthMm;
+  final int endCapCount;
+  final String? instructionCode;
+  final String? instructionText;
+  final String? instructionMediaFilename;
+}
+
 class RoofGeometryCalculation {
   const RoofGeometryCalculation({
     required this.angleDeg,
     required this.frontHeightMm,
     required this.postCount,
     required this.modules,
+    this.staticBeam,
   });
 
   final int? angleDeg;
   final int? frontHeightMm;
   final int postCount;
   final List<RoofModuleCalculation> modules;
+  final RoofStaticBeamCalculation? staticBeam;
 }
 
 List<String> roofModuleRolesForModel(CalculatorOption? model) {
@@ -162,11 +192,56 @@ RoofGeometryCalculation? roofGeometryCalculationFromSources(
   }
   if (modules.isEmpty) return null;
   modules.sort((a, b) => a.moduleIndex.compareTo(b.moduleIndex));
+  final staticBeamEnabled =
+      geometry['add_static_beam_assembly'] == true || geometry['addStaticBeamAssembly'] == true;
+  final staticBeamPositionCode =
+      '${geometry['static_beam_position_code'] ?? geometry['staticBeamPositionCode'] ?? ''}'.trim();
+  final staticBeamPositionLabel =
+      '${geometry['static_beam_position_label'] ?? geometry['staticBeamPositionLabel'] ?? ''}'.trim();
+  final staticBeam = staticBeamEnabled
+      ? RoofStaticBeamCalculation(
+          enabled: true,
+          positionCode: staticBeamPositionCode,
+          positionLabel: staticBeamPositionLabel.isEmpty
+              ? _staticBeamFallbackLabel(staticBeamPositionCode)
+              : staticBeamPositionLabel,
+          overallWidthMm: _asInt(
+                geometry['static_beam_overall_width_mm'] ?? geometry['staticBeamOverallWidthMm'],
+              ) ??
+              0,
+          totalLengthMm: _asInt(
+                geometry['static_beam_total_length_mm'] ?? geometry['staticBeamTotalLengthMm'],
+              ) ??
+              0,
+          pieceCount: _asInt(
+                geometry['static_beam_piece_count'] ?? geometry['staticBeamPieceCount'],
+              ) ??
+              0,
+          pieceLengthMm: _asDouble(
+            geometry['static_beam_piece_length_mm'] ?? geometry['staticBeamPieceLengthMm'],
+          ),
+          endCapCount: _asInt(
+                geometry['static_beam_end_cap_count'] ?? geometry['staticBeamEndCapCount'],
+              ) ??
+              0,
+          instructionCode: _nullableText(
+            geometry['static_beam_instruction_code'] ?? geometry['staticBeamInstructionCode'],
+          ),
+          instructionText: _nullableText(
+            geometry['static_beam_instruction_text'] ?? geometry['staticBeamInstructionText'],
+          ),
+          instructionMediaFilename: _nullableText(
+            geometry['static_beam_instruction_media_filename'] ??
+                geometry['staticBeamInstructionMediaFilename'],
+          ),
+        )
+      : null;
   return RoofGeometryCalculation(
     angleDeg: _asInt(geometry['angle_deg'] ?? geometry['angleDeg']),
     frontHeightMm: _asInt(geometry['front_height_mm'] ?? geometry['frontHeightMm']),
     postCount: _asInt(geometry['post_count'] ?? geometry['postCount']) ?? 0,
     modules: modules,
+    staticBeam: staticBeam,
   );
 }
 
@@ -264,12 +339,18 @@ RoofGeometryCalculation calculateRoofGeometryForDraft({
   final postCount = totalWidthMm > 0
       ? math.max(3, (totalWidthMm / math.max(1, maxPostSpanMm)).ceil()).toInt()
       : 0;
+  final staticBeam = _staticBeamCalculationForDraft(
+    draft: draft,
+    params: params,
+    overallWidthMm: totalWidthMm,
+  );
   if (angle == null) {
     return RoofGeometryCalculation(
       angleDeg: null,
       frontHeightMm: frontHeight,
       postCount: postCount,
       modules: const [],
+      staticBeam: staticBeam,
     );
   }
 
@@ -344,7 +425,75 @@ RoofGeometryCalculation calculateRoofGeometryForDraft({
     frontHeightMm: frontHeight,
     postCount: postCount,
     modules: calculated,
+    staticBeam: staticBeam,
   );
+}
+
+RoofStaticBeamCalculation? _staticBeamCalculationForDraft({
+  required CalculatorDraft draft,
+  required Map<String, dynamic> params,
+  required int overallWidthMm,
+}) {
+  if (!draft.addStaticBeamAssembly) return null;
+  final requestedCode = draft.staticBeamPositionCode.trim().isEmpty
+      ? 'front_overhang'
+      : draft.staticBeamPositionCode.trim();
+  final positionCode = !draft.wallMounted && requestedCode == 'rear_wall'
+      ? 'front_overhang'
+      : requestedCode;
+  final rawRules = params['staticBeamPositionRules'] ?? params['static_beam_position_rules'];
+  final rules = rawRules is Map ? Map<String, dynamic>.from(rawRules) : const <String, dynamic>{};
+  final rawRule = rules[positionCode];
+  final rule = rawRule is Map ? Map<String, dynamic>.from(rawRule) : const <String, dynamic>{};
+  final lengthSubtractMm = _asDouble(
+        rule['length_subtract_mm'] ?? rule['lengthSubtractMm'],
+      ) ??
+      0;
+  final endCapCount = _asInt(rule['end_cap_count'] ?? rule['endCapCount']) ??
+      (positionCode == 'wall_extension' ? 1 : 2);
+  final totalLengthMm = math.max(0, overallWidthMm - lengthSubtractMm).round();
+  final splitThresholdMm = _number(
+        params,
+        'profileSplitThresholdMm',
+        'profile_split_threshold_mm',
+      ) ??
+      7080;
+  final pieceCount = totalLengthMm <= 0
+      ? 0
+      : (overallWidthMm > splitThresholdMm ? 2 : 1);
+  final instructionCode = _nullableText(
+    rule['instruction_code'] ?? rule['instructionCode'],
+  );
+  final instructionText = instructionCode == 'wall_sheet'
+      ? 'Blech - $overallWidthMm mm'
+      : null;
+  return RoofStaticBeamCalculation(
+    enabled: true,
+    positionCode: positionCode,
+    positionLabel: _nullableText(rule['label']) ?? _staticBeamFallbackLabel(positionCode),
+    overallWidthMm: overallWidthMm,
+    totalLengthMm: totalLengthMm,
+    pieceCount: pieceCount,
+    pieceLengthMm: pieceCount > 0 ? totalLengthMm / pieceCount : null,
+    endCapCount: pieceCount > 0 ? endCapCount : 0,
+    instructionCode: instructionCode,
+    instructionText: instructionText,
+    instructionMediaFilename: pieceCount > 0
+        ? _nullableText(
+            rule['instruction_media_filename'] ?? rule['instructionMediaFilename'],
+          )
+        : null,
+  );
+}
+
+String _staticBeamFallbackLabel(String code) {
+  const labels = <String, String>{
+    'rear_wall': 'Hinten+Wand',
+    'under_gutter': 'Unter der Rinne',
+    'front_overhang': 'Vorne überstehend',
+    'wall_extension': 'Als Wandverlängerung',
+  };
+  return labels[code] ?? code;
 }
 
 int _calculateBeamCount(
@@ -464,6 +613,12 @@ Map<String, dynamic> _mapValue(Object? value) {
     }
   }
   return const {};
+}
+
+
+String? _nullableText(Object? value) {
+  final text = value?.toString().trim() ?? '';
+  return text.isEmpty ? null : text;
 }
 
 double? _asDouble(Object? value) {

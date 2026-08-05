@@ -2296,6 +2296,12 @@ class _SavedQuoteGeometryPreviewTab extends StatelessWidget {
     final moduleRoles = roofCalculation?.modules.isNotEmpty == true
         ? roofCalculation!.modules.map((module) => module.role).toList(growable: false)
         : draft.setContents.map((module) => module.moduleRole).toList(growable: false);
+    final markiseSegments = _savedQuoteMarkiseSegments(
+      resultSources: resultSources,
+      draft: draft,
+      contextData: contextData,
+    );
+    final warnings = _savedQuoteWarningMessages(resultJson);
 
     return ListView(
       children: [
@@ -2335,13 +2341,18 @@ class _SavedQuoteGeometryPreviewTab extends StatelessWidget {
             completionWeek: draft.completionWeek,
             colorCode: colorPreview?.displayCode,
             colorSwatchColor: colorPreview?.color,
+            isSpecialColor: colorPreview != null && !colorPreview.isStandard,
             coveringName: coveringName,
+            markiseSegments: markiseSegments,
+            staticBeam: roofCalculation?.staticBeam,
             wallMounted: draft.wallMounted,
             postCount: roofCalculation?.postCount ?? 0,
+            quoteNotes: externalNotes ?? draft.externalNotes,
+            warnings: warnings,
             roofAngleDeg: roofCalculation?.angleDeg ?? slope.angleDeg,
             rearHeightMm: slope.rearHeightMm,
             frontHeightMm: roofCalculation?.frontHeightMm ?? slope.frontHeightMm,
-            showRoofType: false,
+            showRoofType: true,
           ),
       ],
     );
@@ -2349,13 +2360,77 @@ class _SavedQuoteGeometryPreviewTab extends StatelessWidget {
 }
 
 
+List<GeometryPreviewMarkiseSegment> _savedQuoteMarkiseSegments({
+  required Map<String, dynamic> resultSources,
+  required CalculatorDraft draft,
+  required CalculatorContext? contextData,
+}) {
+  if (!draft.markiseEnabled) return const [];
+  final raw = resultSources['markise'];
+  final rows = raw is List
+      ? raw.whereType<Map>().map((entry) => Map<String, dynamic>.from(entry)).toList()
+      : const <Map<String, dynamic>>[];
+  final result = <GeometryPreviewMarkiseSegment>[];
+  for (final row in rows) {
+    final moduleIndex = _intFromFlexible(row['module_index'] ?? row['moduleIndex']);
+    final quantity = _intFromFlexible(row['quantity']) ?? 0;
+    if (moduleIndex == null || quantity <= 0) continue;
+    final code = '${row['type_code'] ?? row['typeCode'] ?? ''}'.trim();
+    final label = '${row['type_label'] ?? row['typeLabel'] ?? ''}'.trim();
+    result.add(
+      GeometryPreviewMarkiseSegment(
+        moduleIndex: moduleIndex,
+        typeLabel: label.isNotEmpty
+            ? label
+            : (_quoteReferenceLabelFor(contextData, 'awning_models', code) ?? code),
+        quantity: quantity,
+      ),
+    );
+  }
+  if (result.isNotEmpty) return result;
+
+  for (final selection in draft.markiseSelections) {
+    final moduleIndex = selection.moduleIndex;
+    if (moduleIndex == null || selection.typeCode.trim().isEmpty) continue;
+    result.add(
+      GeometryPreviewMarkiseSegment(
+        moduleIndex: moduleIndex,
+        typeLabel: _quoteReferenceLabelFor(
+              contextData,
+              'awning_models',
+              selection.typeCode,
+            ) ??
+            selection.typeCode,
+        quantity: 1,
+      ),
+    );
+  }
+  return result;
+}
+
+List<String> _savedQuoteWarningMessages(Map<String, dynamic> resultJson) {
+  final raw = resultJson['warnings'];
+  if (raw is! List) return const [];
+  return raw
+      .map((entry) {
+        if (entry is Map) {
+          return '${entry['message'] ?? entry['code'] ?? ''}'.trim();
+        }
+        return '$entry'.trim();
+      })
+      .where((entry) => entry.isNotEmpty)
+      .toSet()
+      .toList(growable: false);
+}
+
 String? _quoteReferenceLabelFor(
-  CalculatorContext contextData,
+  CalculatorContext? contextData,
   String domain,
   String? rawCode,
 ) {
   final code = rawCode?.trim();
   if (code == null || code.isEmpty) return null;
+  if (contextData == null) return code;
   for (final option in contextData.references[domain] ?? const <CalculatorOption>[]) {
     if (option.code == code || option.id == code) return option.label;
   }
@@ -2504,10 +2579,12 @@ class _QuoteColorPreviewData {
   const _QuoteColorPreviewData({
     required this.displayCode,
     required this.color,
+    required this.isStandard,
   });
 
   final String displayCode;
   final Color? color;
+  final bool isStandard;
 }
 
 
@@ -3348,6 +3425,7 @@ _QuoteColorPreviewData? _quoteColorPreviewDataFor(
   return _QuoteColorPreviewData(
     displayCode: RegExp(r'^\d{4}$').hasMatch(code) ? 'RAL $code' : code,
     color: _colorFromHex(colorHex),
+    isStandard: match != null,
   );
 }
 
@@ -3357,6 +3435,7 @@ _QuoteColorPreviewData? _fallbackQuoteColorPreviewData(String? rawCode) {
   return _QuoteColorPreviewData(
     displayCode: RegExp(r'^\d{4}$').hasMatch(code) ? 'RAL $code' : code,
     color: null,
+    isStandard: false,
   );
 }
 
@@ -3559,6 +3638,13 @@ num? _numFromRaw(Object? value) {
 
     return num.tryParse(normalized);
   }
+  return null;
+}
+
+int? _intFromFlexible(Object? value) {
+  if (value is int) return value;
+  if (value is num) return value.round();
+  if (value is String) return int.tryParse(value.trim());
   return null;
 }
 
