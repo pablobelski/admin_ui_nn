@@ -60,6 +60,8 @@ class RoofModuleCalculation {
     required this.glassWidthMm,
     required this.glassLengthMm,
     required this.glassAreaM2,
+    this.coveringCode,
+    this.maxGlassFieldWidthMm,
   });
 
   final int moduleIndex;
@@ -75,6 +77,8 @@ class RoofModuleCalculation {
   final int glassWidthMm;
   final int glassLengthMm;
   final double glassAreaM2;
+  final String? coveringCode;
+  final int? maxGlassFieldWidthMm;
 }
 
 class RoofStaticBeamCalculation {
@@ -158,6 +162,16 @@ RoofGeometryCalculation? roofGeometryCalculationFromSources(
     final glassWidthMm = _asInt(module['glass_width_mm'] ?? module['glassWidthMm']);
     final glassLengthMm = _asInt(module['glass_length_mm'] ?? module['glassLengthMm']);
     final glassAreaM2 = _asDouble(module['glass_area_m2'] ?? module['glassAreaM2']);
+    final coveringCode = _nullableText(
+      module['glass_type_code'] ??
+          module['covering_code'] ??
+          module['glassTypeCode'] ??
+          module['coveringCode'],
+    );
+    final maxGlassFieldWidthMm = _asInt(
+      module['max_glass_field_width_mm'] ??
+          module['maxGlassFieldWidthMm'],
+    );
     if (moduleIndex == null ||
         role.isEmpty ||
         widthMm == null ||
@@ -187,6 +201,8 @@ RoofGeometryCalculation? roofGeometryCalculationFromSources(
         glassWidthMm: glassWidthMm,
         glassLengthMm: glassLengthMm,
         glassAreaM2: glassAreaM2,
+        coveringCode: coveringCode,
+        maxGlassFieldWidthMm: maxGlassFieldWidthMm,
       ),
     );
   }
@@ -358,11 +374,6 @@ RoofGeometryCalculation calculateRoofGeometryForDraft({
   final modelMetadata = _optionMetadata(model);
   final offsets = _glassOffsets(params, modelCode, modelMetadata);
   final beamCountOffsets = _beamCountOffsets(modelCode, modelMetadata);
-  final coveringMaxGlassWidth = template?.maxGlassFieldWidthFor(draft.coveringCode) ?? defaultMaxGlassWidth;
-  final maxGlassWidth = math.min(
-    draft.maxGlassFieldWidthMm ?? defaultMaxGlassWidth,
-    coveringMaxGlassWidth,
-  ).toInt();
   final calculated = <RoofModuleCalculation>[];
 
   for (var index = 0; index < orderedTabs.length; index++) {
@@ -373,6 +384,15 @@ RoofGeometryCalculation calculateRoofGeometryForDraft({
     final width = tab.moduleWidthMm;
     final depth = tab.moduleDepthMm;
     if (width == null || depth == null || width <= 0 || depth <= 0) continue;
+    final coveringCode = tab.moduleCoveringCode ?? draft.coveringCode;
+    final coveringMaxGlassWidth =
+        template?.maxGlassFieldWidthFor(coveringCode) ?? defaultMaxGlassWidth;
+    final maxGlassWidth = math.min(
+      tab.moduleMaxGlassFieldWidthMm ??
+          draft.maxGlassFieldWidthMm ??
+          defaultMaxGlassWidth,
+      coveringMaxGlassWidth,
+    ).toInt();
     final longLeg = depth - backOffset - frontOffset;
     if (longLeg <= 0) continue;
     final glassCountOffset = offsets[role] ?? -1;
@@ -416,6 +436,8 @@ RoofGeometryCalculation calculateRoofGeometryForDraft({
         glassWidthMm: glassWidth,
         glassLengthMm: glassLength,
         glassAreaM2: glassArea,
+        coveringCode: coveringCode,
+        maxGlassFieldWidthMm: maxGlassWidth,
       ),
     );
   }

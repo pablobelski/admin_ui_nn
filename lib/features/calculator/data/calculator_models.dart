@@ -301,6 +301,67 @@ class CalculatorTemplateOption {
 
   bool get hasCompleteRoofParameters => parametersModuleId != null && roofParameterMissingKeys.isEmpty && roofParameters.isNotEmpty;
 
+  int? get defaultHeightMm => _intOrNull(
+        defaultValues['default_height'] ?? defaultValues['defaultHeight'],
+      );
+
+  String get statiktragerLengthCalculationDefaultMethod {
+    final moduleParameters = _map(
+      parametersModuleData['tds_glass_params'] ??
+          parametersModuleData['tdsGlassParams'],
+    );
+    final value = _string(
+      roofParameters['statiktragerLengthCalculationDefaultMethod'] ??
+          roofParameters['statiktrager_length_calculation_default_method'] ??
+          moduleParameters['statiktragerLengthCalculationDefaultMethod'] ??
+          moduleParameters['statiktrager_length_calculation_default_method'] ??
+          roofParameters['statiktragerLengthCalculationMethod'] ??
+          roofParameters['statiktrager_length_calculation_method'] ??
+          moduleParameters['statiktragerLengthCalculationMethod'] ??
+          moduleParameters['statiktrager_length_calculation_method'],
+    );
+    return const {'legacy_rounded', 'shortest_sku', 'installed_length'}.contains(value)
+        ? value
+        : 'legacy_rounded';
+  }
+
+  List<CalculatorOption> get statiktragerLengthCalculationMethods {
+    final moduleParameters = _map(
+      parametersModuleData['tds_glass_params'] ??
+          parametersModuleData['tdsGlassParams'],
+    );
+    final raw = roofParameters['statiktragerLengthCalculationMethods'] ??
+        roofParameters['statiktrager_length_calculation_methods'] ??
+        moduleParameters['statiktragerLengthCalculationMethods'] ??
+        moduleParameters['statiktrager_length_calculation_methods'];
+    final configured = _list(raw)
+        .map(CalculatorOption.fromJson)
+        .where((entry) => const {
+              'legacy_rounded',
+              'shortest_sku',
+              'installed_length',
+            }.contains(entry.code))
+        .toList(growable: false);
+    if (configured.isNotEmpty) return configured;
+    return const [
+      CalculatorOption(
+        id: 'legacy_rounded',
+        code: 'legacy_rounded',
+        label: 'Legacy rounding (1000 mm / x100 + 100 mm)',
+      ),
+      CalculatorOption(
+        id: 'shortest_sku',
+        code: 'shortest_sku',
+        label: 'Shortest suitable SKU',
+      ),
+      CalculatorOption(
+        id: 'installed_length',
+        code: 'installed_length',
+        label: 'Installed calculated length',
+      ),
+    ];
+  }
+
   List<String> get manualSetContentArticleNos {
     final moduleParameters = _map(
       parametersModuleData['tds_glass_params'] ??
@@ -674,10 +735,15 @@ class CalculatorSetContentTab {
   }
 
   int? geometryInt(String key) => _intOrNull(geometryKey[key]);
+  String? geometryString(String key) => _nullableString(geometryKey[key]);
 
   String get moduleRole => _nullableString(geometryKey['role']) ?? '';
   int? get moduleWidthMm => geometryInt('width_mm');
   int? get moduleDepthMm => geometryInt('depth_mm');
+  String? get moduleCoveringCode =>
+      geometryString('glass_type_code') ?? geometryString('covering_code');
+  int? get moduleMaxGlassFieldWidthMm =>
+      geometryInt('max_glass_field_width_mm');
 
   // Backward-compatible getters kept for Set contents and older saved quotes.
   int? get blockWidthMm => moduleWidthMm;
@@ -703,6 +769,17 @@ class CalculatorSetContentTab {
     return copyWith(geometryKey: nextGeometry);
   }
 
+
+  CalculatorSetContentTab withGeometryText(String key, String? value) {
+    final nextGeometry = <String, dynamic>{...geometryKey};
+    final normalized = value?.trim() ?? '';
+    if (normalized.isEmpty) {
+      nextGeometry.remove(key);
+    } else {
+      nextGeometry[key] = normalized;
+    }
+    return copyWith(geometryKey: nextGeometry);
+  }
 
   CalculatorSetContentTab withGeometryRole(String role) {
     final normalizedRole = role.trim();
@@ -941,11 +1018,13 @@ class CalculatorDraft {
     this.roofFrontHeightMm,
     this.forceOddBeams = false,
     this.wallMounted = true,
+    this.coveringEnabled = true,
     this.markiseEnabled = false,
     this.markiseExcludeFromPrice = false,
     this.markiseSelections = const [],
     this.addStaticBeamAssembly = false,
     this.staticBeamPositionCode = 'front_overhang',
+    this.staticBeamLengthCalculationMethod = 'legacy_rounded',
     this.maxGlassFieldWidthMm,
     this.coveringCode,
     this.colorCode,
@@ -989,7 +1068,41 @@ class CalculatorDraft {
       resultSetContents,
     );
     final roofModules = _list(roof['modules']);
-    final setContents = _restoreRoofModuleGeometry(savedSetContents, roofModules);
+    final restoredSetContents = _restoreRoofModuleGeometry(
+      savedSetContents,
+      roofModules,
+    );
+    final coveringEnabledValue =
+        roof['add_covering'] ?? roof['addCovering'];
+    final coveringEnabled = coveringEnabledValue is bool
+        ? coveringEnabledValue
+        : true;
+    final legacyCoveringCode = _nullableString(json['covering_code']);
+    final legacyMaxGlassFieldWidth = _intOrNull(
+      roof['max_glass_field_width_mm'],
+    );
+    final setContents = [
+      for (final tab in restoredSetContents)
+        tab
+            .withGeometryText(
+              'covering_code',
+              coveringEnabled
+                  ? tab.moduleCoveringCode ?? legacyCoveringCode
+                  : null,
+            )
+            .withGeometryText(
+              'glass_type_code',
+              coveringEnabled
+                  ? tab.moduleCoveringCode ?? legacyCoveringCode
+                  : null,
+            )
+            .withGeometryValue(
+              'max_glass_field_width_mm',
+              coveringEnabled
+                  ? tab.moduleMaxGlassFieldWidthMm ?? legacyMaxGlassFieldWidth
+                  : null,
+            ),
+    ];
     final wallMounted = roof['wall_mounted'] is bool
         ? roof['wall_mounted'] as bool
         : true;
@@ -1024,6 +1137,7 @@ class CalculatorDraft {
       roofFrontHeightMm: _intOrNull(roof['front_height_mm']),
       forceOddBeams: roof['force_odd_beams'] is bool ? roof['force_odd_beams'] as bool : false,
       wallMounted: wallMounted,
+      coveringEnabled: coveringEnabled,
       markiseEnabled: markise['enabled'] is bool ? markise['enabled'] as bool : false,
       markiseExcludeFromPrice: markise['exclude_from_price'] is bool
           ? markise['exclude_from_price'] as bool
@@ -1036,8 +1150,16 @@ class CalculatorDraft {
           ? (roof['add_static_beam_assembly'] ?? roof['addStaticBeamAssembly']) as bool
           : false,
       staticBeamPositionCode: staticBeamPositionCode,
-      maxGlassFieldWidthMm: _intOrNull(roof['max_glass_field_width_mm']),
-      coveringCode: _nullableString(json['covering_code']),
+      staticBeamLengthCalculationMethod: _staticBeamLengthCalculationMethod(
+        roof['static_beam_length_calculation_method'] ??
+            roof['staticBeamLengthCalculationMethod'],
+      ),
+      maxGlassFieldWidthMm: coveringEnabled
+          ? _intOrNull(roof['max_glass_field_width_mm'])
+          : null,
+      coveringCode: coveringEnabled
+          ? _nullableString(json['covering_code'])
+          : null,
       colorCode: _nullableString(json['color_code']),
       productionColorCode: _nullableString(
         json['production_color_code'] ?? json['productionColorCode'],
@@ -1070,11 +1192,13 @@ class CalculatorDraft {
   final int? roofFrontHeightMm;
   final bool forceOddBeams;
   final bool wallMounted;
+  final bool coveringEnabled;
   final bool markiseEnabled;
   final bool markiseExcludeFromPrice;
   final List<CalculatorMarkiseSelection> markiseSelections;
   final bool addStaticBeamAssembly;
   final String staticBeamPositionCode;
+  final String staticBeamLengthCalculationMethod;
   final int? maxGlassFieldWidthMm;
   final String? coveringCode;
   final String? colorCode;
@@ -1113,11 +1237,13 @@ class CalculatorDraft {
     bool clearRoofFrontHeight = false,
     bool? forceOddBeams,
     bool? wallMounted,
+    bool? coveringEnabled,
     bool? markiseEnabled,
     bool? markiseExcludeFromPrice,
     List<CalculatorMarkiseSelection>? markiseSelections,
     bool? addStaticBeamAssembly,
     String? staticBeamPositionCode,
+    String? staticBeamLengthCalculationMethod,
     int? maxGlassFieldWidthMm,
     bool clearMaxGlassFieldWidth = false,
     String? coveringCode,
@@ -1156,6 +1282,7 @@ class CalculatorDraft {
       roofFrontHeightMm: clearRoofFrontHeight ? null : roofFrontHeightMm ?? this.roofFrontHeightMm,
       forceOddBeams: forceOddBeams ?? this.forceOddBeams,
       wallMounted: wallMounted ?? this.wallMounted,
+      coveringEnabled: coveringEnabled ?? this.coveringEnabled,
       markiseEnabled: markiseEnabled ?? this.markiseEnabled,
       markiseExcludeFromPrice:
           markiseExcludeFromPrice ?? this.markiseExcludeFromPrice,
@@ -1164,6 +1291,8 @@ class CalculatorDraft {
           addStaticBeamAssembly ?? this.addStaticBeamAssembly,
       staticBeamPositionCode:
           staticBeamPositionCode ?? this.staticBeamPositionCode,
+      staticBeamLengthCalculationMethod: staticBeamLengthCalculationMethod ??
+          this.staticBeamLengthCalculationMethod,
       maxGlassFieldWidthMm: clearMaxGlassFieldWidth ? null : maxGlassFieldWidthMm ?? this.maxGlassFieldWidthMm,
       coveringCode: clearCovering ? null : coveringCode ?? this.coveringCode,
       colorCode: clearColor ? null : colorCode ?? this.colorCode,
@@ -1183,6 +1312,21 @@ class CalculatorDraft {
   }
 
 
+  String? get _commonCoveringCode {
+    if (!coveringEnabled) return null;
+    final codes = setContents
+        .map((tab) => tab.moduleCoveringCode)
+        .whereType<String>()
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .toSet();
+    if (codes.length == 1) return codes.first;
+    if (codes.isEmpty && (coveringCode ?? '').trim().isNotEmpty) {
+      return coveringCode!.trim();
+    }
+    return null;
+  }
+
   Map<String, dynamic> _roofJson() {
     final moduleJson = <Map<String, dynamic>>[];
     for (final tab in setContents) {
@@ -1194,10 +1338,15 @@ class CalculatorDraft {
         'role': role.isEmpty ? 'main' : role,
         if (width != null) 'width_mm': width,
         if (depth != null) 'depth_mm': depth,
-        if (coveringCode != null && coveringCode!.isNotEmpty) ...{
-          'covering_code': coveringCode,
-          'glass_type_code': coveringCode,
+        if (coveringEnabled &&
+            (tab.moduleCoveringCode ?? coveringCode)?.isNotEmpty == true) ...{
+          'covering_code': tab.moduleCoveringCode ?? coveringCode,
+          'glass_type_code': tab.moduleCoveringCode ?? coveringCode,
         },
+        if (coveringEnabled &&
+            (tab.moduleMaxGlassFieldWidthMm ?? maxGlassFieldWidthMm) != null)
+          'max_glass_field_width_mm':
+              tab.moduleMaxGlassFieldWidthMm ?? maxGlassFieldWidthMm,
       });
     }
 
@@ -1215,9 +1364,13 @@ class CalculatorDraft {
       if (roofFrontHeightMm != null) 'front_height_mm': roofFrontHeightMm,
       'force_odd_beams': forceOddBeams,
       'wall_mounted': wallMounted,
+      'add_covering': coveringEnabled,
       'add_static_beam_assembly': addStaticBeamAssembly,
       'static_beam_position_code': staticBeamPositionCode,
-      if (maxGlassFieldWidthMm != null) 'max_glass_field_width_mm': maxGlassFieldWidthMm,
+      'static_beam_length_calculation_method':
+          staticBeamLengthCalculationMethod,
+      if (coveringEnabled && maxGlassFieldWidthMm != null)
+        'max_glass_field_width_mm': maxGlassFieldWidthMm,
       if (moduleJson.isNotEmpty) 'modules': moduleJson,
     };
   }
@@ -1239,7 +1392,7 @@ class CalculatorDraft {
         'exclude_from_price': markiseExcludeFromPrice,
         'segments': markiseSelections.map((entry) => entry.toJson()).toList(),
       },
-      if (coveringCode != null && coveringCode!.isNotEmpty) 'covering_code': coveringCode,
+      if (_commonCoveringCode != null) 'covering_code': _commonCoveringCode,
       if (colorCode != null && colorCode!.isNotEmpty) 'color_code': colorCode,
       if (productionColorCode != null && productionColorCode!.trim().isNotEmpty)
         'production_color_code': productionColorCode!.trim(),
@@ -1652,11 +1805,31 @@ Map<String, dynamic> _roofModuleGeometry(Map<String, dynamic> module) {
   final role = _nullableString(module['role']);
   final width = _intOrNull(module['width_mm']);
   final depth = _intOrNull(module['depth_mm']);
+  final covering = _nullableString(
+    module['glass_type_code'] ?? module['covering_code'],
+  );
+  final maxGlassFieldWidth = _intOrNull(
+    module['max_glass_field_width_mm'],
+  );
   return {
     if (role != null) 'role': role,
     if (width != null && width > 0) 'width_mm': width,
     if (depth != null && depth > 0) 'depth_mm': depth,
+    if (covering != null) ...{
+      'covering_code': covering,
+      'glass_type_code': covering,
+    },
+    if (maxGlassFieldWidth != null && maxGlassFieldWidth > 0)
+      'max_glass_field_width_mm': maxGlassFieldWidth,
   };
+}
+
+String _staticBeamLengthCalculationMethod(Object? value) {
+  final normalized = _string(value);
+  return const {'legacy_rounded', 'shortest_sku', 'installed_length'}
+          .contains(normalized)
+      ? normalized
+      : 'legacy_rounded';
 }
 
 List<Map<String, dynamic>> _list(dynamic value) {

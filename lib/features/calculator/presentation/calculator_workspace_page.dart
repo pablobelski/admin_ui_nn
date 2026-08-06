@@ -109,6 +109,7 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
           if (!roofModelState.required) 'model',
         };
         final activeSteps = _steps
+            .where((step) => step.key != 'covering' || draft.coveringEnabled)
             .where((step) => step.key != 'markise' || draft.markiseEnabled)
             .toList(growable: false);
         final buyerContact = calculatorContext.buyerContactFor(draft);
@@ -117,18 +118,32 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
         final canCalculate = draft.templateId != null &&
             draft.widthMm != null &&
             draft.depthMm != null &&
-            roofModelState.isSelected(draft.modelCode);
+            roofModelState.isSelected(draft.modelCode) &&
+            (draft.colorCode ?? '').trim().isNotEmpty;
+        final effectiveSelectedStep =
+            _selectedStep.clamp(0, activeSteps.length - 1).toInt();
+        final currentStepKey = activeSteps[effectiveSelectedStep].key;
+        final currentStepValidationMessage = _stepValidationMessage(
+          currentStepKey,
+          draft,
+          roofModelState,
+        );
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _Header(
-              selectedIndex: _selectedStep,
+              selectedIndex: effectiveSelectedStep,
               steps: activeSteps,
               disabledStepKeys: disabledStepKeys,
               draft: draft,
               buyerContact: buyerContact,
-              onStepSelected: (index) => _selectStep(activeSteps, index),
+              onStepSelected: (index) => _selectStep(
+                context,
+                activeSteps,
+                index,
+                roofModelState,
+              ),
               onNewCalculation: () => _confirmNewCalculation(context),
               onRefresh: () {
                 ref.invalidate(calculatorContextProvider);
@@ -149,13 +164,30 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
                         Expanded(
                           flex: 3,
                           child: _StepCard(
-                            selectedStep: _selectedStep,
+                            selectedStep: effectiveSelectedStep,
                             steps: activeSteps,
                             calculatorContext: calculatorContext,
                             draft: draft,
                             selectedTemplate: selectedTemplate,
-                            onNext: () => _moveStep(activeSteps, disabledStepKeys, 1),
-                            onBack: () => _moveStep(activeSteps, disabledStepKeys, -1),
+                            onNext: () => _moveStep(
+                              context,
+                              activeSteps,
+                              disabledStepKeys,
+                              roofModelState,
+                              1,
+                            ),
+                            onBack: () => _moveStep(
+                              context,
+                              activeSteps,
+                              disabledStepKeys,
+                              roofModelState,
+                              -1,
+                            ),
+                            canAdvance: currentStepValidationMessage == null,
+                            onAdvanceBlocked: () => _showStepValidationWarning(
+                              context,
+                              currentStepValidationMessage,
+                            ),
                             onCalculate: ({String? successMessage}) => _calculate(
                               context,
                               successMessage: successMessage,
@@ -179,7 +211,7 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
                             draft: draft,
                             calculatorContext: calculatorContext,
                             roofModelState: roofModelState,
-                            selectedStep: _selectedStep,
+                            selectedStep: effectiveSelectedStep,
                             highlightedModuleIndex: _highlightedModuleIndex,
                             highlightedGlassFieldIndex: _highlightedGlassFieldIndex,
                             mediaRepository: ref.read(resourceRepositoryProvider),
@@ -199,13 +231,30 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
                       children: [
                         Expanded(
                           child: _StepCard(
-                            selectedStep: _selectedStep,
+                            selectedStep: effectiveSelectedStep,
                             steps: activeSteps,
                             calculatorContext: calculatorContext,
                             draft: draft,
                             selectedTemplate: selectedTemplate,
-                            onNext: () => _moveStep(activeSteps, disabledStepKeys, 1),
-                            onBack: () => _moveStep(activeSteps, disabledStepKeys, -1),
+                            onNext: () => _moveStep(
+                              context,
+                              activeSteps,
+                              disabledStepKeys,
+                              roofModelState,
+                              1,
+                            ),
+                            onBack: () => _moveStep(
+                              context,
+                              activeSteps,
+                              disabledStepKeys,
+                              roofModelState,
+                              -1,
+                            ),
+                            canAdvance: currentStepValidationMessage == null,
+                            onAdvanceBlocked: () => _showStepValidationWarning(
+                              context,
+                              currentStepValidationMessage,
+                            ),
                             onCalculate: ({String? successMessage}) => _calculate(
                               context,
                               successMessage: successMessage,
@@ -229,7 +278,7 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
                             draft: draft,
                             calculatorContext: calculatorContext,
                             roofModelState: roofModelState,
-                            selectedStep: _selectedStep,
+                            selectedStep: effectiveSelectedStep,
                             highlightedModuleIndex: _highlightedModuleIndex,
                             highlightedGlassFieldIndex: _highlightedGlassFieldIndex,
                             mediaRepository: ref.read(resourceRepositoryProvider),
@@ -252,10 +301,30 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
     );
   }
 
-  void _selectStep(List<_StepDefinition> steps, int index) {
-    final key = steps[index].key;
+  void _selectStep(
+    BuildContext context,
+    List<_StepDefinition> steps,
+    int index,
+    _RoofModelStepState roofModelState,
+  ) {
+    final target = index.clamp(0, steps.length - 1).toInt();
+    if (target > _selectedStep) {
+      for (var stepIndex = 0; stepIndex < target; stepIndex++) {
+        final message = _stepValidationMessage(
+          steps[stepIndex].key,
+          ref.read(calculatorDraftProvider),
+          roofModelState,
+        );
+        if (message != null) {
+          _showStepValidationWarning(context, message);
+          return;
+        }
+      }
+    }
+
+    final key = steps[target].key;
     setState(() {
-      _selectedStep = index;
+      _selectedStep = target;
       if (key != 'set_contents') {
         _highlightedGlassFieldIndex = null;
       }
@@ -266,8 +335,10 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
   }
 
   void _moveStep(
+    BuildContext context,
     List<_StepDefinition> steps,
     Set<String> disabledStepKeys,
+    _RoofModelStepState roofModelState,
     int direction,
   ) {
     var next = _selectedStep;
@@ -284,7 +355,24 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
       }
     }
 
-    _selectStep(steps, next);
+    _selectStep(context, steps, next, roofModelState);
+  }
+
+  void _showStepValidationWarning(BuildContext context, String? message) {
+    if (message == null || !context.mounted) return;
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Complete the current step'),
+        content: Text(message),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
   }
 
   String? _priceSignatureForResult(
@@ -987,6 +1075,8 @@ class _StepCard extends ConsumerWidget {
     required this.selectedTemplate,
     required this.onNext,
     required this.onBack,
+    required this.canAdvance,
+    required this.onAdvanceBlocked,
     required this.onCalculate,
     required this.onModelChanged,
     required this.canCalculate,
@@ -1003,6 +1093,8 @@ class _StepCard extends ConsumerWidget {
   final CalculatorTemplateOption? selectedTemplate;
   final VoidCallback onNext;
   final VoidCallback onBack;
+  final bool canAdvance;
+  final VoidCallback onAdvanceBlocked;
   final Future<void> Function({String? successMessage}) onCalculate;
   final ValueChanged<String?> onModelChanged;
   final bool canCalculate;
@@ -1084,10 +1176,18 @@ class _StepCard extends ConsumerWidget {
                   label: const Text('Back'),
                 ),
                 const SizedBox(width: 8),
-                OutlinedButton.icon(
-                  onPressed: selectedStep == steps.length - 1 ? null : onNext,
-                  icon: const Icon(Icons.chevron_right),
-                  label: const Text('Next'),
+                GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: selectedStep == steps.length - 1 || canAdvance
+                      ? null
+                      : onAdvanceBlocked,
+                  child: OutlinedButton.icon(
+                    onPressed: selectedStep == steps.length - 1 || !canAdvance
+                        ? null
+                        : onNext,
+                    icon: const Icon(Icons.chevron_right),
+                    label: const Text('Next'),
+                  ),
                 ),
                 const Spacer(),
                 FilledButton.icon(
@@ -1198,9 +1298,8 @@ class _StepCard extends ConsumerWidget {
           mediaRepository: ref.read(resourceRepositoryProvider),
           onChanged: onModelChanged,
           onWallMountedChanged: notifier.setWallMounted,
+          onCoveringEnabledChanged: notifier.setCoveringEnabled,
           onMarkiseEnabledChanged: notifier.setMarkiseEnabled,
-          onAddStaticBeamAssemblyChanged: notifier.setAddStaticBeamAssembly,
-          onStaticBeamPositionChanged: notifier.setStaticBeamPositionCode,
         );
       case 'dimensions':
         return _DimensionsStep(
@@ -1218,6 +1317,7 @@ class _StepCard extends ConsumerWidget {
           selectedRoofModel: roofModelState.selectedForCode(draft.modelCode),
           notifier: notifier,
           options: calculatorContext.references['tds_glass_covering'] ?? const [],
+          onCoveringEnabledChanged: notifier.setCoveringEnabled,
           onMarkiseEnabledChanged: notifier.setMarkiseEnabled,
           isLoadedCalculation: isLoadedCalculation,
           onModuleFocusChanged: onModuleFocusChanged,
@@ -2216,6 +2316,7 @@ class _DimensionsStepState extends State<_DimensionsStep> {
   late final TextEditingController _angle;
   late final FocusNode _frontHeightFocus;
   String? _angleErrorText;
+  String? _seededStaticBeamMethodTemplateId;
 
   @override
   void initState() {
@@ -2287,20 +2388,53 @@ class _DimensionsStepState extends State<_DimensionsStep> {
     final needsAngleSeed = !widget.isLoadedCalculation &&
         widget.draft.roofAngleDeg == null &&
         defaultAngle != null;
+    final defaultHeight = widget.selectedTemplate?.defaultHeightMm;
+    final needsHeightSeed = !widget.isLoadedCalculation &&
+        widget.draft.heightMm == null &&
+        defaultHeight != null &&
+        defaultHeight > 0;
+    final templateId = widget.selectedTemplate?.id;
+    final needsStaticBeamMethodSeed = !widget.isLoadedCalculation &&
+        templateId != null &&
+        _seededStaticBeamMethodTemplateId != templateId;
+    if (needsStaticBeamMethodSeed) {
+      _seededStaticBeamMethodTemplateId = templateId;
+    }
     final rearHeight = _effectiveRearHeight(widget.draft);
     final frontHeight = widget.draft.roofFrontHeightMm;
     final needsFrontHeightCorrection = !widget.isLoadedCalculation &&
         rearHeight != null &&
         frontHeight != null &&
         frontHeight > rearHeight;
-    if (!needsModuleSeed && !needsDimensionSeed && !needsAngleSeed && !needsFrontHeightCorrection) return;
+    if (!needsModuleSeed &&
+        !needsDimensionSeed &&
+        !needsAngleSeed &&
+        !needsHeightSeed &&
+        !needsStaticBeamMethodSeed &&
+        !needsFrontHeightCorrection) {
+      return;
+    }
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || widget.isLoadedCalculation) return;
       if (needsModuleSeed || needsDimensionSeed) widget.notifier.setSetContentModuleRoles(roles);
+      if (needsHeightSeed) widget.notifier.setHeight(defaultHeight.toString());
+      if (needsStaticBeamMethodSeed) {
+        widget.notifier.setStaticBeamLengthCalculationMethod(
+          widget.selectedTemplate!.statiktragerLengthCalculationDefaultMethod,
+        );
+      }
       if (needsAngleSeed) {
         widget.notifier.setRoofAngleValue(defaultAngle);
-        _recalculateFrontHeightFromAngle(defaultAngle);
+        _recalculateFrontHeightFromAngle(
+          defaultAngle,
+          rearHeight: needsHeightSeed ? defaultHeight : null,
+        );
+      } else if (needsHeightSeed && widget.draft.roofAngleDeg != null) {
+        _recalculateFrontHeightFromAngle(
+          widget.draft.roofAngleDeg,
+          rearHeight: defaultHeight,
+        );
       } else if (needsFrontHeightCorrection) {
         widget.notifier.setRoofFrontHeightValue(rearHeight);
       }
@@ -2465,6 +2599,20 @@ class _DimensionsStepState extends State<_DimensionsStep> {
         _RoofCalculationParamsCard(
           forceOddBeams: widget.draft.forceOddBeams,
           onForceOddBeamsChanged: widget.notifier.setForceOddBeams,
+          wallMounted: widget.draft.wallMounted,
+          addStaticBeamAssembly: widget.draft.addStaticBeamAssembly,
+          staticBeamPositionCode: widget.draft.staticBeamPositionCode,
+          staticBeamLengthCalculationMethod:
+              widget.draft.staticBeamLengthCalculationMethod,
+          staticBeamLengthCalculationMethods:
+              widget.selectedTemplate?.statiktragerLengthCalculationMethods ??
+                  const [],
+          onAddStaticBeamAssemblyChanged:
+              widget.notifier.setAddStaticBeamAssembly,
+          onStaticBeamPositionChanged:
+              widget.notifier.setStaticBeamPositionCode,
+          onStaticBeamLengthCalculationMethodChanged:
+              widget.notifier.setStaticBeamLengthCalculationMethod,
         ),
         const SizedBox(height: 16),
         _SetContentModuleDimensionsEditor(
@@ -2872,13 +3020,51 @@ class _RoofCalculationParamsCard extends StatelessWidget {
   const _RoofCalculationParamsCard({
     required this.forceOddBeams,
     required this.onForceOddBeamsChanged,
+    required this.wallMounted,
+    required this.addStaticBeamAssembly,
+    required this.staticBeamPositionCode,
+    required this.staticBeamLengthCalculationMethod,
+    required this.staticBeamLengthCalculationMethods,
+    required this.onAddStaticBeamAssemblyChanged,
+    required this.onStaticBeamPositionChanged,
+    required this.onStaticBeamLengthCalculationMethodChanged,
   });
 
   final bool forceOddBeams;
   final ValueChanged<bool> onForceOddBeamsChanged;
+  final bool wallMounted;
+  final bool addStaticBeamAssembly;
+  final String staticBeamPositionCode;
+  final String staticBeamLengthCalculationMethod;
+  final List<CalculatorOption> staticBeamLengthCalculationMethods;
+  final ValueChanged<bool> onAddStaticBeamAssemblyChanged;
+  final ValueChanged<String?> onStaticBeamPositionChanged;
+  final ValueChanged<String?> onStaticBeamLengthCalculationMethodChanged;
 
   @override
   Widget build(BuildContext context) {
+    final positionOptions = _staticBeamPositionOptions
+        .where((option) => wallMounted || option.code != 'rear_wall')
+        .toList(growable: false);
+    final methodOptions = staticBeamLengthCalculationMethods.isEmpty
+        ? const [
+            CalculatorOption(
+              id: 'legacy_rounded',
+              code: 'legacy_rounded',
+              label: 'Legacy rounding (1000 mm / x100 + 100 mm)',
+            ),
+            CalculatorOption(
+              id: 'shortest_sku',
+              code: 'shortest_sku',
+              label: 'Shortest suitable SKU',
+            ),
+            CalculatorOption(
+              id: 'installed_length',
+              code: 'installed_length',
+              label: 'Installed calculated length',
+            ),
+          ]
+        : staticBeamLengthCalculationMethods;
     return SizedBox(
       width: double.infinity,
       child: Card(
@@ -2905,6 +3091,53 @@ class _RoofCalculationParamsCard extends StatelessWidget {
                   Text('Force odd beams', style: Theme.of(context).textTheme.bodySmall),
                 ],
               ),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Transform.scale(
+                    scale: 0.82,
+                    alignment: Alignment.centerLeft,
+                    child: Switch(
+                      value: addStaticBeamAssembly,
+                      onChanged: onAddStaticBeamAssemblyChanged,
+                    ),
+                  ),
+                  const SizedBox(width: 2),
+                  Text(
+                    'Add Statikträger assembly',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+              ),
+              if (addStaticBeamAssembly) ...[
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  children: [
+                    SizedBox(
+                      width: 310,
+                      child: _DropdownField(
+                        label: 'Mounting type for Statikträger',
+                        value: staticBeamPositionCode,
+                        options: positionOptions,
+                        idSelector: (option) => option.code,
+                        onChanged: onStaticBeamPositionChanged,
+                      ),
+                    ),
+                    SizedBox(
+                      width: 390,
+                      child: _DropdownField(
+                        label: 'Statikträger length calculation method',
+                        value: staticBeamLengthCalculationMethod,
+                        options: methodOptions,
+                        idSelector: (option) => option.code,
+                        onChanged: onStaticBeamLengthCalculationMethodChanged,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ],
           ),
         ),
@@ -2970,9 +3203,8 @@ class _ModelStep extends StatelessWidget {
     required this.mediaRepository,
     required this.onChanged,
     required this.onWallMountedChanged,
+    required this.onCoveringEnabledChanged,
     required this.onMarkiseEnabledChanged,
-    required this.onAddStaticBeamAssemblyChanged,
-    required this.onStaticBeamPositionChanged,
   });
 
   final _RoofModelStepState roofModelState;
@@ -2980,9 +3212,8 @@ class _ModelStep extends StatelessWidget {
   final AdminResourceRepository mediaRepository;
   final ValueChanged<String?> onChanged;
   final ValueChanged<bool> onWallMountedChanged;
+  final ValueChanged<bool> onCoveringEnabledChanged;
   final ValueChanged<bool> onMarkiseEnabledChanged;
-  final ValueChanged<bool> onAddStaticBeamAssemblyChanged;
-  final ValueChanged<String?> onStaticBeamPositionChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -3019,13 +3250,11 @@ class _ModelStep extends StatelessWidget {
         const SizedBox(height: 16),
         _ModelCalculationParamsCard(
           wallMounted: draft.wallMounted,
-          onWallMountedChanged: onWallMountedChanged,
+          coveringEnabled: draft.coveringEnabled,
           markiseEnabled: draft.markiseEnabled,
+          onWallMountedChanged: onWallMountedChanged,
+          onCoveringEnabledChanged: onCoveringEnabledChanged,
           onMarkiseEnabledChanged: onMarkiseEnabledChanged,
-          addStaticBeamAssembly: draft.addStaticBeamAssembly,
-          staticBeamPositionCode: draft.staticBeamPositionCode,
-          onAddStaticBeamAssemblyChanged: onAddStaticBeamAssemblyChanged,
-          onStaticBeamPositionChanged: onStaticBeamPositionChanged,
         ),
         const SizedBox(height: 20),
         _RoofModelMediaPreview(
@@ -3041,29 +3270,41 @@ class _ModelStep extends StatelessWidget {
 class _ModelCalculationParamsCard extends StatelessWidget {
   const _ModelCalculationParamsCard({
     required this.wallMounted,
-    required this.onWallMountedChanged,
+    required this.coveringEnabled,
     required this.markiseEnabled,
+    required this.onWallMountedChanged,
+    required this.onCoveringEnabledChanged,
     required this.onMarkiseEnabledChanged,
-    required this.addStaticBeamAssembly,
-    required this.staticBeamPositionCode,
-    required this.onAddStaticBeamAssemblyChanged,
-    required this.onStaticBeamPositionChanged,
   });
 
   final bool wallMounted;
-  final ValueChanged<bool> onWallMountedChanged;
+  final bool coveringEnabled;
   final bool markiseEnabled;
+  final ValueChanged<bool> onWallMountedChanged;
+  final ValueChanged<bool> onCoveringEnabledChanged;
   final ValueChanged<bool> onMarkiseEnabledChanged;
-  final bool addStaticBeamAssembly;
-  final String staticBeamPositionCode;
-  final ValueChanged<bool> onAddStaticBeamAssemblyChanged;
-  final ValueChanged<String?> onStaticBeamPositionChanged;
 
   @override
   Widget build(BuildContext context) {
-    final positionOptions = _staticBeamPositionOptions
-        .where((option) => wallMounted || option.code != 'rear_wall')
-        .toList(growable: false);
+    Widget toggle({
+      required String label,
+      required bool value,
+      required ValueChanged<bool> onChanged,
+    }) {
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Transform.scale(
+            scale: 0.82,
+            alignment: Alignment.centerLeft,
+            child: Switch(value: value, onChanged: onChanged),
+          ),
+          const SizedBox(width: 2),
+          Text(label, style: Theme.of(context).textTheme.bodySmall),
+        ],
+      );
+    }
+
     return SizedBox(
       width: double.infinity,
       child: Card(
@@ -3075,77 +3316,25 @@ class _ModelCalculationParamsCard extends StatelessWidget {
             children: [
               Text('Calculation parameters', style: Theme.of(context).textTheme.labelLarge),
               const SizedBox(height: 4),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              Wrap(
+                spacing: 18,
+                runSpacing: 2,
                 children: [
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Transform.scale(
-                        scale: 0.82,
-                        alignment: Alignment.centerLeft,
-                        child: Switch(
-                          value: wallMounted,
-                          onChanged: onWallMountedChanged,
-                        ),
-                      ),
-                      const SizedBox(width: 2),
-                      Text(
-                        'Wandmontage',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ],
+                  toggle(
+                    label: 'Wandmontage',
+                    value: wallMounted,
+                    onChanged: onWallMountedChanged,
                   ),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Transform.scale(
-                        scale: 0.82,
-                        alignment: Alignment.centerLeft,
-                        child: Switch(
-                          value: markiseEnabled,
-                          onChanged: onMarkiseEnabledChanged,
-                        ),
-                      ),
-                      const SizedBox(width: 2),
-                      Text(
-                        'Add Markise',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ],
+                  toggle(
+                    label: 'Add Covering',
+                    value: coveringEnabled,
+                    onChanged: onCoveringEnabledChanged,
                   ),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Transform.scale(
-                        scale: 0.82,
-                        alignment: Alignment.centerLeft,
-                        child: Switch(
-                          value: addStaticBeamAssembly,
-                          onChanged: onAddStaticBeamAssemblyChanged,
-                        ),
-                      ),
-                      const SizedBox(width: 2),
-                      Text(
-                        'Add Statikträger assembly',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ],
+                  toggle(
+                    label: 'Add Markise',
+                    value: markiseEnabled,
+                    onChanged: onMarkiseEnabledChanged,
                   ),
-                  if (addStaticBeamAssembly)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 6),
-                      child: SizedBox(
-                        width: 310,
-                        child: _DropdownField(
-                          label: 'Mounting type for Statikträger',
-                          value: staticBeamPositionCode,
-                          options: positionOptions,
-                          idSelector: (option) => option.code,
-                          onChanged: onStaticBeamPositionChanged,
-                        ),
-                      ),
-                    ),
                 ],
               ),
             ],
@@ -3339,6 +3528,7 @@ class _CoveringStep extends StatefulWidget {
     required this.selectedRoofModel,
     required this.notifier,
     required this.options,
+    required this.onCoveringEnabledChanged,
     required this.onMarkiseEnabledChanged,
     required this.isLoadedCalculation,
     required this.onModuleFocusChanged,
@@ -3349,6 +3539,7 @@ class _CoveringStep extends StatefulWidget {
   final CalculatorOption? selectedRoofModel;
   final CalculatorDraftNotifier notifier;
   final List<CalculatorOption> options;
+  final ValueChanged<bool> onCoveringEnabledChanged;
   final ValueChanged<bool> onMarkiseEnabledChanged;
   final bool isLoadedCalculation;
   final ValueChanged<int?> onModuleFocusChanged;
@@ -3358,83 +3549,27 @@ class _CoveringStep extends StatefulWidget {
 }
 
 class _CoveringStepState extends State<_CoveringStep> {
-  late final TextEditingController _maxGlassFieldWidth;
-  String? _maxGlassFieldErrorText;
   int? _selectedModuleIndex;
 
   @override
   void initState() {
     super.initState();
-    _maxGlassFieldWidth = TextEditingController(
-      text: (widget.draft.maxGlassFieldWidthMm
-              ?? widget.selectedTemplate?.defaultMaxGlassFieldWidthMm
-              ?? 750)
-          .toString(),
-    );
-    _maxGlassFieldErrorText = _maxGlassFieldValidationMessage(_maxGlassFieldWidth.text);
-    _syncTemplateParameter();
+    _syncModulesFromModel();
   }
 
   @override
   void didUpdateWidget(covariant _CoveringStep oldWidget) {
     super.didUpdateWidget(oldWidget);
-    final nextText = (widget.draft.maxGlassFieldWidthMm
-            ?? widget.selectedTemplate?.defaultMaxGlassFieldWidthMm
-            ?? 750)
-        .toString();
-    if (_maxGlassFieldWidth.text != nextText) _maxGlassFieldWidth.text = nextText;
-    _maxGlassFieldErrorText = _maxGlassFieldValidationMessage(_maxGlassFieldWidth.text);
-    _syncTemplateParameter();
+    _syncModulesFromModel();
   }
 
-  int _coveringMaxGlassFieldWidth([String? coveringCode]) =>
-      widget.selectedTemplate?.maxGlassFieldWidthFor(coveringCode ?? widget.draft.coveringCode) ?? 750;
-
-  int get _defaultMaxGlassFieldWidth =>
-      widget.selectedTemplate?.defaultMaxGlassFieldWidthMm ?? 750;
-
-  String? _maxGlassFieldValidationMessage(String value, [String? coveringCode]) {
-    final parsed = int.tryParse(value.trim());
-    final maximum = _coveringMaxGlassFieldWidth(coveringCode);
-    if (parsed == null || parsed <= 0) return 'Enter 1–$maximum mm';
-    if (parsed > maximum) return 'Maximum: $maximum mm';
-    return null;
-  }
-
-  void _syncTemplateParameter() {
-    if (widget.isLoadedCalculation) return;
-    final maximum = _coveringMaxGlassFieldWidth();
-    final current = widget.draft.maxGlassFieldWidthMm;
-    final target = math.min(current ?? _defaultMaxGlassFieldWidth, maximum).toInt();
-    if (current == target) return;
+  void _syncModulesFromModel() {
+    if (widget.isLoadedCalculation || widget.draft.setContents.isNotEmpty) return;
+    final roles = _moduleRolesFor(widget.selectedRoofModel);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || widget.isLoadedCalculation) return;
-      widget.notifier.setMaxGlassFieldWidthValue(target);
+      if (!mounted || widget.isLoadedCalculation || widget.draft.setContents.isNotEmpty) return;
+      widget.notifier.setSetContentModuleRoles(roles);
     });
-  }
-
-  void _onMaxGlassFieldWidthChanged(String value) {
-    final error = _maxGlassFieldValidationMessage(value);
-    if (_maxGlassFieldErrorText != error) setState(() => _maxGlassFieldErrorText = error);
-    final parsed = int.tryParse(value.trim());
-    if (parsed == null || parsed <= 0 || error != null) return;
-    widget.notifier.setMaxGlassFieldWidthValue(parsed);
-  }
-
-  void _onCoveringChanged(String? value) {
-    widget.notifier.setCovering(value);
-    final maximum = _coveringMaxGlassFieldWidth(value);
-    final current = widget.draft.maxGlassFieldWidthMm ?? _defaultMaxGlassFieldWidth;
-    final target = math.min(current, maximum).toInt();
-    _maxGlassFieldWidth.text = target.toString();
-    setState(() => _maxGlassFieldErrorText = null);
-    widget.notifier.setMaxGlassFieldWidthValue(target);
-  }
-
-  @override
-  void dispose() {
-    _maxGlassFieldWidth.dispose();
-    super.dispose();
   }
 
   @override
@@ -3444,56 +3579,119 @@ class _CoveringStepState extends State<_CoveringStep> {
       template: widget.selectedTemplate,
       model: widget.selectedRoofModel,
     );
-    final coveringName = _coveringDisplayName(
-      widget.options,
-      widget.draft.coveringCode,
-    );
+    final tabs = widget.draft.setContents;
+    RoofModuleCalculation? calculatedModule(int index) => roofCalculation.modules
+        .where((module) => module.moduleIndex == index + 1)
+        .firstOrNull;
+    final totalWeight = widget.draft.coveringEnabled
+        ? List<double>.generate(tabs.length, (index) {
+            final code = tabs[index].moduleCoveringCode;
+            final module = calculatedModule(index);
+            if ((code ?? '').trim().isEmpty || module == null) return 0;
+            return _glassWeightKg(module.glassAreaM2, code);
+          }).fold<double>(0, (sum, value) => sum + value)
+        : 0.0;
+    final selectedTypeCodes = tabs
+        .map((tab) => tab.moduleCoveringCode?.trim())
+        .whereType<String>()
+        .where((code) => code.isNotEmpty)
+        .toSet();
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _SelectStep(
-          title: 'Covering / Eindeckung',
-          description:
-              'For TDS/SkyView Glas the existing reference domain tds_glass_covering is used. Poly options should be moved into a dedicated domain or template schema.',
-          value: widget.draft.coveringCode,
-          options: widget.options,
-          onChanged: _onCoveringChanged,
-          emptyLabel: '— Covering not selected —',
-          aboveSelector: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Switch(
-                value: widget.draft.markiseEnabled,
-                onChanged: widget.onMarkiseEnabledChanged,
+        const Text(
+          'Covering is optional. Select a glass type only for the roof segments that will actually receive glass.',
+        ),
+        const SizedBox(height: 12),
+        _CoveringParametersCard(
+          coveringEnabled: widget.draft.coveringEnabled,
+          markiseEnabled: widget.draft.markiseEnabled,
+          onCoveringEnabledChanged: widget.onCoveringEnabledChanged,
+          onMarkiseEnabledChanged: widget.onMarkiseEnabledChanged,
+        ),
+        const SizedBox(height: 16),
+        if (tabs.isEmpty)
+          const _HintCard(
+            icon: Icons.warning_amber_outlined,
+            title: 'Roof modules are not available',
+            text: 'Select a roof model and configure its module dimensions first.',
+          )
+        else
+          IgnorePointer(
+            ignoring: !widget.draft.coveringEnabled,
+            child: Opacity(
+              opacity: widget.draft.coveringEnabled ? 1 : 0.5,
+              child: Card(
+                margin: EdgeInsets.zero,
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              'Covering Calculation',
+                              style: Theme.of(context).textTheme.labelLarge,
+                            ),
+                          ),
+                          _CalculationValueChip(
+                            label: 'Total glass weight',
+                            value: '${totalWeight.toStringAsFixed(1)} kg',
+                            prominent: true,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      for (var index = 0; index < tabs.length; index++)
+                        Padding(
+                          padding: EdgeInsets.only(
+                            bottom: index < tabs.length - 1 ? 8 : 0,
+                          ),
+                          child: _CoveringModuleCard(
+                            key: ValueKey('covering-module-${tabs[index].id}'),
+                            tabIndex: index,
+                            tab: tabs[index],
+                            calculatedModule: calculatedModule(index),
+                            selectedTemplate: widget.selectedTemplate,
+                            options: widget.options,
+                            selected: _selectedModuleIndex == index + 1,
+                            enabled: widget.draft.coveringEnabled,
+                            onCoveringChanged: (value) => widget.notifier
+                                .setSetContentModuleCovering(index, value),
+                            onMaxGlassFieldWidthChanged: (value) => widget.notifier
+                                .setSetContentModuleMaxGlassFieldWidth(index, value),
+                            onFocus: () {
+                              setState(() => _selectedModuleIndex = index + 1);
+                              widget.onModuleFocusChanged(index + 1);
+                            },
+                          ),
+                        ),
+                      if (selectedTypeCodes.isEmpty) ...[
+                        const SizedBox(height: 10),
+                        Text(
+                          'No roof segment has covering selected. The supporting structure can still be calculated.',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
               ),
-              const Text('Add Markise'),
-            ],
-          ),
-          trailing: SizedBox(
-            width: 260,
-            child: _NumberField(
-              label: 'Max glass field width',
-              controller: _maxGlassFieldWidth,
-              onChanged: _onMaxGlassFieldWidthChanged,
-              errorText: _maxGlassFieldErrorText,
-              helperText: 'Maximum: ${_coveringMaxGlassFieldWidth()} mm',
             ),
           ),
-        ),
-        if (roofCalculation.modules.isNotEmpty) ...[
+        if (widget.selectedTemplate != null) ...[
           const SizedBox(height: 16),
-          _CalculatedGlassCard(
-            modules: roofCalculation.modules,
-            coveringCode: widget.draft.coveringCode,
-            coveringName: coveringName,
-            selectedModuleIndex: _selectedModuleIndex,
-            onModuleSelected: (index) {
-              setState(() => _selectedModuleIndex = index);
-              widget.onModuleFocusChanged(index);
-            },
+          _CoveringReferenceParametersCard(
+            template: widget.selectedTemplate!,
+            options: widget.options,
+            selectedTypeCodes: selectedTypeCodes,
           ),
         ],
-        if (widget.selectedTemplate != null && !widget.selectedTemplate!.hasCompleteRoofParameters) ...[
+        if (widget.selectedTemplate != null &&
+            !widget.selectedTemplate!.hasCompleteRoofParameters) ...[
           const SizedBox(height: 16),
           _ErrorCard(
             title: 'Roof calculation parameters are not configured',
@@ -3505,144 +3703,518 @@ class _CoveringStepState extends State<_CoveringStep> {
   }
 }
 
-
-class _CalculatedGlassCard extends StatelessWidget {
-  const _CalculatedGlassCard({
-    required this.modules,
-    required this.coveringCode,
-    required this.coveringName,
-    required this.selectedModuleIndex,
-    required this.onModuleSelected,
+class _CoveringParametersCard extends StatelessWidget {
+  const _CoveringParametersCard({
+    required this.coveringEnabled,
+    required this.markiseEnabled,
+    required this.onCoveringEnabledChanged,
+    required this.onMarkiseEnabledChanged,
   });
 
-  final List<RoofModuleCalculation> modules;
-  final String? coveringCode;
-  final String? coveringName;
-  final int? selectedModuleIndex;
-  final ValueChanged<int> onModuleSelected;
+  final bool coveringEnabled;
+  final bool markiseEnabled;
+  final ValueChanged<bool> onCoveringEnabledChanged;
+  final ValueChanged<bool> onMarkiseEnabledChanged;
 
   @override
   Widget build(BuildContext context) {
-    final totalWeight = modules.fold<double>(
-      0,
-      (sum, module) => sum + _glassWeightKg(module.glassAreaM2, coveringCode),
-    );
-    final colorScheme = Theme.of(context).colorScheme;
-    return Card(
-      margin: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(child: Text('Calculated glass', style: Theme.of(context).textTheme.labelLarge)),
-                _CalculationValueChip(
-                  label: 'Glasgewicht',
-                  value: '${totalWeight.toStringAsFixed(1)} kg',
-                  prominent: true,
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            for (final module in modules)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Material(
-                  color: selectedModuleIndex == module.moduleIndex
-                      ? const Color(0xFFF1F3F5).withValues(alpha: 0.18)
-                      : Colors.transparent,
-                  borderRadius: BorderRadius.circular(10),
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(10),
-                    onTap: () => onModuleSelected(module.moduleIndex),
-                    child: Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(
-                          color: selectedModuleIndex == module.moduleIndex
-                              ? const Color(0xFFAEB4BC)
-                              : colorScheme.outlineVariant.withValues(alpha: 0.45),
-                          width: selectedModuleIndex == module.moduleIndex
-                              ? 1.2
-                              : 1,
-                        ),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            '${_moduleDisplayLabel(module.role, module.moduleIndex)} · '
-                            'B: ${module.widthMm} x T: ${module.depthMm} mm',
-                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                  fontWeight: FontWeight.w700,
-                                ),
-                          ),
-                          const SizedBox(height: 8),
-                          Wrap(
-                            spacing: 10,
-                            runSpacing: 8,
-                            children: [
-                              _CalculationValueChip(
-                                label: 'Type',
-                                value: coveringName ?? '—',
-                                prominent: true,
-                              ),
-                              _CalculationValueChip(
-                                label: 'Quantity',
-                                value: '${module.glassCount}',
-                                prominent: true,
-                              ),
-                              _CalculationValueChip(
-                                label: 'Size',
-                                value: '${module.glassWidthMm} × ${module.glassLengthMm} mm',
-                                prominent: true,
-                              ),
-                              _CalculationValueChip(
-                                label: 'Area',
-                                value: '${module.glassAreaM2.toStringAsFixed(1)} m²',
-                                prominent: true,
-                              ),
-                              _CalculationValueChip(
-                                label: 'Weight',
-                                value: '${_glassWeightKg(module.glassAreaM2, coveringCode).toStringAsFixed(1)} kg',
-                                prominent: true,
-                              ),
-                            ],
-                          ),
-                          if (module.glassDepthFieldCount > 1) ...[
-                            const SizedBox(height: 8),
-                            Wrap(
-                              spacing: 10,
-                              runSpacing: 8,
-                              children: [
-                                for (var fieldIndex = 1;
-                                    fieldIndex <= module.glassDepthFieldCount;
-                                    fieldIndex++)
-                                  _CalculationValueChip(
-                                    label: 'Glass field $fieldIndex/${module.glassDepthFieldCount}',
-                                    value:
-                                        '${(module.glassCount / module.glassDepthFieldCount).round()} sheets · ${module.glassWidthMm} × ${module.glassLengthMm} mm',
-                                    prominent: true,
-                                  ),
-                              ],
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
+    Widget toggle({
+      required String label,
+      required bool value,
+      required ValueChanged<bool> onChanged,
+    }) {
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Transform.scale(
+            scale: 0.82,
+            alignment: Alignment.centerLeft,
+            child: Switch(value: value, onChanged: onChanged),
+          ),
+          const SizedBox(width: 2),
+          Text(label, style: Theme.of(context).textTheme.bodySmall),
+        ],
+      );
+    }
+
+    return SizedBox(
+      width: double.infinity,
+      child: Card(
+        margin: EdgeInsets.zero,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Parameters', style: Theme.of(context).textTheme.labelLarge),
+              const SizedBox(height: 4),
+              Wrap(
+                spacing: 18,
+                runSpacing: 2,
+                children: [
+                  toggle(
+                    label: 'Add Covering',
+                    value: coveringEnabled,
+                    onChanged: onCoveringEnabledChanged,
                   ),
-                ),
+                  toggle(
+                    label: 'Add Markise',
+                    value: markiseEnabled,
+                    onChanged: onMarkiseEnabledChanged,
+                  ),
+                ],
               ),
-          ],
+            ],
+          ),
         ),
       ),
     );
   }
 }
+
+class _CoveringModuleCard extends StatefulWidget {
+  const _CoveringModuleCard({
+    super.key,
+    required this.tabIndex,
+    required this.tab,
+    required this.calculatedModule,
+    required this.selectedTemplate,
+    required this.options,
+    required this.selected,
+    required this.enabled,
+    required this.onCoveringChanged,
+    required this.onMaxGlassFieldWidthChanged,
+    required this.onFocus,
+  });
+
+  final int tabIndex;
+  final CalculatorSetContentTab tab;
+  final RoofModuleCalculation? calculatedModule;
+  final CalculatorTemplateOption? selectedTemplate;
+  final List<CalculatorOption> options;
+  final bool selected;
+  final bool enabled;
+  final ValueChanged<String?> onCoveringChanged;
+  final ValueChanged<int?> onMaxGlassFieldWidthChanged;
+  final VoidCallback onFocus;
+
+  @override
+  State<_CoveringModuleCard> createState() => _CoveringModuleCardState();
+}
+
+class _CoveringModuleCardState extends State<_CoveringModuleCard> {
+  late final TextEditingController _maxWidth;
+  String? _errorText;
+
+  @override
+  void initState() {
+    super.initState();
+    _maxWidth = TextEditingController(text: _widthText);
+    _errorText = _validationMessage(_maxWidth.text);
+    _seedWidth();
+  }
+
+  @override
+  void didUpdateWidget(covariant _CoveringModuleCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final text = _widthText;
+    if (_maxWidth.text != text) _maxWidth.text = text;
+    _errorText = _validationMessage(_maxWidth.text);
+    _seedWidth();
+  }
+
+  int get _defaultWidth => widget.selectedTemplate?.defaultMaxGlassFieldWidthMm ?? 750;
+
+  int get _maximumWidth => widget.selectedTemplate
+          ?.maxGlassFieldWidthFor(widget.tab.moduleCoveringCode) ??
+      750;
+
+  int get _effectiveWidth => math.min(
+        widget.tab.moduleMaxGlassFieldWidthMm ?? _defaultWidth,
+        _maximumWidth,
+      ).toInt();
+
+  String get _widthText => widget.enabled &&
+          (widget.tab.moduleCoveringCode ?? '').trim().isNotEmpty
+      ? _effectiveWidth.toString()
+      : '';
+
+  String? _validationMessage(String value) {
+    if (!widget.enabled || (widget.tab.moduleCoveringCode ?? '').trim().isEmpty) {
+      return null;
+    }
+    final parsed = int.tryParse(value.trim());
+    if (parsed == null || parsed <= 0) return 'Enter 1–$_maximumWidth mm';
+    if (parsed > _maximumWidth) return 'Maximum: $_maximumWidth mm';
+    return null;
+  }
+
+  void _seedWidth() {
+    if (!widget.enabled ||
+        (widget.tab.moduleCoveringCode ?? '').isEmpty ||
+        widget.tab.moduleMaxGlassFieldWidthMm == _effectiveWidth) {
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      widget.onMaxGlassFieldWidthChanged(_effectiveWidth);
+    });
+  }
+
+  void _onCoveringChanged(String? value) {
+    widget.onCoveringChanged(value);
+    if ((value ?? '').trim().isEmpty) {
+      _maxWidth.clear();
+      setState(() => _errorText = null);
+      widget.onMaxGlassFieldWidthChanged(null);
+      return;
+    }
+    final maximum = widget.selectedTemplate?.maxGlassFieldWidthFor(value) ?? 750;
+    final target = math.min(
+      widget.tab.moduleMaxGlassFieldWidthMm ?? _defaultWidth,
+      maximum,
+    ).toInt();
+    _maxWidth.text = target.toString();
+    setState(() => _errorText = null);
+    widget.onMaxGlassFieldWidthChanged(target);
+  }
+
+  void _onWidthChanged(String value) {
+    final error = _validationMessage(value);
+    if (_errorText != error) setState(() => _errorText = error);
+    final parsed = int.tryParse(value.trim());
+    if (error == null && parsed != null && parsed > 0) {
+      widget.onMaxGlassFieldWidthChanged(parsed);
+    }
+  }
+
+  @override
+  void dispose() {
+    _maxWidth.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final module = widget.calculatedModule;
+    final coveringCode = widget.tab.moduleCoveringCode;
+    final hasCovering = widget.enabled && (coveringCode ?? '').trim().isNotEmpty;
+    final coveringName = _coveringDisplayName(widget.options, coveringCode);
+    final colorScheme = Theme.of(context).colorScheme;
+    final role = widget.tab.moduleRole.isEmpty
+        ? 'module_${widget.tabIndex + 1}'
+        : widget.tab.moduleRole;
+
+    return Focus(
+      onFocusChange: (hasFocus) {
+        if (hasFocus) widget.onFocus();
+      },
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(10),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: widget.onFocus,
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: widget.selected
+                    ? colorScheme.primary.withValues(alpha: 0.72)
+                    : colorScheme.outlineVariant.withValues(alpha: 0.45),
+                width: widget.selected ? 1.4 : 1,
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${_moduleDisplayLabel(role, widget.tabIndex + 1)} · '
+                  'B: ${widget.tab.moduleWidthMm ?? '—'} x T: ${widget.tab.moduleDepthMm ?? '—'} mm',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  crossAxisAlignment: WrapCrossAlignment.start,
+                  children: [
+                    SizedBox(
+                      width: 360,
+                      child: _DropdownField(
+                        label: 'Covering / glass type',
+                        value: coveringCode,
+                        options: widget.options,
+                        idSelector: (option) => option.code,
+                        onChanged: _onCoveringChanged,
+                        enabled: widget.enabled,
+                        emptyLabel: '— Covering not selected —',
+                      ),
+                    ),
+                    SizedBox(
+                      width: 260,
+                      child: TextFormField(
+                        controller: _maxWidth,
+                        enabled: hasCovering,
+                        keyboardType: TextInputType.number,
+                        decoration: InputDecoration(
+                          labelText: 'Max glass field width',
+                          suffixText: 'mm',
+                          helperText: hasCovering ? 'Maximum: $_maximumWidth mm' : null,
+                          errorText: _errorText,
+                        ),
+                        onChanged: _onWidthChanged,
+                      ),
+                    ),
+                  ],
+                ),
+                if (hasCovering && module != null) ...[
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 10,
+                    runSpacing: 8,
+                    children: [
+                      _CalculationValueChip(
+                        label: 'Type',
+                        value: coveringName ?? coveringCode ?? '—',
+                        prominent: true,
+                      ),
+                      _CalculationValueChip(
+                        label: 'Quantity',
+                        value: '${module.glassCount}',
+                        prominent: true,
+                      ),
+                      _CalculationValueChip(
+                        label: 'Size',
+                        value: '${module.glassWidthMm} × ${module.glassLengthMm} mm',
+                        prominent: true,
+                      ),
+                      _CalculationValueChip(
+                        label: 'Area',
+                        value: '${module.glassAreaM2.toStringAsFixed(1)} m²',
+                        prominent: true,
+                      ),
+                      _CalculationValueChip(
+                        label: 'Weight',
+                        value: '${_glassWeightKg(module.glassAreaM2, coveringCode).toStringAsFixed(1)} kg',
+                        prominent: true,
+                      ),
+                    ],
+                  ),
+                  if (module.glassDepthFieldCount > 1) ...[
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 8,
+                      children: [
+                        for (var fieldIndex = 1;
+                            fieldIndex <= module.glassDepthFieldCount;
+                            fieldIndex++)
+                          _CalculationValueChip(
+                            label: 'Glass field $fieldIndex/${module.glassDepthFieldCount}',
+                            value: '${(module.glassCount / module.glassDepthFieldCount).round()} sheets · '
+                                '${module.glassWidthMm} × ${module.glassLengthMm} mm',
+                            prominent: true,
+                          ),
+                      ],
+                    ),
+                  ],
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CoveringReferenceParametersCard extends StatelessWidget {
+  const _CoveringReferenceParametersCard({
+    required this.template,
+    required this.options,
+    required this.selectedTypeCodes,
+  });
+
+  final CalculatorTemplateOption template;
+  final List<CalculatorOption> options;
+  final Set<String> selectedTypeCodes;
+
+  @override
+  Widget build(BuildContext context) {
+    final selected = options
+        .where((option) => selectedTypeCodes.contains(option.code))
+        .toList(growable: false);
+    final entries = _coveringTemplateParameterEntries(template);
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Card(
+      margin: EdgeInsets.zero,
+      clipBehavior: Clip.antiAlias,
+      child: ExpansionTile(
+        initiallyExpanded: false,
+        leading: Icon(Icons.tune_outlined, size: 19, color: colorScheme.primary),
+        title: Text(
+          'Covering calculation parameters',
+          style: Theme.of(context).textTheme.titleSmall,
+        ),
+        subtitle: Text(
+          selected.isEmpty
+              ? 'Select a covering to inspect the values used for its panel calculation.'
+              : 'Only the template and reference values used for the selected covering are shown.',
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+              ),
+        ),
+        childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        children: [
+          if (selected.isEmpty)
+            const Align(
+              alignment: Alignment.centerLeft,
+              child: Text('No covering is selected.'),
+            )
+          else ...[
+            for (var optionIndex = 0; optionIndex < selected.length; optionIndex++) ...[
+              _CoveringReferenceGroup(
+                option: selected[optionIndex],
+                template: template,
+              ),
+              if (optionIndex < selected.length - 1) const Divider(height: 24),
+            ],
+            if (entries.isNotEmpty) ...[
+              const Divider(height: 28),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Shared template values',
+                  style: Theme.of(context).textTheme.labelLarge,
+                ),
+              ),
+              const SizedBox(height: 10),
+              for (var index = 0; index < entries.length; index++) ...[
+                _TemplateConstantRow(entry: entries[index]),
+                if (index < entries.length - 1) const Divider(height: 18),
+              ],
+            ],
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _CoveringReferenceGroup extends StatelessWidget {
+  const _CoveringReferenceGroup({
+    required this.option,
+    required this.template,
+  });
+
+  final CalculatorOption option;
+  final CalculatorTemplateOption template;
+
+  @override
+  Widget build(BuildContext context) {
+    final metadata = option.raw['metadata_json'];
+    final metadataMap = metadata is Map
+        ? Map<String, dynamic>.from(metadata)
+        : const <String, dynamic>{};
+    final thicknessMatch = RegExp(r'(\d+(?:[.,]\d+)?)').firstMatch(option.code);
+    final thickness = thicknessMatch?.group(1)?.replaceAll(',', '.');
+    final entries = <_TemplateConstantEntry>[
+      if (thickness != null)
+        _TemplateConstantEntry(
+          path: 'covering.thicknessMm',
+          value: thickness,
+          description: 'Glass thickness used to calculate the covering weight, in millimetres.',
+        ),
+      _TemplateConstantEntry(
+        path: 'covering.maxGlassFieldWidthMm',
+        value: '${template.maxGlassFieldWidthFor(option.code)}',
+        description: 'Maximum panel width resolved for this covering and used to determine beam and glass-field spacing, in millimetres.',
+      ),
+      for (final key in const [
+        'article_no',
+        'color',
+        'extra_discount_pct',
+        'additional_set_discount_pct',
+      ])
+        if (metadataMap[key] != null && '${metadataMap[key]}'.trim().isNotEmpty)
+          _TemplateConstantEntry(
+            path: 'covering.$key',
+            value: _templateConstantValue(metadataMap[key]),
+            description: _coveringReferenceDescription(key),
+          ),
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          '${option.label} (${option.code})',
+          style: Theme.of(context).textTheme.labelLarge,
+        ),
+        const SizedBox(height: 10),
+        for (var index = 0; index < entries.length; index++) ...[
+          _TemplateConstantRow(entry: entries[index]),
+          if (index < entries.length - 1) const Divider(height: 18),
+        ],
+      ],
+    );
+  }
+}
+
+List<_TemplateConstantEntry> _coveringTemplateParameterEntries(
+  CalculatorTemplateOption template,
+) {
+  final nested = template.parametersModuleData['tds_glass_params'] ??
+      template.parametersModuleData['tdsGlassParams'];
+  final moduleParameters = nested is Map
+      ? Map<String, dynamic>.from(nested)
+      : const <String, dynamic>{};
+  Object? valueFor(String camelKey, String snakeKey) =>
+      template.roofParameters[camelKey] ??
+      template.roofParameters[snakeKey] ??
+      moduleParameters[camelKey] ??
+      moduleParameters[snakeKey];
+  const keys = <(String, String)>[
+    ('beamWidthMm', 'beam_width_mm'),
+    ('glassOverlapMm', 'glass_overlap_mm'),
+    ('defaultMaxGlassFieldWidthMm', 'default_max_glass_field_width_mm'),
+    ('glassFrontAddMm', 'glass_front_add_mm'),
+    ('glassDepthJointGapMm', 'glass_depth_joint_gap_mm'),
+    ('singleGlassFieldMaxBeamLengthMm', 'single_glass_field_max_beam_length_mm'),
+    ('wallGutterBlendeClearanceMm', 'wall_gutter_blende_clearance_mm'),
+  ];
+  return [
+    for (final key in keys)
+      if (valueFor(key.$1, key.$2) != null)
+        _TemplateConstantEntry(
+          path: key.$1,
+          value: _templateConstantValue(valueFor(key.$1, key.$2)),
+          description: _templateConstantDescription(key.$1),
+        ),
+  ];
+}
+
+String _coveringReferenceDescription(String key) {
+  switch (key) {
+    case 'article_no':
+      return 'Catalog article used to price the selected covering.';
+    case 'color':
+      return 'Reference color assigned to the selected covering.';
+    case 'extra_discount_pct':
+      return 'Additional covering-specific discount percentage used by pricing.';
+    case 'additional_set_discount_pct':
+      return 'Additional set discount percentage configured for this covering.';
+    default:
+      return 'Reference value used for the selected covering.';
+  }
+}
+
 
 class _MarkiseStep extends StatelessWidget {
   const _MarkiseStep({
@@ -3674,28 +4246,40 @@ class _MarkiseStep extends StatelessWidget {
       final metadata = _markiseMetadata(option);
       return metadata['roof_segment_selectable'] == true;
     }).toList(growable: false);
-    final beamWidthMm = _markiseNumber(
-      selectedTemplate?.roofParameters['beamWidthMm'] ??
-          selectedTemplate?.roofParameters['beam_width_mm'],
-    );
     final serverCalculations = <int, Map<String, dynamic>>{
       for (final entry in _markiseResultCalculations(result))
         if (_markiseInt(entry['module_index']) != null)
           _markiseInt(entry['module_index'])!: entry,
     };
+    Map<String, dynamic>? serverCalculationFor(RoofModuleCalculation module) {
+      final selectedTypeCode = draft.markiseSelections
+          .where((entry) => entry.moduleIndex == module.moduleIndex)
+          .firstOrNull
+          ?.typeCode
+          .trim();
+      final server = serverCalculations[module.moduleIndex];
+      final serverTypeCode = server?['type_code']?.toString().trim() ?? '';
+      if (selectedTypeCode == null ||
+          selectedTypeCode.isEmpty ||
+          server == null ||
+          serverTypeCode != selectedTypeCode) {
+        return null;
+      }
+      return server;
+    }
 
     if (!draft.markiseEnabled) {
       return const _HintCard(
         icon: Icons.blinds_outlined,
         title: 'Markise is disabled',
-        text: 'Enable Add Markise on Model or Covering to configure one awning type per roof segment.',
+        text: 'Enable Add Markise in Model or Covering → Parameters to configure one awning type per roof segment.',
       );
     }
     if (roofCalculation.modules.isEmpty) {
       return const _HintCard(
         icon: Icons.warning_amber_outlined,
         title: 'Roof geometry is not available',
-        text: 'Complete Model, Dimensions and Covering before selecting Markise types.',
+        text: 'Complete Model and Dimensions before selecting Markise types.',
       );
     }
     if (selectableOptions.isEmpty) {
@@ -3705,40 +4289,22 @@ class _MarkiseStep extends StatelessWidget {
       );
     }
 
-    final splitCount = roofCalculation.modules.where((module) {
-      final selection = draft.markiseSelections
-          .where((entry) => entry.moduleIndex == module.moduleIndex)
-          .firstOrNull;
-      final option = selectableOptions
-          .where((entry) => entry.code == selection?.typeCode)
-          .firstOrNull;
-      final preview = option == null
-          ? null
-          : _calculateMarkisePreview(module, option, beamWidthMm);
-      return (preview?.quantity ?? 0) > 1;
-    }).length;
+    final splitCount = roofCalculation.modules
+        .where((module) =>
+            (_markiseInt(serverCalculationFor(module)?['quantity']) ?? 0) > 1)
+        .length;
     final totalWeight = roofCalculation.modules.fold<double>(0, (sum, module) {
       final serverWeight = _markiseNumberOrNull(
-        serverCalculations[module.moduleIndex]?['weight_kg'],
+        serverCalculationFor(module)?['weight_kg'],
       );
-      if (serverWeight != null) return sum + serverWeight;
-      final selection = draft.markiseSelections
-          .where((entry) => entry.moduleIndex == module.moduleIndex)
-          .firstOrNull;
-      final option = selectableOptions
-          .where((entry) => entry.code == selection?.typeCode)
-          .firstOrNull;
-      final preview = option == null
-          ? null
-          : _calculateMarkisePreview(module, option, beamWidthMm);
-      return sum + (preview?.weightKg ?? 0);
+      return sum + (serverWeight ?? 0);
     });
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text(
-          'The segment width is derived from calculated glass fields. Order width and depth follow the legacy configurator formulas; price uses the next matching width/depth matrix cell.',
+          'All Markise quantities, order dimensions, splitting, weight and pricing are calculated only by the server. Select a type and run Calculate to refresh the values.',
         ),
         const SizedBox(height: 12),
         _MarkiseParametersCard(
@@ -3787,8 +4353,7 @@ class _MarkiseStep extends StatelessWidget {
                           .where((entry) => entry.moduleIndex == module.moduleIndex)
                           .firstOrNull
                           ?.typeCode,
-                      beamWidthMm: beamWidthMm,
-                      serverCalculation: serverCalculations[module.moduleIndex],
+                      serverCalculation: serverCalculationFor(module),
                       excludeFromPrice: draft.markiseExcludeFromPrice,
                       onChanged: (value) => notifier.setMarkiseType(
                         moduleIndex: module.moduleIndex,
@@ -4067,7 +4632,6 @@ class _MarkiseSegmentCard extends StatelessWidget {
     required this.module,
     required this.options,
     required this.selectedTypeCode,
-    required this.beamWidthMm,
     required this.serverCalculation,
     required this.excludeFromPrice,
     required this.onChanged,
@@ -4077,7 +4641,6 @@ class _MarkiseSegmentCard extends StatelessWidget {
   final RoofModuleCalculation module;
   final List<CalculatorOption> options;
   final String? selectedTypeCode;
-  final double beamWidthMm;
   final Map<String, dynamic>? serverCalculation;
   final bool excludeFromPrice;
   final ValueChanged<String?> onChanged;
@@ -4085,14 +4648,14 @@ class _MarkiseSegmentCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final selected = options.where((entry) => entry.code == selectedTypeCode).firstOrNull;
-    final preview = selected == null ? null : _calculateMarkisePreview(module, selected, beamWidthMm);
     final server = serverCalculation;
+    final glassFieldCount = _markiseInt(server?['glass_field_count']);
+    final quantity = _markiseInt(server?['quantity']);
+    final orderWidthMm = _markiseInt(server?['order_width_mm']);
+    final orderDepthMm = _markiseInt(server?['order_depth_mm']);
     final unitPrice = server == null ? null : _markiseNumberOrNull(server['unit_price']);
     final amount = server == null ? null : _markiseNumberOrNull(server['amount']);
-    final weightKg = server == null
-        ? preview?.weightKg
-        : _markiseNumberOrNull(server['weight_kg']) ?? preview?.weightKg;
+    final weightKg = server == null ? null : _markiseNumberOrNull(server['weight_kg']);
     final colorScheme = Theme.of(context).colorScheme;
     return Material(
       color: Colors.transparent,
@@ -4141,22 +4704,22 @@ class _MarkiseSegmentCard extends StatelessWidget {
                 children: [
                   _CalculationValueChip(
                     label: 'Glasfelder',
-                    value: '${preview?.glassFieldCount ?? (module.glassCount / math.max(1, module.glassDepthFieldCount)).round()}',
+                    value: glassFieldCount == null ? 'Calculate' : '$glassFieldCount',
                     prominent: true,
                   ),
                   _CalculationValueChip(
                     label: 'Anzahl',
-                    value: preview == null ? '—' : '${preview.quantity}',
+                    value: quantity == null ? 'Calculate' : '$quantity',
                     prominent: true,
                   ),
                   _CalculationValueChip(
                     label: 'Bestell Breite',
-                    value: preview == null ? '—' : '${preview.orderWidthMm} mm',
+                    value: orderWidthMm == null ? 'Calculate' : '$orderWidthMm mm',
                     prominent: true,
                   ),
                   _CalculationValueChip(
                     label: 'Bestell Tiefe',
-                    value: preview == null ? '—' : '${preview.orderDepthMm} mm',
+                    value: orderDepthMm == null ? 'Calculate' : '$orderDepthMm mm',
                     prominent: true,
                   ),
                   _CalculationValueChip(
@@ -4184,68 +4747,9 @@ class _MarkiseSegmentCard extends StatelessWidget {
   }
 }
 
-class _MarkisePreview {
-  const _MarkisePreview({
-    required this.glassFieldCount,
-    required this.quantity,
-    required this.orderWidthMm,
-    required this.orderDepthMm,
-    required this.weightKg,
-  });
-
-  final int glassFieldCount;
-  final int quantity;
-  final int orderWidthMm;
-  final int orderDepthMm;
-  final double weightKg;
-}
-
-_MarkisePreview? _calculateMarkisePreview(
-  RoofModuleCalculation module,
-  CalculatorOption option,
-  double beamWidthMm,
-) {
-  final metadata = _markiseMetadata(option);
-  final maxWidthMm = _markiseNumber(metadata['max_width_mm']);
-  if (beamWidthMm <= 0 || maxWidthMm <= 0) return null;
-  final widthDeductionMm = _markiseNumber(metadata['width_deduction_mm']);
-  final depthDeductionMm = _markiseNumber(metadata['depth_deduction_mm']);
-  final weightPerSqmKg = _markiseNumber(
-    metadata['weight_per_sqm_kg'] ?? metadata['average_weight_kg'],
-  );
-  final glassFieldCount = math.max(
-    1,
-    (module.glassCount / math.max(1, module.glassDepthFieldCount)).round(),
-  ).toInt();
-  final totalSpanMm = (
-    beamWidthMm + glassFieldCount * (beamWidthMm + module.beamStepMm)
-  ).round();
-  final quantity = math.max(1, (totalSpanMm / maxWidthMm).ceil()).toInt();
-  final orderWidthMm = math.max(
-    1,
-    ((totalSpanMm + (quantity - 1) * beamWidthMm) / quantity - widthDeductionMm).round(),
-  ).toInt();
-  final orderDepthMm = math.max(1, (module.beamLengthMm - depthDeductionMm).round()).toInt();
-  final weightKg = weightPerSqmKg > 0
-      ? quantity * (orderWidthMm / 1000) * (orderDepthMm / 1000) * weightPerSqmKg
-      : 0.0;
-  return _MarkisePreview(
-    glassFieldCount: glassFieldCount,
-    quantity: quantity,
-    orderWidthMm: orderWidthMm,
-    orderDepthMm: orderDepthMm,
-    weightKg: weightKg,
-  );
-}
-
 Map<String, dynamic> _markiseMetadata(CalculatorOption option) {
   final raw = option.raw['metadata_json'];
   return raw is Map ? Map<String, dynamic>.from(raw) : const {};
-}
-
-double _markiseNumber(Object? value) {
-  if (value is num) return value.toDouble();
-  return double.tryParse('$value') ?? 0;
 }
 
 double? _markiseNumberOrNull(Object? value) {
@@ -4269,17 +4773,12 @@ List<Map<String, dynamic>> _markiseResultCalculations(CalculatorResult? result) 
 List<GeometryPreviewMarkiseSegment> _geometryPreviewMarkiseSegments({
   required CalculatorDraft draft,
   required CalculatorContext calculatorContext,
-  required CalculatorTemplateOption? selectedTemplate,
   required RoofGeometryCalculation roofCalculation,
   required CalculatorResult? result,
 }) {
   if (!draft.markiseEnabled || roofCalculation.modules.isEmpty) return const [];
 
   final options = calculatorContext.references['awning_models'] ?? const [];
-  final beamWidthMm = _markiseNumber(
-    selectedTemplate?.roofParameters['beamWidthMm'] ??
-        selectedTemplate?.roofParameters['beam_width_mm'],
-  );
   final serverByModule = <int, Map<String, dynamic>>{
     for (final entry in _markiseResultCalculations(result))
       if (_markiseInt(entry['module_index']) != null)
@@ -4296,11 +4795,10 @@ List<GeometryPreviewMarkiseSegment> _geometryPreviewMarkiseSegments({
     final option = options
         .where((entry) => entry.code == selection.typeCode)
         .firstOrNull;
-    final preview = option == null
-        ? null
-        : _calculateMarkisePreview(module, option, beamWidthMm);
     final server = serverByModule[module.moduleIndex];
-    final quantity = preview?.quantity ?? _markiseInt(server?['quantity']) ?? 0;
+    final serverTypeCode = server?['type_code']?.toString().trim() ?? '';
+    if (serverTypeCode != selection.typeCode.trim()) continue;
+    final quantity = _markiseInt(server?['quantity']) ?? 0;
     if (quantity <= 0) continue;
 
     final serverLabel = server?['type_label']?.toString().trim();
@@ -4414,64 +4912,6 @@ class _DeliveryStepState extends State<_DeliveryStep> {
   }
 }
 
-class _SelectStep extends StatelessWidget {
-  const _SelectStep({
-    required this.title,
-    required this.description,
-    required this.value,
-    required this.options,
-    required this.onChanged,
-    required this.emptyLabel,
-    this.aboveSelector,
-    this.trailing,
-  });
-
-  final String title;
-  final String description;
-  final String? value;
-  final List<CalculatorOption> options;
-  final ValueChanged<String?> onChanged;
-  final String? emptyLabel;
-  final Widget? aboveSelector;
-  final Widget? trailing;
-
-  @override
-  Widget build(BuildContext context) {
-    final selector = _DropdownField(
-      label: title,
-      value: value,
-      options: options,
-      idSelector: (option) => option.code,
-      onChanged: onChanged,
-      emptyLabel: emptyLabel,
-    );
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(title, style: Theme.of(context).textTheme.titleMedium),
-        const SizedBox(height: 8),
-        Text(description),
-        if (aboveSelector != null) ...[
-          const SizedBox(height: 12),
-          aboveSelector!,
-        ],
-        const SizedBox(height: 16),
-        if (trailing == null)
-          selector
-        else
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(child: selector),
-              const SizedBox(width: 16),
-              trailing!,
-            ],
-          ),
-      ],
-    );
-  }
-}
 
 class _ColorStep extends StatefulWidget {
   const _ColorStep({
@@ -4917,9 +5357,9 @@ class _SetContentsStepState extends State<_SetContentsStep> {
       children: [
         Text('Set contents / Calculated segments', style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 8),
-        const Text(
-          'The module structure is fixed by the selected roof model. Calculated profile segments describe the physical construction and are not added to the price as ordinary options. Use Override only for a deliberate production correction; add separate manual components when required.',
-        ),
+        //const Text(
+        //  'The module structure is fixed by the selected roof model. Calculated profile segments describe the physical construction and are not added to the price as ordinary options. Use Override only for a deliberate production correction; add separate manual components when required.',
+        //),
         const SizedBox(height: 10),
         if (isLoading) ...[
           const LinearProgressIndicator(),
@@ -5992,11 +6432,44 @@ class _SetContentVisibleRow {
   final CalculatorSetContentItem item;
 }
 
+bool _metadataFlagEnabled(Object? value) {
+  if (value is bool) return value;
+  final normalized = '$value'.trim().toLowerCase();
+  return normalized == 'true' || normalized == '1' || normalized == 'yes';
+}
+
+bool _showAccessoryInModuleSetContents(
+  CalculatorContext contextData,
+  CalculatorSetContentItem item,
+) {
+  final source = item.sourceComponent;
+  if (_metadataFlagEnabled(
+    source['show_in_module_set_contents'] ??
+        source['showInModuleSetContents'],
+  )) {
+    return true;
+  }
+
+  final catalogItem = _catalogItemForSetContent(contextData, item);
+  final rawAttributes = catalogItem?.raw['attributes_json'] ??
+      catalogItem?.raw['attributesJson'];
+  if (rawAttributes is! Map) return false;
+  final attributes = Map<String, dynamic>.from(rawAttributes);
+  return _metadataFlagEnabled(
+    attributes['show_in_module_set_contents'] ??
+        attributes['showInModuleSetContents'],
+  );
+}
+
 List<_SetContentVisibleRow> _visibleSetContentRows(CalculatorContext contextData, CalculatorSetContentTab tab) {
   final rows = <_SetContentVisibleRow>[];
   for (var i = 0; i < tab.items.length; i++) {
     final item = tab.items[i];
-    if (item.isDerivedOverride || _isAccessorySetContentItem(contextData, item)) continue;
+    if (item.isDerivedOverride) continue;
+    if (_isAccessorySetContentItem(contextData, item) &&
+        !_showAccessoryInModuleSetContents(contextData, item)) {
+      continue;
+    }
     rows.add(_SetContentVisibleRow(itemIndex: i, item: item));
   }
   return rows;
@@ -8666,14 +9139,9 @@ class _GeometryPreviewTab extends StatelessWidget {
       roofModelState: roofModelState,
       result: result,
     );
-    final selectedTemplate = calculatorContext.templates
-        .where((template) => template.id == draft.templateId)
-        .cast<CalculatorTemplateOption?>()
-        .firstOrNull;
     final markiseSegments = _geometryPreviewMarkiseSegments(
       draft: draft,
       calculatorContext: calculatorContext,
-      selectedTemplate: selectedTemplate,
       roofCalculation: previewData.roofCalculation,
       result: result,
     );
@@ -9088,24 +9556,6 @@ Map<String, List<String>> _calculatorAttentionMessagesByStep({
       result: result,
       preview: setContentsPreview,
     );
-    final profileLines = assemblyLines.where((line) {
-      final article = _staticBeamAssemblyLineArticle(line);
-      return article == '15187' || article == '15186';
-    }).toList(growable: false);
-    final accessoryLines = assemblyLines.where((line) {
-      final article = _staticBeamAssemblyLineArticle(line);
-      return article == '6010' || article == '6122';
-    }).toList(growable: false);
-    if (profileLines.isNotEmpty) {
-      final message = 'Statikträger set components: '
-          '${profileLines.map(_attentionBomLineLabel).join('; ')}.';
-      _addAttentionMessage(grouped, const ['model', 'set_contents'], message);
-    }
-    if (accessoryLines.isNotEmpty) {
-      final message = 'Statikträger accessories: '
-          '${accessoryLines.map(_attentionBomLineLabel).join('; ')}.';
-      _addAttentionMessage(grouped, const ['model', 'accessory'], message);
-    }
     final changedLines = assemblyLines.where(_isManualOrChangedLine).toList();
     final changedSetContentItems =
         _staticBeamManualOrChangedSetContentItems(draft);
@@ -9122,19 +9572,6 @@ Map<String, List<String>> _calculatorAttentionMessagesByStep({
       );
     }
 
-    if (draft.staticBeamPositionCode == 'rear_wall') {
-      final geometry = _attentionRecord(result?.sources['roof_geometry']);
-      final width = _num(
-        geometry['static_beam_overall_width_mm'] ?? draft.widthMm,
-      );
-      if (width > 0) {
-        _addAttentionMessage(
-          grouped,
-          assemblySteps,
-          'Hinten+Wand selected. Blech - ${_formatLengthNumber(width)} mm.',
-        );
-      }
-    }
   }
 
   final deltaLines = result?.setDeltaBom ??
@@ -9296,6 +9733,90 @@ String _warningStepKey(Map<String, dynamic> warning) {
   return 'summary';
 }
 
+bool _isAbzugWarningRecord(Map<String, dynamic> warning) {
+  final code = '${warning['code'] ?? ''}'.trim().toLowerCase();
+  final message = '${warning['message'] ?? ''}'.trim().toLowerCase();
+  return code.contains('abzug') || message.contains('abzug');
+}
+
+bool _isAbzugDiagnosticRecord(Map<String, dynamic> row) {
+  final optionCode = '${row['option_code'] ?? ''}'.trim().toUpperCase();
+  final warning = '${row['warning'] ?? ''}'.trim().toLowerCase();
+  return optionCode.startsWith('ABZUG:') || warning.contains('abzug');
+}
+
+String? _combinedAbzugWarningMessage({
+  required CalculatorDraft draft,
+  CalculatorResult? result,
+  CalculatorSetContentsPreview? setContentsPreview,
+  Iterable<Map<String, dynamic>> warningRecords = const [],
+}) {
+  final deltaLines = result?.setDeltaBom ??
+      setContentsPreview?.setDeltaBom ??
+      const <Map<String, dynamic>>[];
+  final setQuantityLines = deltaLines
+      .where(_isMissingSetPieceAbzugCase)
+      .toList(growable: false);
+  final parts = <String>[];
+
+  if (setQuantityLines.isNotEmpty) {
+    final articles = setQuantityLines
+        .map(_bomArticleNo)
+        .where((article) => article.isNotEmpty)
+        .toSet()
+        .toList(growable: false);
+    final includedCount = setQuantityLines.where((line) {
+      final article = _bomArticleNo(line);
+      return article.isNotEmpty &&
+          draft.missingSetPieceAbzugArticleNos.contains(article);
+    }).length;
+    final state = includedCount == 0
+        ? 'excluded from pricing'
+        : includedCount == setQuantityLines.length
+            ? 'included in pricing'
+            : 'only partially included in pricing';
+    parts.add(
+      articles.isEmpty
+          ? 'set-quantity Abzug is $state'
+          : 'set-quantity Abzug for ${articles.join(', ')} is $state',
+    );
+  }
+
+  final missingPriceLabels = <String>{};
+  for (final row in result?.setDeltaDiagnostics ??
+      const <Map<String, dynamic>>[]) {
+    if (!_isAbzugDiagnosticRecord(row) || row['price_found'] != false) {
+      continue;
+    }
+    final optionCode = '${row['option_code'] ?? ''}'.trim();
+    final article = '${row['article_no'] ?? row['profile_no'] ?? ''}'.trim();
+    final targetArticle = article.isNotEmpty
+        ? article
+        : optionCode.toUpperCase().startsWith('ABZUG:')
+            ? optionCode.substring('ABZUG:'.length).trim()
+            : '';
+    final name = '${row['name'] ?? ''}'.trim();
+    final label = targetArticle.isNotEmpty
+        ? targetArticle
+        : name.isNotEmpty
+            ? name
+            : optionCode;
+    if (label.isNotEmpty) missingPriceLabels.add(label);
+  }
+  if (missingPriceLabels.isNotEmpty) {
+    parts.add(
+      'no Abzug price is configured for ${missingPriceLabels.join(', ')}',
+    );
+  }
+
+  final hasRawAbzugWarning = warningRecords.any(_isAbzugWarningRecord);
+  if (parts.isEmpty && !hasRawAbzugWarning) return null;
+  if (parts.isEmpty) parts.add('the Abzug configuration requires review');
+
+  return 'Abzug requires review: ${parts.join('; ')}. '
+      'Review Set contents > Current set delta.';
+}
+
 Map<String, List<String>> _calculatorWarningMessagesByStep({
   required CalculatorDraft draft,
   CalculatorResult? result,
@@ -9304,6 +9825,14 @@ Map<String, List<String>> _calculatorWarningMessagesByStep({
   Iterable<String> standardColorCodes = const [],
 }) {
   final grouped = <String, List<String>>{};
+  final previewWarnings =
+      setContentsPreview?.warnings ?? const <Map<String, dynamic>>[];
+  final resultWarnings = result?.warnings ?? const <Map<String, dynamic>>[];
+  final allWarningRecords = <Map<String, dynamic>>[
+    ...catalogWarnings,
+    ...previewWarnings,
+    ...resultWarnings,
+  ];
 
   for (final message in _moduleDimensionWarningMessages(draft)) {
     _addWarningMessage(grouped, 'dimensions', message);
@@ -9326,6 +9855,7 @@ Map<String, List<String>> _calculatorWarningMessagesByStep({
   }
 
   for (final warning in catalogWarnings) {
+    if (_isAbzugWarningRecord(warning)) continue;
     _addWarningMessage(
       grouped,
       _warningStepKey(warning),
@@ -9333,7 +9863,8 @@ Map<String, List<String>> _calculatorWarningMessagesByStep({
     );
   }
 
-  for (final warning in setContentsPreview?.warnings ?? const []) {
+  for (final warning in previewWarnings) {
+    if (_isAbzugWarningRecord(warning)) continue;
     _addWarningMessage(
       grouped,
       _warningStepKey(warning),
@@ -9341,13 +9872,25 @@ Map<String, List<String>> _calculatorWarningMessagesByStep({
     );
   }
 
-  if (result == null) return grouped;
+  if (result == null) {
+    final abzugMessage = _combinedAbzugWarningMessage(
+      draft: draft,
+      setContentsPreview: setContentsPreview,
+      warningRecords: allWarningRecords,
+    );
+    if (abzugMessage != null) {
+      _addWarningMessage(grouped, 'set_contents', abzugMessage);
+    }
+    return grouped;
+  }
 
-  for (final warning in result.warnings) {
+  for (final warning in resultWarnings) {
     final code = '${warning['code'] ?? ''}'.trim().toLowerCase();
     // Option warnings are routed more accurately through their existing
     // per-section diagnostics below.
-    if (code.startsWith('option_')) continue;
+    if (code.startsWith('option_') || _isAbzugWarningRecord(warning)) {
+      continue;
+    }
     _addWarningMessage(
       grouped,
       _warningStepKey(warning),
@@ -9357,9 +9900,11 @@ Map<String, List<String>> _calculatorWarningMessagesByStep({
 
   void addDiagnosticWarnings(
     String stepKey,
-    List<Map<String, dynamic>> diagnostics,
-  ) {
+    List<Map<String, dynamic>> diagnostics, {
+    bool skipAbzug = false,
+  }) {
     for (final row in diagnostics) {
+      if (skipAbzug && _isAbzugDiagnosticRecord(row)) continue;
       final warning = '${row['warning'] ?? ''}'.trim();
       if (warning.isNotEmpty) {
         _addWarningMessage(grouped, stepKey, warning);
@@ -9379,6 +9924,7 @@ Map<String, List<String>> _calculatorWarningMessagesByStep({
   addDiagnosticWarnings(
     'set_contents',
     result.setDeltaDiagnostics,
+    skipAbzug: true,
   );
   addDiagnosticWarnings(
     'set_contents',
@@ -9392,6 +9938,16 @@ Map<String, List<String>> _calculatorWarningMessagesByStep({
     'options',
     result.optionDiagnostics,
   );
+
+  final abzugMessage = _combinedAbzugWarningMessage(
+    draft: draft,
+    result: result,
+    setContentsPreview: setContentsPreview,
+    warningRecords: allWarningRecords,
+  );
+  if (abzugMessage != null) {
+    _addWarningMessage(grouped, 'set_contents', abzugMessage);
+  }
 
   final missingWeightItems =
       (result.weights['missing_weight_items'] as List? ?? const [])
@@ -10357,6 +10913,7 @@ class _DropdownField extends StatelessWidget {
     required this.idSelector,
     required this.onChanged,
     this.emptyLabel,
+    this.enabled = true,
   });
 
   final String label;
@@ -10365,6 +10922,7 @@ class _DropdownField extends StatelessWidget {
   final String Function(CalculatorOption option) idSelector;
   final ValueChanged<String?> onChanged;
   final String? emptyLabel;
+  final bool enabled;
 
   @override
   Widget build(BuildContext context) {
@@ -10381,7 +10939,9 @@ class _DropdownField extends StatelessWidget {
             child: Text(option.label, overflow: TextOverflow.ellipsis),
           ),
       ],
-      onChanged: (next) => onChanged(next == '' ? null : next),
+      onChanged: enabled
+          ? (next) => onChanged(next == '' ? null : next)
+          : null,
     );
   }
 }
@@ -10453,7 +11013,6 @@ class _NumberField extends StatelessWidget {
     this.focusNode,
     this.suffixText = 'mm',
     this.errorText,
-    this.helperText,
   });
 
   final String label;
@@ -10462,7 +11021,6 @@ class _NumberField extends StatelessWidget {
   final FocusNode? focusNode;
   final String suffixText;
   final String? errorText;
-  final String? helperText;
 
   @override
   Widget build(BuildContext context) {
@@ -10476,7 +11034,6 @@ class _NumberField extends StatelessWidget {
           labelText: label,
           suffixText: suffixText,
           errorText: errorText,
-          helperText: helperText,
         ),
         onChanged: onChanged,
       ),
@@ -10755,7 +11312,10 @@ dynamic _stablePriceValue(dynamic value) {
 bool _isStepComplete(String key, CalculatorDraft draft) {
   switch (key) {
     case 'product':
-      return draft.priceMode.isNotEmpty;
+      return (draft.organizationId ?? '').trim().isNotEmpty &&
+          (draft.productFamilyId ?? '').trim().isNotEmpty &&
+          draft.priceMode.trim().isNotEmpty &&
+          (draft.quoteNoExternal ?? '').trim().isNotEmpty;
     case 'template':
       return draft.templateId != null;
     case 'model':
@@ -10763,7 +11323,7 @@ bool _isStepComplete(String key, CalculatorDraft draft) {
     case 'dimensions':
       return draft.widthMm != null && draft.depthMm != null;
     case 'covering':
-      return draft.coveringCode != null;
+      return true;
     case 'markise':
       return draft.markiseEnabled && draft.markiseSelections.isNotEmpty;
     case 'color':
@@ -10780,6 +11340,41 @@ bool _isStepComplete(String key, CalculatorDraft draft) {
       return draft.templateId != null && draft.widthMm != null && draft.depthMm != null;
     default:
       return false;
+  }
+}
+
+
+String? _stepValidationMessage(
+  String key,
+  CalculatorDraft draft,
+  _RoofModelStepState roofModelState,
+) {
+  switch (key) {
+    case 'product':
+      final missing = <String>[
+        if ((draft.organizationId ?? '').trim().isEmpty) 'Customer',
+        if ((draft.productFamilyId ?? '').trim().isEmpty) 'Product family',
+        if (draft.priceMode.trim().isEmpty) 'Price mode',
+        if ((draft.quoteNoExternal ?? '').trim().isEmpty) 'Kommission name',
+      ];
+      return missing.isEmpty
+          ? null
+          : 'Fill all required Product fields: ${missing.join(', ')}. Quote notes remain optional.';
+    case 'template':
+      return (draft.templateId ?? '').trim().isEmpty
+          ? 'Select a configurator template before continuing.'
+          : null;
+    case 'model':
+      if (!roofModelState.required) return null;
+      return roofModelState.isSelected(draft.modelCode)
+          ? null
+          : 'Select a roof model / construction type before continuing.';
+    case 'color':
+      return (draft.colorCode ?? '').trim().isEmpty
+          ? 'Select a color before continuing.'
+          : null;
+    default:
+      return null;
   }
 }
 

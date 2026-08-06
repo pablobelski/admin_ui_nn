@@ -59,7 +59,6 @@ String _setContentsRequestSignature(CalculatorDraft draft) {
     'width_mm': draft.widthMm,
     'depth_mm': draft.depthMm,
     'height_mm': draft.heightMm,
-    'covering_code': draft.coveringCode,
     'color_code': draft.colorCode,
     'roof_angle_deg': draft.roofAngleDeg,
     'roof_rear_height_mm': draft.roofRearHeightMm,
@@ -68,7 +67,8 @@ String _setContentsRequestSignature(CalculatorDraft draft) {
     'wall_mounted': draft.wallMounted,
     'add_static_beam_assembly': draft.addStaticBeamAssembly,
     'static_beam_position_code': draft.staticBeamPositionCode,
-    'max_glass_field_width_mm': draft.maxGlassFieldWidthMm,
+    'static_beam_length_calculation_method':
+        draft.staticBeamLengthCalculationMethod,
     'missing_set_piece_abzug_article_nos': [
       ...draft.missingSetPieceAbzugArticleNos,
     ]..sort(),
@@ -79,6 +79,8 @@ String _setContentsRequestSignature(CalculatorDraft draft) {
           'role': tab.moduleRole,
           'width_mm': tab.moduleWidthMm,
           'depth_mm': tab.moduleDepthMm,
+          'covering_code': tab.moduleCoveringCode,
+          'max_glass_field_width_mm': tab.moduleMaxGlassFieldWidthMm,
         },
     ],
   });
@@ -136,6 +138,7 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
       clearTemplate: true,
       clearModel: true,
       clearMaxGlassFieldWidth: true,
+      clearCovering: true,
       markiseSelections: const [],
       setContents: const [],
       missingSetPieceAbzugArticleNos: const [],
@@ -151,6 +154,7 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
       clearTemplate: nextValue == null,
       clearModel: true,
       clearMaxGlassFieldWidth: true,
+      clearCovering: true,
       markiseSelections: const [],
       setContents: const [],
       missingSetPieceAbzugArticleNos: const [],
@@ -170,6 +174,8 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
       state.copyWith(
         modelCode: nextValue,
         clearModel: nextValue == null,
+        clearMaxGlassFieldWidth: true,
+        clearCovering: true,
         markiseSelections: const [],
         setContents: preserveSetContents ? state.setContents : const [],
         missingSetPieceAbzugArticleNos:
@@ -247,6 +253,25 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
             : state.staticBeamPositionCode,
       );
 
+  void setCoveringEnabled(bool value) {
+    if (value) {
+      state = state.copyWith(coveringEnabled: true);
+      return;
+    }
+    state = state.copyWith(
+      coveringEnabled: false,
+      clearCovering: true,
+      clearMaxGlassFieldWidth: true,
+      setContents: [
+        for (final tab in state.setContents)
+          tab
+              .withGeometryText('covering_code', null)
+              .withGeometryText('glass_type_code', null)
+              .withGeometryValue('max_glass_field_width_mm', null),
+      ],
+    );
+  }
+
   void setMarkiseEnabled(bool value) => state = state.copyWith(
         markiseEnabled: value,
         markiseExcludeFromPrice:
@@ -287,6 +312,20 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
     state = state.copyWith(staticBeamPositionCode: normalized);
   }
 
+  void setStaticBeamLengthCalculationMethod(String? value) {
+    final normalized = value?.trim();
+    if (!const {
+      'legacy_rounded',
+      'shortest_sku',
+      'installed_length',
+    }.contains(normalized)) {
+      return;
+    }
+    state = state.copyWith(
+      staticBeamLengthCalculationMethod: normalized,
+    );
+  }
+
   void setMaxGlassFieldWidthValue(int? value) => state = state.copyWith(
         maxGlassFieldWidthMm: value,
         clearMaxGlassFieldWidth: value == null,
@@ -303,6 +342,41 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
       setContents: [
         for (final tab in state.setContents) tab.copyWith(items: const []),
       ],
+    );
+  }
+
+  void setSetContentModuleCovering(int tabIndex, String? value) {
+    _ensureSetContentModuleCount(tabIndex + 1);
+    if (tabIndex < 0 || tabIndex >= state.setContents.length) return;
+    final normalized = value?.trim();
+    final tabs = [...state.setContents];
+    tabs[tabIndex] = tabs[tabIndex]
+        .withGeometryText(
+          'covering_code',
+          normalized == null || normalized.isEmpty ? null : normalized,
+        )
+        .withGeometryText(
+          'glass_type_code',
+          normalized == null || normalized.isEmpty ? null : normalized,
+        )
+        .copyWith(items: const []);
+    state = state.copyWith(
+      setContents: tabs,
+      clearCovering: true,
+      clearMaxGlassFieldWidth: true,
+    );
+  }
+
+  void setSetContentModuleMaxGlassFieldWidth(int tabIndex, int? value) {
+    _ensureSetContentModuleCount(tabIndex + 1);
+    if (tabIndex < 0 || tabIndex >= state.setContents.length) return;
+    final tabs = [...state.setContents];
+    tabs[tabIndex] = tabs[tabIndex]
+        .withGeometryValue('max_glass_field_width_mm', value)
+        .copyWith(items: const []);
+    state = state.copyWith(
+      setContents: tabs,
+      clearMaxGlassFieldWidth: true,
     );
   }
 

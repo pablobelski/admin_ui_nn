@@ -1311,7 +1311,6 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
         backgroundPaint,
       );
     }
-
     const pad = 12.0;
     const labelBottom = 22.0;
     const sideGap = 10.0;
@@ -1449,6 +1448,7 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     if (!geometryOnly) {
       _drawPlanInset(canvas, sideRect, layout, profile, params);
     }
+    _drawOverallRoofDimensions(canvas, layout);
   }
 
   _RoofProfile _shapeFromText(String value) {
@@ -3193,6 +3193,47 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
       textDirection: ui.TextDirection.ltr,
     )..layout(maxWidth: 86);
     painter.paint(canvas, at - Offset(painter.width * hAlign, painter.height / 2));
+  }
+
+  void _drawOverallRoofDimensions(Canvas canvas, _RoofLayout layout) {
+    final overallWidthMm = widthMm ?? layout.widthMm.round();
+    final overallDepthMm = depthMm ?? layout.depthMm.round();
+    final textPainter = TextPainter(
+      text: TextSpan(
+        text: 'B: $overallWidthMm mm\nT: $overallDepthMm mm',
+        style: TextStyle(
+          color: lineColor,
+          fontSize: geometryOnly ? 13 : 11,
+          height: 1.25,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+      textDirection: ui.TextDirection.ltr,
+    )..layout();
+    final top = alignRoofTop && !geometryOnly ? 30.0 : 8.0;
+    final background = RRect.fromRectAndRadius(
+      Rect.fromLTWH(
+        8,
+        top,
+        textPainter.width + 14,
+        textPainter.height + 10,
+      ),
+      const Radius.circular(6),
+    );
+    canvas.drawRRect(
+      background,
+      Paint()
+        ..style = PaintingStyle.fill
+        ..color = surfaceColor.withValues(alpha: 0.88),
+    );
+    canvas.drawRRect(
+      background,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 0.8
+        ..color = mutedLineColor.withValues(alpha: 0.55),
+    );
+    textPainter.paint(canvas, Offset(15, top + 5));
   }
 
   bool _sameGeometryParams(List<RoofGeometryParam> a, List<RoofGeometryParam> b) {
