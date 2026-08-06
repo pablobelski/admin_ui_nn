@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -267,7 +268,8 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
           tab
               .withGeometryText('covering_code', null)
               .withGeometryText('glass_type_code', null)
-              .withGeometryValue('max_glass_field_width_mm', null),
+              .withGeometryValue('max_glass_field_width_mm', null)
+              .withCoveringAllocations(const []),
       ],
     );
   }
@@ -350,7 +352,7 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
     if (tabIndex < 0 || tabIndex >= state.setContents.length) return;
     final normalized = value?.trim();
     final tabs = [...state.setContents];
-    tabs[tabIndex] = tabs[tabIndex]
+    var updatedTab = tabs[tabIndex]
         .withGeometryText(
           'covering_code',
           normalized == null || normalized.isEmpty ? null : normalized,
@@ -358,7 +360,192 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
         .withGeometryText(
           'glass_type_code',
           normalized == null || normalized.isEmpty ? null : normalized,
-        )
+        );
+    if (normalized == null || normalized.isEmpty) {
+      updatedTab = updatedTab.withCoveringAllocations(const []);
+    }
+    tabs[tabIndex] = updatedTab.copyWith(items: const []);
+    state = state.copyWith(
+      setContents: tabs,
+      clearCovering: true,
+      clearMaxGlassFieldWidth: true,
+    );
+  }
+
+  void addSetContentModuleCoveringAllocation(
+    int tabIndex, {
+    required int quantity,
+    required int totalGlassCount,
+  }) {
+    _ensureSetContentModuleCount(tabIndex + 1);
+    if (tabIndex < 0 || tabIndex >= state.setContents.length) return;
+    final tab = state.setContents[tabIndex];
+    final primaryCode = tab.moduleCoveringCode?.trim() ?? '';
+    if (primaryCode.isEmpty || totalGlassCount <= 1) return;
+    final allocations = [...tab.moduleCoveringAllocations];
+    final available = totalGlassCount -
+        1 -
+        allocations.fold<int>(
+          0,
+          (sum, allocation) => sum + allocation.quantity,
+        );
+    if (available <= 0) return;
+    final normalizedQuantity = quantity.clamp(1, available).toInt();
+    final usedIds = allocations
+        .map((allocation) => allocation.allocationId)
+        .toSet();
+    var sequence = 1;
+    while (usedIds.contains('split-$sequence')) {
+      sequence += 1;
+    }
+    allocations.add(
+      CalculatorCoveringAllocation(
+        allocationId: 'split-$sequence',
+        coveringCode: primaryCode,
+        quantity: normalizedQuantity,
+      ),
+    );
+    _setModuleCoveringAllocations(tabIndex, allocations);
+  }
+
+  void setSetContentModuleCoveringAllocationType(
+    int tabIndex,
+    String allocationId,
+    String? value,
+  ) {
+    if (tabIndex < 0 || tabIndex >= state.setContents.length) return;
+    final normalized = value?.trim();
+    final fallbackCode =
+        state.setContents[tabIndex].moduleCoveringCode?.trim();
+    final nextCode = normalized == null || normalized.isEmpty
+        ? fallbackCode
+        : normalized;
+    final allocations = [
+      for (final allocation
+          in state.setContents[tabIndex].moduleCoveringAllocations)
+        if (allocation.allocationId == allocationId)
+          allocation.copyWith(
+            coveringCode: nextCode,
+            clearCoveringCode: nextCode == null || nextCode.isEmpty,
+          )
+        else
+          allocation,
+    ];
+    _setModuleCoveringAllocations(tabIndex, allocations);
+  }
+
+  void setSetContentModuleCoveringAllocationQuantity(
+    int tabIndex,
+    String allocationId, {
+    required int quantity,
+    required int totalGlassCount,
+  }) {
+    if (tabIndex < 0 || tabIndex >= state.setContents.length) return;
+    final current = state.setContents[tabIndex].moduleCoveringAllocations;
+    final otherQuantity = current
+        .where((allocation) => allocation.allocationId != allocationId)
+        .fold<int>(0, (sum, allocation) => sum + allocation.quantity);
+    final available = totalGlassCount - 1 - otherQuantity;
+    if (available <= 0) return;
+    final normalizedQuantity = quantity.clamp(1, available).toInt();
+    final allocations = [
+      for (final allocation in current)
+        if (allocation.allocationId == allocationId)
+          allocation.copyWith(quantity: normalizedQuantity)
+        else
+          allocation,
+    ];
+    _setModuleCoveringAllocations(tabIndex, allocations);
+  }
+
+  void setSetContentModulePrimaryCoveringQuantity(
+    int tabIndex, {
+    required int quantity,
+    required int totalGlassCount,
+  }) {
+    if (tabIndex < 0 || tabIndex >= state.setContents.length) return;
+    final tab = state.setContents[tabIndex];
+    final primaryCode = tab.moduleCoveringCode?.trim() ?? '';
+    if (primaryCode.isEmpty || totalGlassCount <= 0) return;
+
+    final normalizedPrimary = quantity.clamp(1, totalGlassCount).toInt();
+    var remainingSecondary = totalGlassCount - normalizedPrimary;
+    final allocations = <CalculatorCoveringAllocation>[];
+
+    for (final allocation in tab.moduleCoveringAllocations) {
+      if (remainingSecondary <= 0) break;
+      final allocationQuantity = math.min(
+        allocation.quantity,
+        remainingSecondary,
+      ).toInt();
+      allocations.add(allocation.copyWith(quantity: allocationQuantity));
+      remainingSecondary -= allocationQuantity;
+    }
+
+    if (remainingSecondary > 0) {
+      if (allocations.isNotEmpty) {
+        final lastIndex = allocations.length - 1;
+        allocations[lastIndex] = allocations[lastIndex].copyWith(
+          quantity: allocations[lastIndex].quantity + remainingSecondary,
+        );
+      } else {
+        final usedIds = tab.moduleCoveringAllocations
+            .map((allocation) => allocation.allocationId)
+            .toSet();
+        var sequence = 1;
+        while (usedIds.contains('split-$sequence')) {
+          sequence += 1;
+        }
+        allocations.add(
+          CalculatorCoveringAllocation(
+            allocationId: 'split-$sequence',
+            coveringCode: primaryCode,
+            quantity: remainingSecondary,
+          ),
+        );
+      }
+    }
+
+    _setModuleCoveringAllocations(tabIndex, allocations);
+  }
+
+  void removeSetContentModuleCoveringAllocation(
+    int tabIndex,
+    String allocationId,
+  ) {
+    if (tabIndex < 0 || tabIndex >= state.setContents.length) return;
+    final allocations = state.setContents[tabIndex].moduleCoveringAllocations
+        .where((allocation) => allocation.allocationId != allocationId)
+        .toList(growable: false);
+    _setModuleCoveringAllocations(tabIndex, allocations);
+  }
+
+  void normalizeSetContentModuleCoveringAllocations(
+    int tabIndex,
+    int totalGlassCount,
+  ) {
+    if (tabIndex < 0 || tabIndex >= state.setContents.length) return;
+    var remaining = totalGlassCount <= 1 ? 0 : totalGlassCount - 1;
+    final normalized = <CalculatorCoveringAllocation>[];
+    for (final allocation
+        in state.setContents[tabIndex].moduleCoveringAllocations) {
+      if (remaining <= 0) break;
+      final quantity = allocation.quantity.clamp(1, remaining).toInt();
+      normalized.add(allocation.copyWith(quantity: quantity));
+      remaining -= quantity;
+    }
+    final current = state.setContents[tabIndex].moduleCoveringAllocations;
+    if (_coveringAllocationsEqual(current, normalized)) return;
+    _setModuleCoveringAllocations(tabIndex, normalized);
+  }
+
+  void _setModuleCoveringAllocations(
+    int tabIndex,
+    List<CalculatorCoveringAllocation> allocations,
+  ) {
+    final tabs = [...state.setContents];
+    tabs[tabIndex] = tabs[tabIndex]
+        .withCoveringAllocations(allocations)
         .copyWith(items: const []);
     state = state.copyWith(
       setContents: tabs,
@@ -802,6 +989,23 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
         .where((part) => part.isNotEmpty)
         .map((part) => part[0].toUpperCase() + part.substring(1))
         .join(' ');
+  }
+
+  bool _coveringAllocationsEqual(
+    List<CalculatorCoveringAllocation> left,
+    List<CalculatorCoveringAllocation> right,
+  ) {
+    if (left.length != right.length) return false;
+    for (var index = 0; index < left.length; index++) {
+      final a = left[index];
+      final b = right[index];
+      if (a.allocationId != b.allocationId ||
+          a.coveringCode != b.coveringCode ||
+          a.quantity != b.quantity) {
+        return false;
+      }
+    }
+    return true;
   }
 
   CalculatorSetContentItem _withOverrideState(CalculatorSetContentItem item, String stateCode) {

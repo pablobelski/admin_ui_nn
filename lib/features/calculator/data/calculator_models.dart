@@ -664,6 +664,59 @@ class CalculatorSelectedAdditionalHandling {
   }
 }
 
+class CalculatorCoveringAllocation {
+  const CalculatorCoveringAllocation({
+    required this.allocationId,
+    required this.coveringCode,
+    required this.quantity,
+  });
+
+  factory CalculatorCoveringAllocation.fromJson(Map<String, dynamic> json) {
+    final allocationId = _nullableString(
+      json['allocation_id'] ?? json['allocationId'] ?? json['id'],
+    );
+    final coveringCode = _nullableString(
+      json['glass_type_code'] ??
+          json['glassTypeCode'] ??
+          json['covering_code'] ??
+          json['coveringCode'],
+    );
+    return CalculatorCoveringAllocation(
+      allocationId: allocationId ?? '',
+      coveringCode: coveringCode,
+      quantity: _intOrNull(json['quantity']) ?? 0,
+    );
+  }
+
+  final String allocationId;
+  final String? coveringCode;
+  final int quantity;
+
+  CalculatorCoveringAllocation copyWith({
+    String? allocationId,
+    String? coveringCode,
+    bool clearCoveringCode = false,
+    int? quantity,
+  }) {
+    return CalculatorCoveringAllocation(
+      allocationId: allocationId ?? this.allocationId,
+      coveringCode:
+          clearCoveringCode ? null : coveringCode ?? this.coveringCode,
+      quantity: quantity ?? this.quantity,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'allocation_id': allocationId,
+      if ((coveringCode ?? '').trim().isNotEmpty) ...{
+        'covering_code': coveringCode,
+        'glass_type_code': coveringCode,
+      },
+      'quantity': quantity,
+    };
+  }
+}
 
 class CalculatorSetContentsPreview {
   const CalculatorSetContentsPreview({
@@ -742,6 +795,22 @@ class CalculatorSetContentTab {
   int? get moduleDepthMm => geometryInt('depth_mm');
   String? get moduleCoveringCode =>
       geometryString('glass_type_code') ?? geometryString('covering_code');
+  List<CalculatorCoveringAllocation> get moduleCoveringAllocations =>
+      _list(
+        geometryKey['covering_allocations'] ??
+            geometryKey['coveringAllocations'],
+      )
+          .map(CalculatorCoveringAllocation.fromJson)
+          .where((allocation) =>
+              allocation.allocationId.isNotEmpty && allocation.quantity > 0)
+          .toList(growable: false);
+  List<String> get moduleCoveringTypeCodes => [
+        if ((moduleCoveringCode ?? '').trim().isNotEmpty)
+          moduleCoveringCode!.trim(),
+        for (final allocation in moduleCoveringAllocations)
+          if ((allocation.coveringCode ?? '').trim().isNotEmpty)
+            allocation.coveringCode!.trim(),
+      ];
   int? get moduleMaxGlassFieldWidthMm =>
       geometryInt('max_glass_field_width_mm');
 
@@ -777,6 +846,26 @@ class CalculatorSetContentTab {
       nextGeometry.remove(key);
     } else {
       nextGeometry[key] = normalized;
+    }
+    return copyWith(geometryKey: nextGeometry);
+  }
+
+  CalculatorSetContentTab withCoveringAllocations(
+    List<CalculatorCoveringAllocation> allocations,
+  ) {
+    final nextGeometry = <String, dynamic>{...geometryKey};
+    final normalized = allocations
+        .where((allocation) =>
+            allocation.allocationId.trim().isNotEmpty &&
+            allocation.quantity > 0)
+        .map((allocation) => allocation.toJson())
+        .toList(growable: false);
+    if (normalized.isEmpty) {
+      nextGeometry.remove('covering_allocations');
+      nextGeometry.remove('coveringAllocations');
+    } else {
+      nextGeometry['covering_allocations'] = normalized;
+      nextGeometry.remove('coveringAllocations');
     }
     return copyWith(geometryKey: nextGeometry);
   }
@@ -1101,6 +1190,9 @@ class CalculatorDraft {
               coveringEnabled
                   ? tab.moduleMaxGlassFieldWidthMm ?? legacyMaxGlassFieldWidth
                   : null,
+            )
+            .withCoveringAllocations(
+              coveringEnabled ? tab.moduleCoveringAllocations : const [],
             ),
     ];
     final wallMounted = roof['wall_mounted'] is bool
@@ -1315,8 +1407,7 @@ class CalculatorDraft {
   String? get _commonCoveringCode {
     if (!coveringEnabled) return null;
     final codes = setContents
-        .map((tab) => tab.moduleCoveringCode)
-        .whereType<String>()
+        .expand((tab) => tab.moduleCoveringTypeCodes)
         .map((value) => value.trim())
         .where((value) => value.isNotEmpty)
         .toSet();
@@ -1343,6 +1434,10 @@ class CalculatorDraft {
           'covering_code': tab.moduleCoveringCode ?? coveringCode,
           'glass_type_code': tab.moduleCoveringCode ?? coveringCode,
         },
+        if (coveringEnabled && tab.moduleCoveringAllocations.isNotEmpty)
+          'covering_allocations': tab.moduleCoveringAllocations
+              .map((allocation) => allocation.toJson())
+              .toList(),
         if (coveringEnabled &&
             (tab.moduleMaxGlassFieldWidthMm ?? maxGlassFieldWidthMm) != null)
           'max_glass_field_width_mm':
@@ -1811,6 +1906,14 @@ Map<String, dynamic> _roofModuleGeometry(Map<String, dynamic> module) {
   final maxGlassFieldWidth = _intOrNull(
     module['max_glass_field_width_mm'],
   );
+  final coveringAllocations = _list(
+    module['covering_allocations'] ?? module['coveringAllocations'],
+  )
+      .map(CalculatorCoveringAllocation.fromJson)
+      .where((allocation) =>
+          allocation.allocationId.isNotEmpty && allocation.quantity > 0)
+      .map((allocation) => allocation.toJson())
+      .toList(growable: false);
   return {
     if (role != null) 'role': role,
     if (width != null && width > 0) 'width_mm': width,
@@ -1819,6 +1922,8 @@ Map<String, dynamic> _roofModuleGeometry(Map<String, dynamic> module) {
       'covering_code': covering,
       'glass_type_code': covering,
     },
+    if (coveringAllocations.isNotEmpty)
+      'covering_allocations': coveringAllocations,
     if (maxGlassFieldWidth != null && maxGlassFieldWidth > 0)
       'max_glass_field_width_mm': maxGlassFieldWidth,
   };

@@ -2942,6 +2942,86 @@ class _CalculationValueChip extends StatelessWidget {
   }
 }
 
+class _StableNumberField extends StatefulWidget {
+  const _StableNumberField({
+    super.key,
+    required this.value,
+    required this.enabled,
+    required this.keyboardType,
+    required this.decoration,
+    required this.onChanged,
+    this.inputFormatters,
+    this.onEditingComplete,
+    this.onSubmitted,
+  });
+
+  final String value;
+  final bool enabled;
+  final TextInputType keyboardType;
+  final InputDecoration decoration;
+  final ValueChanged<String> onChanged;
+  final List<TextInputFormatter>? inputFormatters;
+  final VoidCallback? onEditingComplete;
+  final ValueChanged<String>? onSubmitted;
+
+  @override
+  State<_StableNumberField> createState() => _StableNumberFieldState();
+}
+
+class _StableNumberFieldState extends State<_StableNumberField> {
+  late final TextEditingController _controller;
+  late final FocusNode _focusNode;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.value);
+    _focusNode = FocusNode()..addListener(_handleFocusChanged);
+  }
+
+  @override
+  void didUpdateWidget(covariant _StableNumberField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!_focusNode.hasFocus) _syncValue();
+  }
+
+  void _handleFocusChanged() {
+    if (!_focusNode.hasFocus) _syncValue();
+  }
+
+  void _syncValue() {
+    if (_controller.text == widget.value) return;
+    _controller.value = TextEditingValue(
+      text: widget.value,
+      selection: TextSelection.collapsed(offset: widget.value.length),
+    );
+  }
+
+  @override
+  void dispose() {
+    _focusNode
+      ..removeListener(_handleFocusChanged)
+      ..dispose();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return TextFormField(
+      controller: _controller,
+      focusNode: _focusNode,
+      enabled: widget.enabled,
+      keyboardType: widget.keyboardType,
+      inputFormatters: widget.inputFormatters,
+      decoration: widget.decoration,
+      onChanged: widget.onChanged,
+      onEditingComplete: widget.onEditingComplete,
+      onFieldSubmitted: widget.onSubmitted,
+    );
+  }
+}
+
 class _ModuleDimensionField extends StatefulWidget {
   const _ModuleDimensionField({
     super.key,
@@ -3583,17 +3663,52 @@ class _CoveringStepState extends State<_CoveringStep> {
     RoofModuleCalculation? calculatedModule(int index) => roofCalculation.modules
         .where((module) => module.moduleIndex == index + 1)
         .firstOrNull;
+    double moduleCoveringWeight(
+      CalculatorSetContentTab tab,
+      RoofModuleCalculation? module,
+    ) {
+      if (module == null || module.glassCount <= 0) return 0;
+      var remainingSecondary = math.max(0, module.glassCount - 1).toInt();
+      var secondaryQuantity = 0;
+      var weightKg = 0.0;
+      for (final allocation in tab.moduleCoveringAllocations) {
+        if (remainingSecondary <= 0) break;
+        final quantity = math.min(
+          allocation.quantity,
+          remainingSecondary,
+        ).toInt();
+        remainingSecondary -= quantity;
+        secondaryQuantity += quantity;
+        final code = allocation.coveringCode?.trim();
+        if ((code ?? '').isEmpty) continue;
+        weightKg += _glassWeightKg(
+          module.glassAreaM2 * quantity / module.glassCount,
+          code,
+        );
+      }
+      final primaryQuantity = module.glassCount - secondaryQuantity;
+      final primaryCode = tab.moduleCoveringCode?.trim();
+      if (primaryQuantity > 0 && (primaryCode ?? '').isNotEmpty) {
+        weightKg += _glassWeightKg(
+          module.glassAreaM2 * primaryQuantity / module.glassCount,
+          primaryCode,
+        );
+      }
+      return weightKg;
+    }
+
     final totalWeight = widget.draft.coveringEnabled
-        ? List<double>.generate(tabs.length, (index) {
-            final code = tabs[index].moduleCoveringCode;
-            final module = calculatedModule(index);
-            if ((code ?? '').trim().isEmpty || module == null) return 0;
-            return _glassWeightKg(module.glassAreaM2, code);
-          }).fold<double>(0, (sum, value) => sum + value)
+        ? List<double>.generate(
+            tabs.length,
+            (index) => moduleCoveringWeight(
+              tabs[index],
+              calculatedModule(index),
+            ),
+          ).fold<double>(0, (sum, value) => sum + value)
         : 0.0;
     final selectedTypeCodes = tabs
-        .map((tab) => tab.moduleCoveringCode?.trim())
-        .whereType<String>()
+        .expand((tab) => tab.moduleCoveringTypeCodes)
+        .map((code) => code.trim())
         .where((code) => code.isNotEmpty)
         .toSet();
 
@@ -3663,6 +3778,48 @@ class _CoveringStepState extends State<_CoveringStep> {
                                 .setSetContentModuleCovering(index, value),
                             onMaxGlassFieldWidthChanged: (value) => widget.notifier
                                 .setSetContentModuleMaxGlassFieldWidth(index, value),
+                            onSplit: (quantity) => widget.notifier
+                                .addSetContentModuleCoveringAllocation(
+                                  index,
+                                  quantity: quantity,
+                                  totalGlassCount:
+                                      calculatedModule(index)?.glassCount ?? 0,
+                                ),
+                            onPrimaryQuantityChanged: (quantity) =>
+                                widget.notifier
+                                    .setSetContentModulePrimaryCoveringQuantity(
+                                      index,
+                                      quantity: quantity,
+                                      totalGlassCount:
+                                          calculatedModule(index)?.glassCount ?? 0,
+                                    ),
+                            onAllocationCoveringChanged:
+                                (allocationId, value) => widget.notifier
+                                    .setSetContentModuleCoveringAllocationType(
+                                      index,
+                                      allocationId,
+                                      value,
+                                    ),
+                            onAllocationQuantityChanged:
+                                (allocationId, quantity) => widget.notifier
+                                    .setSetContentModuleCoveringAllocationQuantity(
+                                      index,
+                                      allocationId,
+                                      quantity: quantity,
+                                      totalGlassCount:
+                                          calculatedModule(index)?.glassCount ?? 0,
+                                    ),
+                            onAllocationRemoved: (allocationId) => widget.notifier
+                                .removeSetContentModuleCoveringAllocation(
+                                  index,
+                                  allocationId,
+                                ),
+                            onNormalizeAllocations: (totalGlassCount) =>
+                                widget.notifier
+                                    .normalizeSetContentModuleCoveringAllocations(
+                                      index,
+                                      totalGlassCount,
+                                    ),
                             onFocus: () {
                               setState(() => _selectedModuleIndex = index + 1);
                               widget.onModuleFocusChanged(index + 1);
@@ -3772,6 +3929,52 @@ class _CoveringParametersCard extends StatelessWidget {
   }
 }
 
+class _CoveringQuantityField extends StatelessWidget {
+  const _CoveringQuantityField({
+    super.key,
+    required this.value,
+    required this.maximum,
+    required this.enabled,
+    required this.onChanged,
+  });
+
+  final int value;
+  final int maximum;
+  final bool enabled;
+  final ValueChanged<int> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final effectiveMaximum = math.max(1, maximum).toInt();
+    return _StableNumberField(
+      value: value.clamp(1, effectiveMaximum).toString(),
+      enabled: enabled,
+      keyboardType: TextInputType.number,
+      inputFormatters: [
+        FilteringTextInputFormatter.digitsOnly,
+        TextInputFormatter.withFunction((oldValue, newValue) {
+          if (newValue.text.isEmpty) return newValue;
+          final parsed = int.tryParse(newValue.text);
+          if (parsed == null || parsed < 1 || parsed > effectiveMaximum) {
+            return oldValue;
+          }
+          return newValue;
+        }),
+      ],
+      decoration: const InputDecoration(
+        labelText: 'Sheets',
+        isDense: true,
+      ),
+      onChanged: (text) {
+        final parsed = int.tryParse(text);
+        if (parsed != null && parsed >= 1 && parsed <= effectiveMaximum) {
+          onChanged(parsed);
+        }
+      },
+    );
+  }
+}
+
 class _CoveringModuleCard extends StatefulWidget {
   const _CoveringModuleCard({
     super.key,
@@ -3784,6 +3987,12 @@ class _CoveringModuleCard extends StatefulWidget {
     required this.enabled,
     required this.onCoveringChanged,
     required this.onMaxGlassFieldWidthChanged,
+    required this.onSplit,
+    required this.onPrimaryQuantityChanged,
+    required this.onAllocationCoveringChanged,
+    required this.onAllocationQuantityChanged,
+    required this.onAllocationRemoved,
+    required this.onNormalizeAllocations,
     required this.onFocus,
   });
 
@@ -3796,6 +4005,14 @@ class _CoveringModuleCard extends StatefulWidget {
   final bool enabled;
   final ValueChanged<String?> onCoveringChanged;
   final ValueChanged<int?> onMaxGlassFieldWidthChanged;
+  final ValueChanged<int> onSplit;
+  final ValueChanged<int> onPrimaryQuantityChanged;
+  final void Function(String allocationId, String? value)
+      onAllocationCoveringChanged;
+  final void Function(String allocationId, int quantity)
+      onAllocationQuantityChanged;
+  final ValueChanged<String> onAllocationRemoved;
+  final ValueChanged<int> onNormalizeAllocations;
   final VoidCallback onFocus;
 
   @override
@@ -3812,6 +4029,7 @@ class _CoveringModuleCardState extends State<_CoveringModuleCard> {
     _maxWidth = TextEditingController(text: _widthText);
     _errorText = _validationMessage(_maxWidth.text);
     _seedWidth();
+    _normalizeAllocations();
   }
 
   @override
@@ -3821,13 +4039,30 @@ class _CoveringModuleCardState extends State<_CoveringModuleCard> {
     if (_maxWidth.text != text) _maxWidth.text = text;
     _errorText = _validationMessage(_maxWidth.text);
     _seedWidth();
+    _normalizeAllocations();
   }
 
-  int get _defaultWidth => widget.selectedTemplate?.defaultMaxGlassFieldWidthMm ?? 750;
+  int get _defaultWidth =>
+      widget.selectedTemplate?.defaultMaxGlassFieldWidthMm ?? 750;
 
-  int get _maximumWidth => widget.selectedTemplate
-          ?.maxGlassFieldWidthFor(widget.tab.moduleCoveringCode) ??
-      750;
+  int _maximumWidthForCodes(Iterable<String?> codes) {
+    final normalized = codes
+        .map((code) => code?.trim() ?? '')
+        .where((code) => code.isNotEmpty)
+        .toList(growable: false);
+    if (normalized.isEmpty) return _defaultWidth;
+    return normalized
+        .map(
+          (code) =>
+              widget.selectedTemplate?.maxGlassFieldWidthFor(code) ??
+              _defaultWidth,
+        )
+        .reduce((left, right) => math.min(left, right).toInt());
+  }
+
+  int get _maximumWidth => _maximumWidthForCodes(
+        widget.tab.moduleCoveringTypeCodes,
+      );
 
   int get _effectiveWidth => math.min(
         widget.tab.moduleMaxGlassFieldWidthMm ?? _defaultWidth,
@@ -3840,13 +4075,47 @@ class _CoveringModuleCardState extends State<_CoveringModuleCard> {
       : '';
 
   String? _validationMessage(String value) {
-    if (!widget.enabled || (widget.tab.moduleCoveringCode ?? '').trim().isEmpty) {
+    if (!widget.enabled ||
+        (widget.tab.moduleCoveringCode ?? '').trim().isEmpty) {
       return null;
     }
     final parsed = int.tryParse(value.trim());
     if (parsed == null || parsed <= 0) return 'Enter 1–$_maximumWidth mm';
     if (parsed > _maximumWidth) return 'Maximum: $_maximumWidth mm';
     return null;
+  }
+
+  List<CalculatorCoveringAllocation> _effectiveAllocations(
+    RoofModuleCalculation module,
+  ) {
+    var remaining = math.max(0, module.glassCount - 1).toInt();
+    final result = <CalculatorCoveringAllocation>[];
+    for (final allocation in widget.tab.moduleCoveringAllocations) {
+      if (remaining <= 0) break;
+      final quantity = math.min(allocation.quantity, remaining).toInt();
+      result.add(allocation.copyWith(quantity: quantity));
+      remaining -= quantity;
+    }
+    return result;
+  }
+
+  int _primaryQuantity(
+    RoofModuleCalculation module,
+    List<CalculatorCoveringAllocation> allocations,
+  ) {
+    return math.max(
+      0,
+      module.glassCount -
+          allocations.fold<int>(
+            0,
+            (sum, allocation) => sum + allocation.quantity,
+          ),
+    ).toInt();
+  }
+
+  double _areaForQuantity(RoofModuleCalculation module, int quantity) {
+    if (module.glassCount <= 0 || quantity <= 0) return 0;
+    return module.glassAreaM2 * quantity / module.glassCount;
   }
 
   void _seedWidth() {
@@ -3861,6 +4130,23 @@ class _CoveringModuleCardState extends State<_CoveringModuleCard> {
     });
   }
 
+  void _normalizeAllocations() {
+    final module = widget.calculatedModule;
+    if (module == null) return;
+    final current = widget.tab.moduleCoveringAllocations;
+    final effective = _effectiveAllocations(module);
+    final changed = current.length != effective.length ||
+        List<bool>.generate(
+          math.min(current.length, effective.length).toInt(),
+          (index) => current[index].quantity != effective[index].quantity,
+        ).any((value) => value);
+    if (!changed) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      widget.onNormalizeAllocations(module.glassCount);
+    });
+  }
+
   void _onCoveringChanged(String? value) {
     widget.onCoveringChanged(value);
     if ((value ?? '').trim().isEmpty) {
@@ -3869,7 +4155,11 @@ class _CoveringModuleCardState extends State<_CoveringModuleCard> {
       widget.onMaxGlassFieldWidthChanged(null);
       return;
     }
-    final maximum = widget.selectedTemplate?.maxGlassFieldWidthFor(value) ?? 750;
+    final maximum = _maximumWidthForCodes([
+      value,
+      ...widget.tab.moduleCoveringAllocations
+          .map((allocation) => allocation.coveringCode),
+    ]);
     final target = math.min(
       widget.tab.moduleMaxGlassFieldWidthMm ?? _defaultWidth,
       maximum,
@@ -3888,6 +4178,119 @@ class _CoveringModuleCardState extends State<_CoveringModuleCard> {
     }
   }
 
+  Widget _allocationLine({
+    required BuildContext context,
+    required RoofModuleCalculation module,
+    required String? coveringCode,
+    required int quantity,
+    required bool primary,
+    required List<CalculatorCoveringAllocation> allocations,
+    CalculatorCoveringAllocation? allocation,
+  }) {
+    final areaM2 = _areaForQuantity(module, quantity);
+    final weightKg = (coveringCode ?? '').trim().isEmpty
+        ? 0.0
+        : _glassWeightKg(areaM2, coveringCode);
+    final otherQuantity = primary
+        ? 0
+        : allocations
+            .where((entry) => entry.allocationId != allocation!.allocationId)
+            .fold<int>(0, (sum, entry) => sum + entry.quantity);
+    final maximumQuantity = primary
+        ? module.glassCount - otherQuantity
+        : module.glassCount - 1 - otherQuantity;
+    final canSplit = primary && quantity > 1;
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+      decoration: BoxDecoration(
+        color: primary
+            ? colorScheme.surfaceContainerHighest.withValues(alpha: 0.28)
+            : colorScheme.surfaceContainerHighest.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Expanded(
+            child: _DropdownField(
+              label: primary
+                  ? 'Primary covering / glass type'
+                  : 'Covering / glass type',
+              value: coveringCode,
+              options: widget.options,
+              idSelector: (option) => option.code,
+              onChanged: primary
+                  ? _onCoveringChanged
+                  : (value) => widget.onAllocationCoveringChanged(
+                        allocation!.allocationId,
+                        value,
+                      ),
+              enabled: widget.enabled,
+              emptyLabel: '— Covering not selected —',
+            ),
+          ),
+          const SizedBox(width: 8),
+          SizedBox(
+            width: 88,
+            child: _CoveringQuantityField(
+              key: ValueKey(
+                primary
+                    ? 'covering-primary-quantity-${widget.tab.id}'
+                    : 'covering-allocation-quantity-${widget.tab.id}-${allocation!.allocationId}',
+              ),
+              value: quantity,
+              maximum: maximumQuantity,
+              enabled: widget.enabled,
+              onChanged: primary
+                  ? widget.onPrimaryQuantityChanged
+                  : (value) => widget.onAllocationQuantityChanged(
+                        allocation!.allocationId,
+                        value,
+                      ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          SizedBox(
+            width: 112,
+            child: _CalculationValueChip(
+              label: 'Area',
+              value: '${areaM2.toStringAsFixed(2)} m²',
+              prominent: false,
+            ),
+          ),
+          const SizedBox(width: 8),
+          SizedBox(
+            width: 112,
+            child: _CalculationValueChip(
+              label: 'Weight',
+              value: '${weightKg.toStringAsFixed(1)} kg',
+              prominent: false,
+            ),
+          ),
+          const SizedBox(width: 4),
+          if (primary)
+            IconButton.filledTonal(
+              onPressed: canSplit ? () => widget.onSplit(1) : null,
+              tooltip: canSplit
+                  ? 'Add another covering row'
+                  : 'No sheets remain available for another row',
+              icon: const Icon(Icons.add),
+            )
+          else
+            IconButton(
+              onPressed: () => widget.onAllocationRemoved(
+                allocation!.allocationId,
+              ),
+              tooltip: 'Merge these sheets into the primary covering',
+              icon: const Icon(Icons.delete_outline),
+            ),
+        ],
+      ),
+    );
+  }
+
   @override
   void dispose() {
     _maxWidth.dispose();
@@ -3898,12 +4301,91 @@ class _CoveringModuleCardState extends State<_CoveringModuleCard> {
   Widget build(BuildContext context) {
     final module = widget.calculatedModule;
     final coveringCode = widget.tab.moduleCoveringCode;
-    final hasCovering = widget.enabled && (coveringCode ?? '').trim().isNotEmpty;
-    final coveringName = _coveringDisplayName(widget.options, coveringCode);
+    final hasCovering =
+        widget.enabled && (coveringCode ?? '').trim().isNotEmpty;
     final colorScheme = Theme.of(context).colorScheme;
     final role = widget.tab.moduleRole.isEmpty
         ? 'module_${widget.tabIndex + 1}'
         : widget.tab.moduleRole;
+    final allocations = module == null
+        ? const <CalculatorCoveringAllocation>[]
+        : _effectiveAllocations(module);
+    final primaryQuantity =
+        module == null ? 0 : _primaryQuantity(module, allocations);
+    final totalWeight = module == null
+        ? 0.0
+        : [
+            if (primaryQuantity > 0 &&
+                (coveringCode ?? '').trim().isNotEmpty)
+              _glassWeightKg(
+                _areaForQuantity(module, primaryQuantity),
+                coveringCode,
+              ),
+            for (final allocation in allocations)
+              if ((allocation.coveringCode ?? '').trim().isNotEmpty)
+                _glassWeightKg(
+                  _areaForQuantity(module, allocation.quantity),
+                  allocation.coveringCode,
+                ),
+          ].fold<double>(0, (sum, value) => sum + value);
+
+    final maxWidthEnabled = hasCovering && allocations.isEmpty;
+
+    Widget maxWidthField() => Padding(
+          padding: const EdgeInsets.symmetric(vertical: 7),
+          child: TextFormField(
+            controller: _maxWidth,
+            enabled: maxWidthEnabled,
+            keyboardType: TextInputType.number,
+            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+            decoration: InputDecoration(
+              labelText: 'Max glass field width',
+              suffixText: 'mm',
+              helperText: hasCovering ? 'Maximum: $_maximumWidth mm' : null,
+              errorText: _errorText,
+            ),
+            onChanged: _onWidthChanged,
+          ),
+        );
+
+    Widget allocationRows() {
+      if (module == null) {
+        return _DropdownField(
+          label: 'Primary covering / glass type',
+          value: coveringCode,
+          options: widget.options,
+          idSelector: (option) => option.code,
+          onChanged: _onCoveringChanged,
+          enabled: widget.enabled,
+          emptyLabel: '— Covering not selected —',
+        );
+      }
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _allocationLine(
+            context: context,
+            module: module,
+            coveringCode: coveringCode,
+            quantity: primaryQuantity,
+            primary: true,
+            allocations: allocations,
+          ),
+          for (final allocation in allocations) ...[
+            const SizedBox(height: 6),
+            _allocationLine(
+              context: context,
+              module: module,
+              coveringCode: allocation.coveringCode,
+              quantity: allocation.quantity,
+              primary: false,
+              allocations: allocations,
+              allocation: allocation,
+            ),
+          ],
+        ],
+      );
+    }
 
     return Focus(
       onFocusChange: (hasFocus) {
@@ -3932,98 +4414,71 @@ class _CoveringModuleCardState extends State<_CoveringModuleCard> {
               children: [
                 Text(
                   '${_moduleDisplayLabel(role, widget.tabIndex + 1)} · '
-                  'B: ${widget.tab.moduleWidthMm ?? '—'} x T: ${widget.tab.moduleDepthMm ?? '—'} mm',
+                  'B: ${widget.tab.moduleWidthMm ?? '—'} x '
+                  'T: ${widget.tab.moduleDepthMm ?? '—'} mm',
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         fontWeight: FontWeight.w700,
                       ),
                 ),
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
-                  crossAxisAlignment: WrapCrossAlignment.start,
-                  children: [
-                    SizedBox(
-                      width: 360,
-                      child: _DropdownField(
-                        label: 'Covering / glass type',
-                        value: coveringCode,
-                        options: widget.options,
-                        idSelector: (option) => option.code,
-                        onChanged: _onCoveringChanged,
-                        enabled: widget.enabled,
-                        emptyLabel: '— Covering not selected —',
-                      ),
-                    ),
-                    SizedBox(
-                      width: 260,
-                      child: TextFormField(
-                        controller: _maxWidth,
-                        enabled: hasCovering,
-                        keyboardType: TextInputType.number,
-                        decoration: InputDecoration(
-                          labelText: 'Max glass field width',
-                          suffixText: 'mm',
-                          helperText: hasCovering ? 'Maximum: $_maximumWidth mm' : null,
-                          errorText: _errorText,
-                        ),
-                        onChanged: _onWidthChanged,
-                      ),
-                    ),
-                  ],
-                ),
-                if (hasCovering && module != null) ...[
-                  const SizedBox(height: 10),
+                if (module != null) ...[
+                  const SizedBox(height: 8),
                   Wrap(
-                    spacing: 10,
-                    runSpacing: 8,
+                    spacing: 8,
+                    runSpacing: 6,
                     children: [
                       _CalculationValueChip(
-                        label: 'Type',
-                        value: coveringName ?? coveringCode ?? '—',
-                        prominent: true,
-                      ),
-                      _CalculationValueChip(
-                        label: 'Quantity',
+                        label: 'Total sheets',
                         value: '${module.glassCount}',
                         prominent: true,
                       ),
                       _CalculationValueChip(
-                        label: 'Size',
-                        value: '${module.glassWidthMm} × ${module.glassLengthMm} mm',
+                        label: 'Sheet size',
+                        value:
+                            'B: ${module.glassWidthMm} × L: ${module.glassLengthMm} mm',
                         prominent: true,
                       ),
                       _CalculationValueChip(
-                        label: 'Area',
+                        label: 'Total area',
                         value: '${module.glassAreaM2.toStringAsFixed(1)} m²',
                         prominent: true,
                       ),
                       _CalculationValueChip(
-                        label: 'Weight',
-                        value: '${_glassWeightKg(module.glassAreaM2, coveringCode).toStringAsFixed(1)} kg',
+                        label: 'Total weight',
+                        value: '${totalWeight.toStringAsFixed(1)} kg',
                         prominent: true,
                       ),
+                      if (module.glassDepthFieldCount > 1)
+                        _CalculationValueChip(
+                          label: 'Depth fields',
+                          value: '${module.glassDepthFieldCount}',
+                          prominent: false,
+                        ),
                     ],
                   ),
-                  if (module.glassDepthFieldCount > 1) ...[
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 10,
-                      runSpacing: 8,
-                      children: [
-                        for (var fieldIndex = 1;
-                            fieldIndex <= module.glassDepthFieldCount;
-                            fieldIndex++)
-                          _CalculationValueChip(
-                            label: 'Glass field $fieldIndex/${module.glassDepthFieldCount}',
-                            value: '${(module.glassCount / module.glassDepthFieldCount).round()} sheets · '
-                                '${module.glassWidthMm} × ${module.glassLengthMm} mm',
-                            prominent: true,
-                          ),
-                      ],
-                    ),
-                  ],
                 ],
+                const SizedBox(height: 8),
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    if (constraints.maxWidth < 780) {
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          SizedBox(width: 220, child: maxWidthField()),
+                          const SizedBox(height: 8),
+                          allocationRows(),
+                        ],
+                      );
+                    }
+                    return Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        SizedBox(width: 220, child: maxWidthField()),
+                        const SizedBox(width: 12),
+                        Expanded(child: allocationRows()),
+                      ],
+                    );
+                  },
+                ),
               ],
             ),
           ),
@@ -6682,6 +7137,8 @@ class _SetContentTabTableState extends State<_SetContentTabTable> {
         : item.cutGroupIndex != null && (item.cutGroupCount ?? 1) > 1
             ? 'Cut group ${item.cutGroupIndex}/${item.cutGroupCount}'
             : null;
+    final itemIdentity = item.segmentId ??
+        '${item.catalogItemId}:${item.catalogVariantId ?? ''}:${item.articleNo ?? ''}:$index';
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 140),
@@ -6719,11 +7176,11 @@ class _SetContentTabTableState extends State<_SetContentTabTable> {
           _gap(),
           _fixed(
             context,
-            TextFormField(
-              key: ValueKey('set-qty-${widget.tabIndex}-$index-${item.quantity}-${item.overrideState}'),
-              initialValue: _formatInputQuantity(item.quantity),
+            _StableNumberField(
+              key: ValueKey('set-qty-${widget.tabIndex}-$itemIdentity'),
+              value: _formatInputQuantity(item.quantity),
               enabled: item.enabled && editable,
-              keyboardType: TextInputType.number,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
               decoration: const InputDecoration(isDense: true),
               onChanged: (value) => widget.onQuantityChanged(index, num.tryParse(value.replaceAll(',', '.')) ?? item.quantity),
             ),
@@ -6735,9 +7192,9 @@ class _SetContentTabTableState extends State<_SetContentTabTable> {
           _fixed(
             context,
             item.isProfile
-                ? TextFormField(
-                    key: ValueKey('set-length-${widget.tabIndex}-$index-${item.lengthMm}-${item.overrideState}'),
-                    initialValue: item.lengthMm == null ? '' : _formatDecimalNumber(item.lengthMm!),
+                ? _StableNumberField(
+                    key: ValueKey('set-length-${widget.tabIndex}-$itemIdentity'),
+                    value: item.lengthMm == null ? '' : _formatDecimalNumber(item.lengthMm!),
                     enabled: item.enabled && editable,
                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
                     decoration: const InputDecoration(isDense: true, suffixText: 'mm'),
@@ -7122,11 +7579,11 @@ class _AccessoryDisplayRow extends StatelessWidget {
             ),
             SizedBox(
               width: 90,
-              child: TextFormField(
-                key: ValueKey('derived-accessory-${line.articleNo}-${line.quantity}-${line.enabled}'),
-                initialValue: _formatInputQuantity(line.quantity),
+              child: _StableNumberField(
+                key: ValueKey('derived-accessory-${line.articleNo}-${line.sourceText}'),
+                value: _formatInputQuantity(line.quantity),
                 enabled: line.enabled,
-                keyboardType: TextInputType.number,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
                 decoration: const InputDecoration(isDense: true),
                 onChanged: (value) => onQuantityChanged(num.tryParse(value.replaceAll(',', '.')) ?? line.quantity),
               ),
@@ -8337,10 +8794,11 @@ class _SelectedOptionsTable extends StatelessWidget {
           ),
           _cell(
             context,
-            TextFormField(
+            _StableNumberField(
               key: ValueKey('selected-option-qty-$index-${option.catalogItemId ?? option.optionCode ?? ''}-${option.catalogVariantId ?? ''}'),
-              initialValue: _formatInputQuantity(option.quantity),
-              keyboardType: TextInputType.number,
+              value: _formatInputQuantity(option.quantity),
+              enabled: true,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
               decoration: const InputDecoration(isDense: true),
               onChanged: (value) => onQuantityChanged(index, num.tryParse(value.replaceAll(',', '.')) ?? option.quantity),
             ),

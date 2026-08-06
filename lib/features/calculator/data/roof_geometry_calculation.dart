@@ -385,8 +385,21 @@ RoofGeometryCalculation calculateRoofGeometryForDraft({
     final depth = tab.moduleDepthMm;
     if (width == null || depth == null || width <= 0 || depth <= 0) continue;
     final coveringCode = tab.moduleCoveringCode ?? draft.coveringCode;
-    final coveringMaxGlassWidth =
-        template?.maxGlassFieldWidthFor(coveringCode) ?? defaultMaxGlassWidth;
+    final coveringCodes = tab.moduleCoveringTypeCodes.isNotEmpty
+        ? tab.moduleCoveringTypeCodes
+        : [
+            if ((coveringCode ?? '').trim().isNotEmpty)
+              coveringCode!.trim(),
+          ];
+    final coveringMaxGlassWidth = coveringCodes.isEmpty
+        ? defaultMaxGlassWidth
+        : coveringCodes
+            .map(
+              (code) =>
+                  template?.maxGlassFieldWidthFor(code) ??
+                  defaultMaxGlassWidth,
+            )
+            .reduce((left, right) => math.min(left, right).toInt());
     final maxGlassWidth = math.min(
       tab.moduleMaxGlassFieldWidthMm ??
           draft.maxGlassFieldWidthMm ??
