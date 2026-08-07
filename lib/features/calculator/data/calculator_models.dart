@@ -1852,16 +1852,75 @@ List<CalculatorSetContentTab> _restoreSetContentItems(
   if (resultTabs.isEmpty) return inputTabs;
   if (inputTabs.isEmpty) return resultTabs;
 
-  return [
-    for (var index = 0; index < inputTabs.length; index++)
-      inputTabs[index].copyWith(
-        items: resultTabs.firstWhere(
-          (tab) => inputTabs[index].moduleRole.isNotEmpty &&
-              tab.moduleRole == inputTabs[index].moduleRole,
-          orElse: () => resultTabs[index < resultTabs.length ? index : 0],
-        ).items,
-      ),
-  ];
+  CalculatorSetContentItem mergeItem(
+    CalculatorSetContentItem resultItem,
+    CalculatorSetContentItem savedItem,
+  ) {
+    final mergedSource = <String, dynamic>{
+      ...resultItem.sourceComponent,
+      ...savedItem.sourceComponent,
+    };
+    return resultItem.copyWith(
+      catalogVariantId: savedItem.catalogVariantId,
+      quantity: savedItem.quantity,
+      salesUnitCode: savedItem.salesUnitCode,
+      lengthMm: savedItem.lengthMm ?? resultItem.lengthMm,
+      enabled: savedItem.enabled,
+      raw: {
+        ...resultItem.raw,
+        if (mergedSource.isNotEmpty) 'source_component': mergedSource,
+      },
+    );
+  }
+
+  bool sameItem(
+    CalculatorSetContentItem left,
+    CalculatorSetContentItem right,
+  ) {
+    final leftSegmentId = left.segmentId;
+    final rightSegmentId = right.segmentId;
+    if (leftSegmentId != null && rightSegmentId != null) {
+      return leftSegmentId == rightSegmentId;
+    }
+    return left.sourceType == right.sourceType &&
+        left.catalogItemId == right.catalogItemId &&
+        left.catalogVariantId == right.catalogVariantId &&
+        left.articleNo == right.articleNo;
+  }
+
+  CalculatorSetContentTab restoreTab(int tabIndex) {
+    final inputTab = inputTabs[tabIndex];
+    final resultTab = resultTabs.firstWhere(
+      (tab) => inputTab.moduleRole.isNotEmpty &&
+          tab.moduleRole == inputTab.moduleRole,
+      orElse: () =>
+          resultTabs[tabIndex < resultTabs.length ? tabIndex : 0],
+    );
+    final matchedSavedIndexes = <int>{};
+    final items = <CalculatorSetContentItem>[];
+
+    for (final resultItem in resultTab.items) {
+      final savedIndex = inputTab.items.indexWhere(
+        (savedItem) => sameItem(resultItem, savedItem),
+      );
+      if (savedIndex < 0) {
+        items.add(resultItem);
+        continue;
+      }
+      matchedSavedIndexes.add(savedIndex);
+      items.add(mergeItem(resultItem, inputTab.items[savedIndex]));
+    }
+
+    for (var savedIndex = 0; savedIndex < inputTab.items.length; savedIndex++) {
+      if (!matchedSavedIndexes.contains(savedIndex)) {
+        items.add(inputTab.items[savedIndex]);
+      }
+    }
+
+    return inputTab.copyWith(items: items);
+  }
+
+  return List.generate(inputTabs.length, restoreTab, growable: false);
 }
 
 List<CalculatorSetContentTab> _restoreRoofModuleGeometry(

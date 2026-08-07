@@ -622,10 +622,22 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
         throw StateError('Calculator context is not ready.');
       }
 
-      final serverResult = await _requestServerCalculation(
-        draft,
-        clearSavedQuote: false,
-      );
+      // Save must persist exactly the calculation that is on screen. Recalculating
+      // here would re-derive Set contents from the current draft and silently
+      // discard manual composition/quantity overrides that were part of the
+      // result the user is looking at.
+      final serverResult = ref.read(calculatorResultProvider).asData?.value;
+      if (serverResult == null) {
+        throw StateError('Calculate the configuration before saving.');
+      }
+      if (_priceSignature(draft) != _priceSignatureForResult(
+            serverResult,
+            ref.read(loadedQuoteProvider),
+          )) {
+        throw StateError(
+          'The configuration changed after the last calculation. Recalculate before saving.',
+        );
+      }
 
       final selectedTemplate = calculatorContext.templates
           .where((entry) => entry.id == draft.templateId)
@@ -2951,8 +2963,6 @@ class _StableNumberField extends StatefulWidget {
     required this.decoration,
     required this.onChanged,
     this.inputFormatters,
-    this.onEditingComplete,
-    this.onSubmitted,
   });
 
   final String value;
@@ -2961,8 +2971,6 @@ class _StableNumberField extends StatefulWidget {
   final InputDecoration decoration;
   final ValueChanged<String> onChanged;
   final List<TextInputFormatter>? inputFormatters;
-  final VoidCallback? onEditingComplete;
-  final ValueChanged<String>? onSubmitted;
 
   @override
   State<_StableNumberField> createState() => _StableNumberFieldState();
@@ -3016,8 +3024,6 @@ class _StableNumberFieldState extends State<_StableNumberField> {
       inputFormatters: widget.inputFormatters,
       decoration: widget.decoration,
       onChanged: widget.onChanged,
-      onEditingComplete: widget.onEditingComplete,
-      onFieldSubmitted: widget.onSubmitted,
     );
   }
 }
@@ -9199,6 +9205,7 @@ class _ResultPanel extends StatelessWidget {
                 const Divider(height: 1),
                 _ResultActions(
                   canSaveQuote: false,
+                  saveBlockedReason: 'Calculate the configuration before saving',
                   canSaveAsOption: false,
                   isSavingQuote: isSavingQuote,
                   savedQuote: savedQuote,
@@ -9257,6 +9264,7 @@ class _ResultPanel extends StatelessWidget {
                 const Divider(height: 1),
                 _ResultActions(
                   canSaveQuote: false,
+                  saveBlockedReason: 'Calculate the configuration before saving',
                   canSaveAsOption: false,
                   isSavingQuote: isSavingQuote,
                   savedQuote: savedQuote,
@@ -9337,7 +9345,10 @@ class _ResultPanel extends StatelessWidget {
               ),
               const Divider(height: 1),
               _ResultActions(
-                canSaveQuote: true,
+                canSaveQuote: !needsRecalculation,
+                saveBlockedReason: needsRecalculation
+                    ? 'Recalculate: the configuration changed after the last calculation'
+                    : null,
                 canSaveAsOption: draft.canSaveAsOptionFor(loadedQuote),
                 isSavingQuote: isSavingQuote,
                 savedQuote: savedQuote,
@@ -9418,7 +9429,8 @@ class _ResultPanel extends StatelessWidget {
         ),
         const Divider(height: 1),
         _ResultActions(
-          canSaveQuote: true,
+          canSaveQuote: false,
+          saveBlockedReason: 'The last calculation failed; fix the configuration and recalculate',
           canSaveAsOption: draft.canSaveAsOptionFor(loadedQuote),
           isSavingQuote: isSavingQuote,
           savedQuote: savedQuote,
@@ -9695,8 +9707,10 @@ class _ResultActions extends StatelessWidget {
     required this.onSaveQuote,
     required this.quoteId,
     required this.documentsRepository,
+    this.saveBlockedReason,
   });
 
+  final String? saveBlockedReason;
   final bool canSaveQuote;
   final bool canSaveAsOption;
   final bool isSavingQuote;
@@ -9708,12 +9722,13 @@ class _ResultActions extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hint = canSaveAsOption ? 'As New / As Option' : 'As New';
+    final blockedReason = canSaveQuote ? null : saveBlockedReason;
+    final hint = blockedReason ?? (canSaveAsOption ? 'As New / As Option' : 'As New');
     return Padding(
       padding: const EdgeInsets.all(12),
       child: Row(
         children: [
-          if (savedQuote != null)
+          if (savedQuote != null && blockedReason == null)
             Expanded(
               child: Text(
                 'Saved quote: ${savedQuote!.quoteNo}',
@@ -9726,7 +9741,11 @@ class _ResultActions extends StatelessWidget {
               child: Text(
                 hint,
                 overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.bodySmall,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: blockedReason == null
+                          ? null
+                          : Theme.of(context).colorScheme.error,
+                    ),
               ),
             ),
           OutlinedButton.icon(

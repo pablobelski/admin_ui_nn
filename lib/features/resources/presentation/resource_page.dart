@@ -1488,6 +1488,14 @@ class _ResourceDetailsContent extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            _QuoteNumberPlate(
+              quoteNo: _firstText(data['quote_no'], data['quoteNo']),
+              quoteNoExternal: _firstText(
+                data['quote_no_external'],
+                data['quoteNoExternal'],
+              ),
+            ),
+            const SizedBox(height: 12),
             _QuoteDetailsSummaryCard(rows: _quoteDetailsSummaryRows()),
             const SizedBox(height: 12),
             const TabBar(
@@ -1609,7 +1617,6 @@ class _ResourceDetailsContent extends StatelessWidget {
     final buyerValue = data['buyer_organization_id'] ?? data['buyerOrganizationId'];
 
     return [
-      _DetailRowData('Quote no', data['quote_no'] ?? data['quoteNo']),
       _DetailRowData(
         'Buyer',
         _displayValue(
@@ -1926,6 +1933,38 @@ class _QuoteDocumentsTabState extends State<_QuoteDocumentsTab> {
   }
 }
 
+
+// quote_lines stores the gross amount; the values after all discounts live in
+// meta_json.source, written by the calculation engine (net_amount,
+// effective_discount_pct). Fall back to the gross amount when a line has no
+// discount data, e.g. rows imported before the calculation engine wrote it.
+Map<String, dynamic> _quoteLineSource(Map<String, dynamic> row) {
+  final meta = _mapFromJsonLike(row['meta_json'] ?? row['metaJson']);
+  return _mapFromJsonLike(meta['source']);
+}
+
+num? _quoteLineNum(Object? value) {
+  if (value is num) return value;
+  if (value is String) return num.tryParse(value.trim());
+  return null;
+}
+
+String _quoteLineNetAmountDisplay(Map<String, dynamic> row) {
+  final source = _quoteLineSource(row);
+  final net = _quoteLineNum(source['net_amount'] ?? source['netAmount'])
+      ?? _quoteLineNum(row['amount']);
+  if (net == null) return '—';
+  return net.toStringAsFixed(2);
+}
+
+String _quoteLineDiscountPctDisplay(Map<String, dynamic> row) {
+  final source = _quoteLineSource(row);
+  final pct = _quoteLineNum(source['effective_discount_pct'] ?? source['effectiveDiscountPct'])
+      ?? _quoteLineNum(row['discount_pct'] ?? row['discountPct']);
+  if (pct == null) return '—';
+  return pct == pct.roundToDouble() ? pct.toInt().toString() : pct.toStringAsFixed(2);
+}
+
 class _QuoteLinesTab extends StatefulWidget {
   const _QuoteLinesTab({
     super.key,
@@ -2001,7 +2040,7 @@ class _QuoteLinesTabState extends State<_QuoteLinesTab> {
 
         return LayoutBuilder(
           builder: (context, constraints) {
-            final tableWidth = math.max(620.0, constraints.maxWidth);
+            final tableWidth = math.max(816.0, constraints.maxWidth);
             return HorizontalScrollArea(
               child: SizedBox(
                 width: tableWidth,
@@ -2015,6 +2054,8 @@ class _QuoteLinesTabState extends State<_QuoteLinesTab> {
                           AdminTableHeaderCell(label: 'Qty', width: 72),
                           AdminTableHeaderCell(label: 'Unit', width: 88),
                           AdminTableHeaderCell(label: 'Amount', width: 112),
+                          AdminTableHeaderCell(label: 'Disc %', width: 76),
+                          AdminTableHeaderCell(label: 'Net amount', width: 120),
                         ],
                       ),
                     ),
@@ -2050,6 +2091,14 @@ class _QuoteLinesTabState extends State<_QuoteLinesTab> {
                                 AdminTableValueCell(
                                   value: _displayValue(row['amount']),
                                   width: 112,
+                                ),
+                                AdminTableValueCell(
+                                  value: _quoteLineDiscountPctDisplay(row),
+                                  width: 76,
+                                ),
+                                AdminTableValueCell(
+                                  value: _quoteLineNetAmountDisplay(row),
+                                  width: 120,
                                   strong: true,
                                 ),
                               ],
@@ -2187,6 +2236,77 @@ class _DetailRowData {
 
   final String label;
   final Object? value;
+}
+
+
+class _QuoteNumberPlate extends StatelessWidget {
+  const _QuoteNumberPlate({required this.quoteNo, this.quoteNoExternal});
+
+  final String? quoteNo;
+  final String? quoteNoExternal;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final external = quoteNoExternal?.trim() ?? '';
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: colorScheme.primaryContainer,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: colorScheme.primary.withValues(alpha: 0.35)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.receipt_long_rounded, size: 20, color: colorScheme.onPrimaryContainer),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Quote no',
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: colorScheme.onPrimaryContainer.withValues(alpha: 0.75),
+                      ),
+                ),
+                const SizedBox(height: 2),
+                SelectableText(
+                  quoteNo?.trim().isNotEmpty == true ? quoteNo!.trim() : '—',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: colorScheme.onPrimaryContainer,
+                      ),
+                ),
+              ],
+            ),
+          ),
+          if (external.isNotEmpty)
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  'Kommission',
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: colorScheme.onPrimaryContainer.withValues(alpha: 0.75),
+                      ),
+                ),
+                const SizedBox(height: 2),
+                SelectableText(
+                  external,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                        color: colorScheme.onPrimaryContainer,
+                      ),
+                ),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
 }
 
 class _QuoteDetailsSummaryCard extends StatelessWidget {
