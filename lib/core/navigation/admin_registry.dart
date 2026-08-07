@@ -1272,6 +1272,8 @@ const adminNavGroups = <AdminNavGroup>[
           AdminColumn(key: 'unit_price', label: 'Sales price'),
           AdminColumn(key: 'purchase_price', label: 'Purchase price'),
           AdminColumn(key: 'discount_pct', label: 'Discount'),
+          AdminColumn(key: 'discount_applicable', label: 'Discountable'),
+          AdminColumn(key: 'price_is_final_net', label: 'Final net'),
           AdminColumn(key: 'price_basis_unit_code', label: 'Price basis'),
           AdminColumn(key: 'min_qty', label: 'Min qty'),
           AdminColumn(key: 'min_sales_qty', label: 'Min sales qty'),
@@ -1283,6 +1285,8 @@ const adminNavGroups = <AdminNavGroup>[
           AdminResourceFilter(key: 'catalog_item_id', label: 'Catalog item', lookup: catalogItemNameLookup),
           AdminResourceFilter(key: 'catalog_variant_id', label: 'Catalog variant', lookup: catalogVariantLookup),
           AdminResourceFilter(key: 'material_price_dimension_id', label: 'Material dimension', lookup: materialPriceDimensionLookup),
+          AdminResourceFilter(key: 'discount_applicable', label: 'Discountable', options: activeFilterOptions),
+          AdminResourceFilter(key: 'price_is_final_net', label: 'Final net price', options: activeFilterOptions),
         ],
         formFields: [
           AdminField(key: 'price_list_id', label: 'Price list', lookup: priceListLookup),
@@ -1294,6 +1298,20 @@ const adminNavGroups = <AdminNavGroup>[
           AdminField(key: 'unit_price', label: 'Sales unit price', type: AdminFieldType.number),
           AdminField(key: 'purchase_price', label: 'Purchase price', type: AdminFieldType.number),
           AdminField(key: 'discount_pct', label: 'Discount %', type: AdminFieldType.number),
+          AdminField(
+            key: 'discount_applicable',
+            label: 'Standard discount applicable',
+            type: AdminFieldType.boolType,
+            helperText: 'Off = article marked "*" in the price list: it is priced with the '
+                'organization\'s separate "Rabatt auf ET markierte mit Stern" rate. '
+                'Empty = not specified, treated as on.',
+          ),
+          AdminField(
+            key: 'price_is_final_net',
+            label: 'Price is final net',
+            type: AdminFieldType.boolType,
+            helperText: 'On = price already net (Abzug or agreed net row); no discount of any kind is applied.',
+          ),
           AdminField(key: 'price_basis_unit_code', label: 'Price basis unit', options: unitOptions),
           AdminField(key: 'package_unit_code', label: 'Package unit', options: unitOptions),
           AdminField(key: 'package_content_qty', label: 'Package content qty', type: AdminFieldType.number),
@@ -1475,6 +1493,8 @@ const adminNavGroups = <AdminNavGroup>[
           AdminColumn(key: 'relation_id', label: 'Relation', flex: 2, lookup: organizationRelationLookup),
           AdminColumn(key: 'product_family_id', label: 'Family', flex: 2, lookup: productFamilyLookup),
           AdminColumn(key: 'discount_pct', label: 'Discount'),
+          AdminColumn(key: 'valid_from', label: 'Valid from'),
+          AdminColumn(key: 'valid_to', label: 'Valid to'),
           AdminColumn(key: 'is_active', label: 'Active'),
         ],
         listFilters: [
@@ -1489,7 +1509,16 @@ const adminNavGroups = <AdminNavGroup>[
           AdminField(key: 'discount_type_code', label: 'Discount type'),
           AdminField(key: 'product_family_id', label: 'Product family', lookup: productFamilyLookup),
           AdminField(key: 'discount_pct', label: 'Discount %', type: AdminFieldType.number),
-          AdminField(key: 'rules_json', label: 'Rules JSON', type: AdminFieldType.json),
+          AdminField(
+            key: 'rules_json',
+            label: 'Rules JSON',
+            type: AdminFieldType.json,
+            helperText: '{"application_mode": "additional"} stacks on top of the base discount '
+                '(Aktion/Saison/Ausstellung). {"application_mode": "line_rate"} replaces the base '
+                'rate for lines whose article has "Standard discount applicable" off.',
+          ),
+          AdminField(key: 'valid_from', label: 'Valid from', type: AdminFieldType.date),
+          AdminField(key: 'valid_to', label: 'Valid to', type: AdminFieldType.date),
           AdminField(key: 'is_active', label: 'Active', type: AdminFieldType.boolType),
         ],
       ),
