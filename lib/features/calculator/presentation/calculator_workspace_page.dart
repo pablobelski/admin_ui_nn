@@ -133,6 +133,8 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _Header(
+              calculationNumber: calculationNumber,
+              isCalculationSaved: isCalculationSaved,
               selectedIndex: effectiveSelectedStep,
               steps: activeSteps,
               disabledStepKeys: disabledStepKeys,
@@ -745,6 +747,8 @@ class _Header extends StatelessWidget {
   const _Header({
     required this.onRefresh,
     required this.onNewCalculation,
+    required this.calculationNumber,
+    required this.isCalculationSaved,
     required this.selectedIndex,
     required this.steps,
     required this.disabledStepKeys,
@@ -755,6 +759,8 @@ class _Header extends StatelessWidget {
 
   final VoidCallback onRefresh;
   final VoidCallback onNewCalculation;
+  final String? calculationNumber;
+  final bool isCalculationSaved;
   final int selectedIndex;
   final List<_StepDefinition> steps;
   final Set<String> disabledStepKeys;
@@ -793,23 +799,28 @@ class _Header extends StatelessWidget {
             ),
             const SizedBox(width: 8),
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Calculator Workspace', style: Theme.of(context).textTheme.headlineSmall),
-                  const SizedBox(height: 4),
-                  SizedBox(
-                    height: 40,
-                    child: _StepScroller(
-                      selectedIndex: selectedIndex,
-                      steps: steps,
-                      disabledStepKeys: disabledStepKeys,
-                      draft: draft,
-                      onSelect: onStepSelected,
-                    ),
-                  ),
-                ],
+              child: SizedBox(
+                height: 40,
+                child: _StepScroller(
+                  selectedIndex: selectedIndex,
+                  steps: steps,
+                  disabledStepKeys: disabledStepKeys,
+                  draft: draft,
+                  onSelect: onStepSelected,
+                ),
               ),
+            ),
+            const SizedBox(width: 12),
+            OutlinedButton.icon(
+              onPressed: onNewCalculation,
+              icon: const Icon(Icons.add_circle_outline),
+              label: const Text('New calculation'),
+            ),
+            const SizedBox(width: 8),
+            IconButton(
+              tooltip: 'Clear the context',
+              onPressed: onRefresh,
+              icon: const Icon(Icons.layers_clear_outlined),
             ),
           ],
         );
@@ -817,39 +828,86 @@ class _Header extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                OutlinedButton.icon(
-                  onPressed: onNewCalculation,
-                  icon: const Icon(Icons.add_circle_outline),
-                  label: const Text('New calculation'),
-                ),
-                const SizedBox(width: 8),
-                OutlinedButton.icon(
-                  onPressed: onRefresh,
-                  icon: const Icon(Icons.refresh),
-                  label: const Text('Refresh context'),
-                ),
-              ],
-            ),
             if (buyerName.isNotEmpty || buyerContactDetails.isNotEmpty) ...[
               const SizedBox(height: 6),
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 18),
+                padding: const EdgeInsets.only(left: 18),
                 child: SizedBox(
                   width: double.infinity,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       if (buyerName.isNotEmpty)
-                        Text(
-                          buyerName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                                fontWeight: FontWeight.w700,
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.baseline,
+                          textBaseline: TextBaseline.alphabetic,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                buyerName,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                                      fontWeight: FontWeight.w700,
+                                    ),
                               ),
+                            ),
+                            if ((calculationNumber ?? '').trim().isNotEmpty) ...[
+                              const SizedBox(width: 16),
+                              Flexible(
+                                child: Align(
+                                  alignment: Alignment.centerRight,
+                                  child: Tooltip(
+                                    message: isCalculationSaved
+                                        ? 'Saved and unchanged'
+                                        : 'Not saved or contains unsaved changes',
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                                      decoration: BoxDecoration(
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .surfaceContainerHighest
+                                            .withValues(alpha: 0.55),
+                                        borderRadius: BorderRadius.circular(10),
+                                        border: Border.all(
+                                          color: Theme.of(context).colorScheme.outlineVariant,
+                                        ),
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(
+                                            isCalculationSaved
+                                                ? Icons.check_circle_outline
+                                                : Icons.edit_outlined,
+                                            size: 20,
+                                            color: isCalculationSaved
+                                                ? Colors.green.shade700
+                                                : Theme.of(context).colorScheme.tertiary,
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Flexible(
+                                            child: Text(
+                                              calculationNumber!.trim(),
+                                              maxLines: 1,
+                                              textAlign: TextAlign.right,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                                                    fontWeight: FontWeight.w700,
+                                                    color: Theme.of(context)
+                                                        .colorScheme
+                                                        .onSurfaceVariant,
+                                                  ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
                         ),
                       if (buyerName.isNotEmpty && buyerContactDetails.isNotEmpty)
                         const SizedBox(height: 2),
@@ -9296,8 +9354,6 @@ class _ResultPanel extends StatelessWidget {
                               .where((template) => template.id == draft.templateId)
                               .firstOrNull,
                           calculatorContext: calculatorContext,
-                          calculationNumber: calculationNumber ?? 'new quote',
-                          isCalculationSaved: isCalculationSaved,
                           needsRecalculation: needsRecalculation,
                         ),
                       ),
@@ -10469,8 +10525,6 @@ class _PriceHeader extends StatelessWidget {
     required this.draft,
     required this.selectedTemplate,
     required this.calculatorContext,
-    required this.calculationNumber,
-    required this.isCalculationSaved,
     required this.needsRecalculation,
   });
 
@@ -10478,8 +10532,6 @@ class _PriceHeader extends StatelessWidget {
   final CalculatorDraft draft;
   final CalculatorTemplateOption? selectedTemplate;
   final CalculatorContext calculatorContext;
-  final String calculationNumber;
-  final bool isCalculationSaved;
   final bool needsRecalculation;
 
   List<String> _discounts() {
@@ -10572,23 +10624,6 @@ class _PriceHeader extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 12),
-            Tooltip(
-              message: isCalculationSaved
-                  ? 'Saved and unchanged'
-                  : 'Not saved or contains unsaved changes',
-              child: Chip(
-                visualDensity: VisualDensity.compact,
-                avatar: Icon(
-                  isCalculationSaved ? Icons.check_circle_outline : Icons.edit_outlined,
-                  size: 18,
-                  color: isCalculationSaved
-                      ? Colors.green.shade700
-                      : Theme.of(context).colorScheme.tertiary,
-                ),
-                label: Text(calculationNumber, overflow: TextOverflow.ellipsis),
-              ),
-            ),
-            const SizedBox(width: 8),
             Chip(
               visualDensity: VisualDensity.compact,
               avatar: Icon(
@@ -10632,15 +10667,19 @@ class _PriceHeader extends StatelessWidget {
         ],
         if (attentionMessages.isNotEmpty || warningMessages.isNotEmpty) ...[
           const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              if (attentionMessages.isNotEmpty)
-                _AttentionDropdown(messages: attentionMessages),
-              if (warningMessages.isNotEmpty)
-                _WarningsDropdown(messages: warningMessages),
-            ],
+          SizedBox(
+            width: double.infinity,
+            child: Wrap(
+              alignment: WrapAlignment.end,
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                if (attentionMessages.isNotEmpty)
+                  _AttentionDropdown(messages: attentionMessages),
+                if (warningMessages.isNotEmpty)
+                  _WarningsDropdown(messages: warningMessages),
+              ],
+            ),
           ),
         ],
       ],
@@ -10808,14 +10847,21 @@ class _LinesTab extends StatelessWidget {
       return ListView(
         padding: const EdgeInsets.all(12),
         children: [
-          for (final section in orderedSections) ...[
-            _sectionHeader(
-              context,
-              sectionTitles[section] ?? section,
-              '${grouped[section]!.length} line(s)',
-            ),
-            ..._lineTiles(grouped[section]!),
-          ],
+          for (final section in orderedSections)
+            if (section == 'special_color')
+              _CollapsibleLinesSection(
+                title: sectionTitles[section] ?? section,
+                lines: grouped[section]!,
+                total: _sectionNetTotal(grouped[section]!),
+              )
+            else ...[
+              _sectionHeader(
+                context,
+                sectionTitles[section] ?? section,
+                '${grouped[section]!.length} line(s)',
+              ),
+              ..._lineTiles(context, grouped[section]!),
+            ],
         ],
       );
     }
@@ -10840,23 +10886,23 @@ class _LinesTab extends StatelessWidget {
       children: [
         if (baseLines.isNotEmpty) ...[
           _sectionHeader(context, 'Base set price'),
-          ..._lineTiles(baseLines),
+          ..._lineTiles(context, baseLines),
         ],
         if (deltaLines.isNotEmpty) ...[
           _sectionHeader(context, 'Set delta / Abzug', '${deltaLines.length} priced line(s)'),
-          ..._lineTiles(deltaLines),
+          ..._lineTiles(context, deltaLines),
         ],
         if (derivedLines.isNotEmpty) ...[
           _sectionHeader(context, 'Derived accessories', '${derivedLines.length} priced line(s)'),
-          ..._lineTiles(derivedLines),
+          ..._lineTiles(context, derivedLines),
         ],
         if (manualLines.isNotEmpty) ...[
           _sectionHeader(context, 'Manual components', '${manualLines.length} priced line(s)'),
-          ..._lineTiles(manualLines),
+          ..._lineTiles(context, manualLines),
         ],
         if (optionLines.isNotEmpty) ...[
           _sectionHeader(context, 'Options / additional handling', '${optionLines.length} priced line(s)'),
-          ..._lineTiles(optionLines),
+          ..._lineTiles(context, optionLines),
         ],
       ],
     );
@@ -10877,16 +10923,16 @@ class _LinesTab extends StatelessWidget {
     );
   }
 
-  List<Widget> _lineTiles(List<Map<String, dynamic>> lines) {
+  static List<Widget> _lineTiles(BuildContext context, List<Map<String, dynamic>> lines) {
     final widgets = <Widget>[];
     for (var i = 0; i < lines.length; i++) {
-      widgets.add(_lineTile(lines[i]));
+      widgets.add(_lineTile(context, lines[i]));
       if (i < lines.length - 1) widgets.add(const Divider(height: 1));
     }
     return widgets;
   }
 
-  Widget _lineTile(Map<String, dynamic> line) {
+  static Widget _lineTile(BuildContext context, Map<String, dynamic> line) {
     final unitPrice = _num(line['unitPrice']);
     final netUnitPrice = line.containsKey('netUnitPrice') ? _num(line['netUnitPrice']) : unitPrice;
     final grossAmount = _num(line['amount']);
@@ -10903,12 +10949,67 @@ class _LinesTab extends StatelessWidget {
       if (discountAmount > 0) '−${_moneyFormat.format(discountAmount)}',
       if (note.isNotEmpty) note,
     ];
+    final specialColorAmount = _num(line['specialColorAmount']);
     return ListTile(
       dense: true,
       contentPadding: const EdgeInsets.symmetric(horizontal: 8),
       title: Text('${line['label'] ?? 'Line'}', maxLines: 2, overflow: TextOverflow.ellipsis),
       subtitle: Text(subtitleParts.join(' · '), maxLines: 2, overflow: TextOverflow.ellipsis),
-      trailing: Text(_moneyFormat.format(netAmount)),
+      trailing: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Text(_moneyFormat.format(netAmount)),
+          if (specialColorAmount > 0)
+            Text(
+              'SF +${_moneyFormat.format(specialColorAmount)}',
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: Theme.of(context).colorScheme.tertiary,
+                  ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  static double _sectionNetTotal(List<Map<String, dynamic>> lines) => lines.fold<double>(
+        0,
+        (sum, line) => sum + _num(line.containsKey('netAmount') ? line['netAmount'] : line['amount']),
+      );
+}
+
+class _CollapsibleLinesSection extends StatelessWidget {
+  const _CollapsibleLinesSection({
+    required this.title,
+    required this.lines,
+    required this.total,
+  });
+
+  final String title;
+  final List<Map<String, dynamic>> lines;
+  final double total;
+
+  @override
+  Widget build(BuildContext context) {
+    return ExpansionTile(
+      tilePadding: const EdgeInsets.symmetric(horizontal: 8),
+      childrenPadding: EdgeInsets.zero,
+      initiallyExpanded: false,
+      title: Text(
+        title,
+        style: Theme.of(context).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
+      ),
+      subtitle: Text(
+        '${lines.length} line(s)',
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+      ),
+      trailing: Text(
+        _moneyFormat.format(total),
+        style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
+      ),
+      children: _LinesTab._lineTiles(context, lines),
     );
   }
 }

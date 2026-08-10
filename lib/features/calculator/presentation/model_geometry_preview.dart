@@ -437,7 +437,7 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
                                                 alignRoofTop: true,
                                               ),
                                               Positioned(
-                                                left: 12,
+                                                left: 8,
                                                 right: dateRightInset,
                                                 top: 8,
                                                 child: Row(
@@ -445,22 +445,53 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
                                                       CrossAxisAlignment.start,
                                                   children: [
                                                     Expanded(
-                                                      child: Text(
-                                                        'Kommission: ${_expandedKommissionLabel(widget.calculationNumber)}',
-                                                        maxLines: 1,
-                                                        overflow:
-                                                            TextOverflow.ellipsis,
-                                                        style: Theme.of(
-                                                          dialogContext,
-                                                        )
-                                                            .textTheme
-                                                            .labelSmall
-                                                            ?.copyWith(
-                                                              color:
-                                                                  Colors.black87,
-                                                              fontWeight:
-                                                                  FontWeight.w600,
+                                                      child: Align(
+                                                        alignment: Alignment
+                                                            .centerLeft,
+                                                        child: Container(
+                                                          padding:
+                                                              const EdgeInsets
+                                                                  .symmetric(
+                                                            horizontal: 10,
+                                                            vertical: 4,
+                                                          ),
+                                                          decoration:
+                                                              BoxDecoration(
+                                                            color: Colors.white,
+                                                            borderRadius:
+                                                                BorderRadius
+                                                                    .circular(6),
+                                                            border: Border.all(
+                                                              color: Colors
+                                                                  .black26,
                                                             ),
+                                                          ),
+                                                          child: Text(
+                                                            'Kommission: ${_expandedKommissionLabel(widget.calculationNumber)}',
+                                                            maxLines: 1,
+                                                            overflow:
+                                                                TextOverflow
+                                                                    .ellipsis,
+                                                            style: Theme.of(
+                                                              dialogContext,
+                                                            )
+                                                                .textTheme
+                                                                .labelSmall
+                                                                ?.copyWith(
+                                                                  color: Colors
+                                                                      .black87,
+                                                                  fontWeight:
+                                                                      FontWeight
+                                                                          .w600,
+                                                                  fontSize: (Theme.of(dialogContext)
+                                                                              .textTheme
+                                                                              .labelSmall
+                                                                              ?.fontSize ??
+                                                                          11) *
+                                                                      1.6,
+                                                                ),
+                                                          ),
+                                                        ),
                                                       ),
                                                     ),
                                                     const SizedBox(width: 16),
@@ -2599,15 +2630,6 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     );
     _drawText(
       canvas,
-      'T: $depth mm',
-      Offset((leftBottom.dx + rightBottom.dx) / 2, bottom + 9),
-      lineColor,
-      8.5,
-      isBold: true,
-      hAlign: 0.5,
-    );
-    _drawText(
-      canvas,
       'ΔH: $heightDifference mm',
       Offset(rightBottom.dx - 2, rightTop.dy - 8),
       lineColor,
@@ -3210,7 +3232,9 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
       ),
       textDirection: ui.TextDirection.ltr,
     )..layout();
-    final top = alignRoofTop && !geometryOnly ? 30.0 : 8.0;
+    // The expanded preview prints the calculation number on a plate at the top
+    // left; keep the B/T plate clear of it instead of overlapping.
+    final top = alignRoofTop && !geometryOnly ? 46.0 : 8.0;
     final background = RRect.fromRectAndRadius(
       Rect.fromLTWH(
         8,

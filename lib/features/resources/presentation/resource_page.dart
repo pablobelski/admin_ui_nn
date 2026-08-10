@@ -1496,7 +1496,10 @@ class _ResourceDetailsContent extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 12),
-            _QuoteDetailsSummaryCard(rows: _quoteDetailsSummaryRows()),
+            _QuoteDetailsSummaryCard(
+              rows: _quoteDetailsSummaryRows(),
+              notes: _firstText(data['external_notes'], data['externalNotes']),
+            ),
             const SizedBox(height: 12),
             const TabBar(
               isScrollable: true,
@@ -2310,13 +2313,24 @@ class _QuoteNumberPlate extends StatelessWidget {
 }
 
 class _QuoteDetailsSummaryCard extends StatelessWidget {
-  const _QuoteDetailsSummaryCard({required this.rows});
+  const _QuoteDetailsSummaryCard({required this.rows, this.notes});
 
+  /// Ordered as built by `_quoteDetailsSummaryRows`: the first entry (Buyer)
+  /// anchors the left of the first line, the last entry (Amount EUR) anchors the
+  /// left of the second line, and everything in between is pushed to the right
+  /// of the first line.
   final List<_DetailRowData> rows;
+  final String? notes;
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final notesText = notes?.trim() ?? '';
+    final leading = rows.isEmpty ? null : rows.first;
+    final trailing = rows.length > 1 ? rows.last : null;
+    final middle = rows.length > 2
+        ? rows.sublist(1, rows.length - 1)
+        : const <_DetailRowData>[];
 
     return Container(
       width: double.infinity,
@@ -2326,36 +2340,76 @@ class _QuoteDetailsSummaryCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: colorScheme.outlineVariant),
       ),
-      child: Wrap(
-        spacing: 16,
-        runSpacing: 10,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          for (final row in rows)
-            SizedBox(
-              width: 190,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    row.label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                          color: colorScheme.onSurfaceVariant,
-                        ),
-                  ),
-                  const SizedBox(height: 2),
-                  SelectableText(
-                    _displayValue(row.value),
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (leading != null)
+                Expanded(child: _cell(context, colorScheme, leading.label, _displayValue(leading.value))),
+              for (final row in middle) ...[
+                const SizedBox(width: 16),
+                _cell(context, colorScheme, row.label, _displayValue(row.value), alignEnd: true),
+              ],
+            ],
+          ),
+          if (trailing != null || notesText.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: trailing == null
+                      ? const SizedBox.shrink()
+                      : _cell(context, colorScheme, trailing.label, _displayValue(trailing.value)),
+                ),
+                if (notesText.isNotEmpty) ...[
+                  const SizedBox(width: 16),
+                  Flexible(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 360),
+                      child: _cell(context, colorScheme, 'Quote notes', notesText, alignEnd: true),
+                    ),
                   ),
                 ],
-              ),
+              ],
             ),
+          ],
         ],
       ),
+    );
+  }
+
+  Widget _cell(
+    BuildContext context,
+    ColorScheme colorScheme,
+    String label,
+    String value, {
+    bool alignEnd = false,
+  }) {
+    return Column(
+      crossAxisAlignment: alignEnd ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+              ),
+        ),
+        const SizedBox(height: 2),
+        SelectableText(
+          value,
+          textAlign: alignEnd ? TextAlign.right : TextAlign.left,
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+        ),
+      ],
     );
   }
 }
@@ -2405,10 +2459,13 @@ class _SavedQuoteGeometryPreviewTab extends StatelessWidget {
       data: (contextData) => _quoteColorPreviewDataFor(contextData, draft.colorCode),
       orElse: () => _fallbackQuoteColorPreviewData(draft.colorCode),
     ) ?? _fallbackQuoteColorPreviewData(draft.colorCode);
-    final coveringName = calculatorContext?.maybeWhen(
-      data: (contextData) => _quoteCoveringNameFor(contextData, draft.coveringCode),
-      orElse: () => draft.coveringCode,
-    ) ?? draft.coveringCode;
+    final coveringName = _savedQuoteGlassCatalogName(resultJson)
+        ?? calculatorContext?.maybeWhen(
+              data: (contextData) => _quoteCoveringNameFor(contextData, draft.coveringCode),
+              orElse: () => draft.coveringCode,
+            )
+        ?? draft.coveringCode
+        ?? _savedQuoteModuleCoveringCode(draft);
     final slope = _savedQuoteSlopePreviewData(data, draft);
     final quoteNo = _quoteTextField(data, 'quote_no', 'quoteNo');
     final quoteNoExternal = _quoteTextField(data, 'quote_no_external', 'quoteNoExternal');
@@ -2425,17 +2482,6 @@ class _SavedQuoteGeometryPreviewTab extends StatelessWidget {
 
     return ListView(
       children: [
-        if (quoteNoExternal != null || externalNotes != null) ...[
-          Text('Customer data', style: Theme.of(context).textTheme.titleSmall),
-          const SizedBox(height: 8),
-          _QuotePreviewInfoCard(
-            rows: [
-              if (quoteNoExternal != null) _DetailRowData('Kommission name', quoteNoExternal),
-              if (externalNotes != null) _DetailRowData('Quote notes', externalNotes),
-            ],
-          ),
-          const SizedBox(height: 12),
-        ],
         if (hasModel)
           ModelGeometryPreview(
             modelCode: modelCode,
@@ -2531,16 +2577,42 @@ List<GeometryPreviewMarkiseSegment> _savedQuoteMarkiseSegments({
 List<String> _savedQuoteWarningMessages(Map<String, dynamic> resultJson) {
   final raw = resultJson['warnings'];
   if (raw is! List) return const [];
-  return raw
-      .map((entry) {
-        if (entry is Map) {
-          return '${entry['message'] ?? entry['code'] ?? ''}'.trim();
-        }
-        return '$entry'.trim();
-      })
-      .where((entry) => entry.isNotEmpty)
-      .toSet()
-      .toList(growable: false);
+  final messages = <String>[];
+  final seen = <String>{};
+  for (final entry in raw) {
+    final message = entry is Map
+        ? '${entry['message'] ?? entry['code'] ?? ''}'.trim()
+        : '$entry'.trim();
+    if (message.isEmpty) continue;
+    // The server emits one warning per affected module/segment. Keep a single
+    // line per warning code so the preview matches the calculator, which groups
+    // its messages per step before rendering them.
+    final key = entry is Map
+        ? '${entry['code'] ?? entry['step_key'] ?? message}'.trim()
+        : message;
+    if (!seen.add(key.isEmpty ? message : key)) continue;
+    messages.add(message);
+  }
+  return List<String>.unmodifiable(messages);
+}
+
+String? _savedQuoteGlassCatalogName(Map<String, dynamic> resultJson) {
+  final raw = resultJson['glassLines'] ?? resultJson['glass_lines'];
+  if (raw is! List) return null;
+  for (final entry in raw) {
+    if (entry is! Map) continue;
+    final name = '${entry['catalog_name'] ?? entry['catalogName'] ?? ''}'.trim();
+    if (name.isNotEmpty) return name;
+  }
+  return null;
+}
+
+String? _savedQuoteModuleCoveringCode(CalculatorDraft draft) {
+  for (final module in draft.setContents) {
+    final code = module.moduleCoveringCode?.trim();
+    if (code != null && code.isNotEmpty) return code;
+  }
+  return null;
 }
 
 String? _quoteReferenceLabelFor(
@@ -2642,57 +2714,6 @@ String? _quoteTextField(Map<String, dynamic> data, String dbKey, String camelKey
 
   final input = _mapFromJsonLike(data['input_json'] ?? data['inputJson']);
   return normalized(input[dbKey] ?? input[camelKey]);
-}
-
-class _QuotePreviewInfoCard extends StatelessWidget {
-  const _QuotePreviewInfoCard({required this.rows});
-
-  final List<_DetailRowData> rows;
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.45),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: colorScheme.outlineVariant),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          for (final row in rows)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 3),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  SizedBox(
-                    width: 124,
-                    child: Text(
-                      row.label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: colorScheme.onSurfaceVariant,
-                          ),
-                    ),
-                  ),
-                  Expanded(
-                    child: SelectableText(
-                      _displayValue(row.value),
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-        ],
-      ),
-    );
-  }
 }
 
 class _QuoteColorPreviewData {
