@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:intl/intl.dart';
 
 import '../../../core/ui/media_file_actions.dart';
 import '../../../core/ui/top_notification.dart';
@@ -572,9 +573,16 @@ class _GeneratedDocumentTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final createdAt = document.createdAt?.trim();
+    final createdAtDateTime = createdAt == null || createdAt.isEmpty
+        ? null
+        : DateTime.tryParse(createdAt);
+    final formattedCreatedAt = createdAtDateTime == null
+        ? createdAt
+        : DateFormat('dd.MM.yyyy HH:mm').format(createdAtDateTime.toLocal());
     final metadata = [
       document.documentTypeCode,
-      document.createdAt,
+      formattedCreatedAt,
     ].whereType<String>().where((value) => value.isNotEmpty).join(' · ');
     final printedBy = document.printedByLabel;
     final canOpen = document.fileId.trim().isNotEmpty || (document.url ?? '').isNotEmpty;

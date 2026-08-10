@@ -5651,9 +5651,12 @@ class _ColorStepState extends State<_ColorStep> {
   @override
   void didUpdateWidget(covariant _ColorStep oldWidget) {
     super.didUpdateWidget(oldWidget);
-    final selectedCode = _normalizeRalCode(widget.draft.colorCode);
+    final rawSelectedColor = widget.draft.colorCode;
+    final selectedCode = _normalizeRalCode(rawSelectedColor);
     final isStandard = selectedCode != null && _standardColorCodes.contains(selectedCode);
-    final nextText = isStandard || selectedCode == null ? '' : selectedCode;
+    final nextText = isStandard || rawSelectedColor?.trim().isEmpty != false
+        ? ''
+        : rawSelectedColor!;
     if (isStandard) _customRalMode = false;
     if (nextText != _customRalController.text && (nextText.isNotEmpty || isStandard)) {
       _customRalController.value = TextEditingValue(
@@ -5687,9 +5690,25 @@ class _ColorStepState extends State<_ColorStep> {
       .toSet();
 
   String _initialCustomRalCode() {
-    final selectedCode = _normalizeRalCode(widget.draft.colorCode);
-    if (selectedCode == null || _standardColorCodes.contains(selectedCode)) return '';
-    return selectedCode;
+    final rawSelectedColor = widget.draft.colorCode;
+    if (rawSelectedColor == null || rawSelectedColor.trim().isEmpty) return '';
+    final selectedCode = _normalizeRalCode(rawSelectedColor);
+    if (selectedCode != null && _standardColorCodes.contains(selectedCode)) return '';
+    return rawSelectedColor;
+  }
+
+  bool _isRalColorCode(String? rawCode) {
+    final code = _normalizeRalCode(rawCode);
+    if (code == null) return false;
+    return [..._standardColorOptions, ..._ralColorOptions].any(
+      (option) => _normalizeRalCode(option.code) == code,
+    );
+  }
+
+  String? _customColorValue(String? value) {
+    if (value == null || value.trim().isEmpty) return null;
+    final ralCode = _normalizeRalCode(value);
+    return _isRalColorCode(ralCode) ? ralCode : value;
   }
 
   String? _standardProductionColorCode(String? rawColorCode) {
@@ -5750,10 +5769,10 @@ class _ColorStepState extends State<_ColorStep> {
   }
 
   void _setColor(String? value, {required bool custom}) {
-    final normalized = _normalizeRalCode(value);
-    widget.notifier.setColor(normalized);
+    final colorValue = custom ? _customColorValue(value) : _normalizeRalCode(value);
+    widget.notifier.setColor(colorValue);
     if (!custom) {
-      _setProductionColorCode(_standardProductionColorCode(normalized));
+      _setProductionColorCode(_standardProductionColorCode(colorValue));
     }
   }
 
@@ -5766,8 +5785,9 @@ class _ColorStepState extends State<_ColorStep> {
     });
     if (!wasCustom) _setProductionColorCode(null);
 
-    final existing = _normalizeRalCode(_customRalController.text);
-    if (existing != null && !_standardColorCodes.contains(existing)) {
+    final existing = _customRalController.text;
+    final normalizedExisting = _normalizeRalCode(existing);
+    if (normalizedExisting != null && !_standardColorCodes.contains(normalizedExisting)) {
       _setColor(existing, custom: true);
     } else if (selectedCode != null && _standardColorCodes.contains(selectedCode)) {
       widget.notifier.setColor(null);
@@ -5789,18 +5809,26 @@ class _ColorStepState extends State<_ColorStep> {
     return _colorFromHex(_stringFromRaw(match?.raw['color_hex'] ?? match?.raw['colorHex'] ?? match?.raw['metadata_json']?['color_hex']));
   }
 
-  String _labelForCode(String code) {
-    for (final option in [..._standardColorOptions, ..._ralColorOptions]) {
-      if (_normalizeRalCode(option.code) == code) return option.label;
+  String _labelForCode(String rawCode) {
+    final code = _normalizeRalCode(rawCode);
+    if (code != null) {
+      for (final option in [..._standardColorOptions, ..._ralColorOptions]) {
+        if (_normalizeRalCode(option.code) == code) return option.label;
+      }
+      if (_isRalColorCode(code)) return 'RAL $code';
     }
-    return 'RAL $code';
+    return rawCode.trim();
   }
 
   @override
   Widget build(BuildContext context) {
-    final selectedCode = _normalizeRalCode(widget.draft.colorCode);
-    final customSelected = selectedCode != null && !_standardColorCodes.contains(selectedCode);
+    final rawSelectedColor = widget.draft.colorCode;
+    final selectedCode = _normalizeRalCode(rawSelectedColor);
+    final hasSelectedColor = rawSelectedColor?.trim().isNotEmpty == true;
+    final isStandardSelected = selectedCode != null && _standardColorCodes.contains(selectedCode);
+    final customSelected = hasSelectedColor && !isStandardSelected;
     final customMode = _customRalMode || customSelected;
+    final customIsRal = customSelected && _isRalColorCode(rawSelectedColor);
     final dropdownOptions = [
       ..._standardColorOptions,
       const CalculatorOption(id: _customRalOptionCode, code: _customRalOptionCode, label: 'Specify a custom color'),
@@ -5814,7 +5842,7 @@ class _ColorStepState extends State<_ColorStep> {
         Text('Frame color', style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 8),
         Text(
-          'Standard colors are loaded from the Colors reference domain. For a non-standard RAL color, the surcharge is calculated from the coated linear metres of aluminium profiles.',
+          'Standard colors are loaded from the Colors reference domain. For a non-standard RAL or other custom color, the surcharge is calculated from the coated linear metres of aluminium profiles.',
           style: Theme.of(context).textTheme.bodyMedium,
         ),
         const SizedBox(height: 20),
@@ -5878,9 +5906,12 @@ class _ColorStepState extends State<_ColorStep> {
                 },
               ),
             _RalColorTile(
-              label: customSelected ? _labelForCode(selectedCode) : 'Specify a custom color',
+              label: customSelected
+                  ? _labelForCode(rawSelectedColor ?? selectedCode!)
+                  : 'Specify a custom color',
               color: customSelected ? customColor : null,
               selected: customMode,
+              badge: customSelected && !customIsRal ? 'NOT RAL' : null,
               onTap: _selectCustomColor,
             ),
           ],
@@ -5890,22 +5921,17 @@ class _ColorStepState extends State<_ColorStep> {
           TextField(
             controller: _customRalController,
             decoration: const InputDecoration(
-              labelText: 'Custom RAL code',
-              hintText: 'For example: 3024',
+              labelText: 'Custom RAL / color',
+              hintText: 'For example: 3024, DB 703 or free text',
             ),
-            keyboardType: TextInputType.number,
+            keyboardType: TextInputType.text,
             onChanged: (value) {
               if (!_customRalMode) {
                 setState(() {
                   _customRalMode = true;
                 });
               }
-              final normalized = _normalizeRalCode(value);
-              if (normalized != null && normalized.length == 4) {
-                _setColor(normalized, custom: true);
-              } else if (normalized == null) {
-                _setColor(null, custom: true);
-              }
+              _setColor(value, custom: true);
             },
           ),
           const SizedBox(height: 8),
@@ -5925,12 +5951,14 @@ class _RalColorTile extends StatelessWidget {
     required this.color,
     required this.selected,
     required this.onTap,
+    this.badge,
   });
 
   final String label;
   final Color? color;
   final bool selected;
   final VoidCallback onTap;
+  final String? badge;
 
   @override
   Widget build(BuildContext context) {
@@ -5955,10 +5983,28 @@ class _RalColorTile extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Icon(
-              selected ? Icons.check_circle : Icons.radio_button_unchecked,
-              size: 16,
-              color: foreground,
+            Row(
+              children: [
+                Icon(
+                  selected ? Icons.check_circle : Icons.radio_button_unchecked,
+                  size: 16,
+                  color: foreground,
+                ),
+                if (badge != null) ...[
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      badge!,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: foreground,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
             ),
             Text(
               label,
