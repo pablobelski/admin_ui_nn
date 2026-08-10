@@ -2468,7 +2468,6 @@ class _SavedQuoteGeometryPreviewTab extends StatelessWidget {
         ?? _savedQuoteModuleCoveringCode(draft);
     final slope = _savedQuoteSlopePreviewData(data, draft);
     final quoteNo = _quoteTextField(data, 'quote_no', 'quoteNo');
-    final quoteNoExternal = _quoteTextField(data, 'quote_no_external', 'quoteNoExternal');
     final externalNotes = _quoteTextField(data, 'external_notes', 'externalNotes');
     final moduleRoles = roofCalculation?.modules.isNotEmpty == true
         ? roofCalculation!.modules.map((module) => module.role).toList(growable: false)
@@ -2479,6 +2478,7 @@ class _SavedQuoteGeometryPreviewTab extends StatelessWidget {
       contextData: contextData,
     );
     final warnings = _savedQuoteWarningMessages(resultJson);
+    final hasSavedSpecialColor = _savedQuoteHasSpecialColor(resultJson);
 
     return ListView(
       children: [
@@ -2507,7 +2507,8 @@ class _SavedQuoteGeometryPreviewTab extends StatelessWidget {
             completionWeek: draft.completionWeek,
             colorCode: colorPreview?.displayCode,
             colorSwatchColor: colorPreview?.color,
-            isSpecialColor: colorPreview != null && !colorPreview.isStandard,
+            isSpecialColor: hasSavedSpecialColor ||
+                (colorPreview != null && !colorPreview.isStandard),
             coveringName: coveringName,
             markiseSegments: markiseSegments,
             staticBeam: roofCalculation?.staticBeam,
@@ -3539,6 +3540,19 @@ Map<String, dynamic> _mapFromJsonLike(Object? value) {
   return const <String, dynamic>{};
 }
 
+bool _savedQuoteHasSpecialColor(Map<String, dynamic> resultJson) {
+  final rawVisibleLines = resultJson['visibleLines'];
+  final visibleLines = rawVisibleLines is Map
+      ? _mapFromJsonLike(rawVisibleLines)['items']
+      : rawVisibleLines;
+  if (visibleLines is! List) return false;
+  return visibleLines.whereType<Map>().any((line) {
+    final section = '${line['section'] ?? ''}'.trim().toLowerCase();
+    final label = '${line['label'] ?? ''}'.trim().toLowerCase();
+    return section == 'special_color' || label.contains('sonderfarbe');
+  });
+}
+
 _QuoteColorPreviewData? _quoteColorPreviewDataFor(
   CalculatorContext contextData,
   String? rawCode,
@@ -3548,6 +3562,9 @@ _QuoteColorPreviewData? _quoteColorPreviewDataFor(
 
   final colorOptions = contextData.references['colors'] ?? const <CalculatorOption>[];
   final ralColorOptions = contextData.references['ral_colors'] ?? const <CalculatorOption>[];
+  final isStandard = colorOptions.any(
+    (option) => _normalizeQuoteRalCode(option.code) == code,
+  );
 
   CalculatorOption? match;
   for (final option in [...colorOptions, ...ralColorOptions]) {
@@ -3566,7 +3583,7 @@ _QuoteColorPreviewData? _quoteColorPreviewDataFor(
   return _QuoteColorPreviewData(
     displayCode: RegExp(r'^\d{4}$').hasMatch(code) ? 'RAL $code' : code,
     color: _colorFromHex(colorHex),
-    isStandard: match != null,
+    isStandard: isStandard,
   );
 }
 

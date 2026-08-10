@@ -1120,6 +1120,7 @@ class CalculatorDraft {
     this.productionColorCode,
     this.handoverTypeCode,
     this.completionWeek,
+    this.deliveryLatestCode,
     this.quoteNoExternal,
     this.externalNotes,
     this.relatedCustomerId,
@@ -1258,6 +1259,9 @@ class CalculatorDraft {
       ),
       handoverTypeCode: _nullableString(json['handover_type_code']),
       completionWeek: _intOrNull(json['completion_week'] ?? json['completionWeek']),
+      deliveryLatestCode: _nullableString(
+        json['delivery_latest_code'] ?? json['deliveryLatestCode'],
+      ),
       quoteNoExternal: _nullableString(json['quote_no_external'] ?? json['quoteNoExternal']),
       externalNotes: _nullableString(json['external_notes'] ?? json['externalNotes']),
       relatedCustomerId: _nullableString(json['related_customer_id'] ?? json['relatedCustomerId']),
@@ -1297,6 +1301,7 @@ class CalculatorDraft {
   final String? productionColorCode;
   final String? handoverTypeCode;
   final int? completionWeek;
+  final String? deliveryLatestCode;
   final String? quoteNoExternal;
   final String? externalNotes;
   final String? relatedCustomerId;
@@ -1348,6 +1353,8 @@ class CalculatorDraft {
     bool clearHandover = false,
     int? completionWeek,
     bool clearCompletionWeek = false,
+    String? deliveryLatestCode,
+    bool clearDeliveryLatest = false,
     String? quoteNoExternal,
     bool clearQuoteNoExternal = false,
     String? externalNotes,
@@ -1392,6 +1399,8 @@ class CalculatorDraft {
           clearProductionColorCode ? null : productionColorCode ?? this.productionColorCode,
       handoverTypeCode: clearHandover ? null : handoverTypeCode ?? this.handoverTypeCode,
       completionWeek: clearCompletionWeek ? null : completionWeek ?? this.completionWeek,
+      deliveryLatestCode:
+          clearDeliveryLatest ? null : deliveryLatestCode ?? this.deliveryLatestCode,
       quoteNoExternal: clearQuoteNoExternal ? null : quoteNoExternal ?? this.quoteNoExternal,
       externalNotes: clearExternalNotes ? null : externalNotes ?? this.externalNotes,
       relatedCustomerId: clearRelatedCustomer ? null : relatedCustomerId ?? this.relatedCustomerId,
@@ -1493,6 +1502,8 @@ class CalculatorDraft {
         'production_color_code': productionColorCode!.trim(),
       if (handoverTypeCode != null && handoverTypeCode!.isNotEmpty) 'handover_type_code': handoverTypeCode,
       if (completionWeek != null) 'completion_week': completionWeek,
+      if (deliveryLatestCode != null && deliveryLatestCode!.isNotEmpty)
+        'delivery_latest_code': deliveryLatestCode,
       if (quoteNoExternal != null && quoteNoExternal!.isNotEmpty) 'quote_no_external': quoteNoExternal,
       if (externalNotes != null && externalNotes!.isNotEmpty) 'external_notes': externalNotes,
       if (relatedCustomerId != null && relatedCustomerId!.isNotEmpty) 'related_customer_id': relatedCustomerId,

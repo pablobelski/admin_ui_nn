@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../../core/ui/media_file_actions.dart';
 import '../../../core/ui/top_notification.dart';
@@ -65,6 +66,7 @@ class _QuoteDocumentsOptionsDialogState extends State<QuoteDocumentsOptionsDialo
   late final Future<PrintDialogData> _dataFuture;
   final Set<String> _selectedTemplateIds = <String>{};
   final ScrollController _documentsScrollController = ScrollController();
+  final FocusNode _printFocusNode = FocusNode();
   List<GeneratedDocument> _documents = const [];
   String? _selectedBatchId;
   bool _initialized = false;
@@ -77,11 +79,23 @@ class _QuoteDocumentsOptionsDialogState extends State<QuoteDocumentsOptionsDialo
   void initState() {
     super.initState();
     _dataFuture = widget.repository.fetchPrintDialogData(widget.quoteId);
+    _dataFuture.then(
+      (data) {
+        if (!mounted) return;
+        setState(() => _initialize(data));
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted || _selectedTemplateIds.isEmpty || _isPrinting) return;
+          _printFocusNode.requestFocus();
+        });
+      },
+      onError: (Object _, StackTrace __) {},
+    );
   }
 
   @override
   void dispose() {
     _documentsScrollController.dispose();
+    _printFocusNode.dispose();
     super.dispose();
   }
 
@@ -91,7 +105,8 @@ class _QuoteDocumentsOptionsDialogState extends State<QuoteDocumentsOptionsDialo
     _documents = data.recentDocuments;
 
     DocumentBatchOption? batch = data.defaultBatch;
-    if (batch == null) {
+    if (batch == null || !batch.compatible || batch.items.isEmpty) {
+      batch = null;
       for (final candidate in data.batches) {
         if (candidate.compatible && candidate.items.isNotEmpty) {
           batch = candidate;
@@ -191,13 +206,13 @@ class _QuoteDocumentsOptionsDialogState extends State<QuoteDocumentsOptionsDialo
   @override
   Widget build(BuildContext context) {
     final screenHeight = MediaQuery.sizeOf(context).height;
-    final contentHeight = (screenHeight * .80).clamp(480.0, 760.0).toDouble();
-    final documentsHeight = (screenHeight * .24).clamp(150.0, 230.0).toDouble();
+    final contentHeight = (screenHeight * .52).clamp(390.0, 500.0).toDouble();
+    final documentsHeight = (screenHeight * .16).clamp(110.0, 145.0).toDouble();
 
     return AlertDialog(
       title: const Text('Documents'),
       content: SizedBox(
-        width: 760,
+        width: 720,
         height: contentHeight,
         child: FutureBuilder<PrintDialogData>(
           future: _dataFuture,
@@ -219,9 +234,13 @@ class _QuoteDocumentsOptionsDialogState extends State<QuoteDocumentsOptionsDialo
             final exactBatchSelection = selectedBatch != null
                 && _sameIds(selectedBatch.documentTemplateIds, _selectedTemplateIds);
 
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+            final payloadText = const JsonEncoder.withIndent('  ').convert(data.payloadPreview);
+
+            return Stack(
               children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
                 Row(
                   children: [
                     Text('Generated documents', style: Theme.of(context).textTheme.titleSmall),
@@ -378,44 +397,6 @@ class _QuoteDocumentsOptionsDialogState extends State<QuoteDocumentsOptionsDialo
                             ),
                           ),
                         ],
-                        Align(
-                          alignment: Alignment.centerLeft,
-                          child: TextButton.icon(
-                            onPressed: _isPrinting
-                                ? null
-                                : () => setState(() => _showPayloadPreview = !_showPayloadPreview),
-                            icon: Icon(
-                              _showPayloadPreview
-                                  ? Icons.visibility_off_outlined
-                                  : Icons.data_object_outlined,
-                            ),
-                            label: Text(
-                              _showPayloadPreview
-                                  ? 'Hide render JSON'
-                                  : 'Show render JSON',
-                            ),
-                          ),
-                        ),
-                        if (_showPayloadPreview)
-                          SizedBox(
-                            height: 150,
-                            child: TextFormField(
-                              initialValue: const JsonEncoder.withIndent('  ').convert(data.payloadPreview),
-                              readOnly: true,
-                              expands: true,
-                              minLines: null,
-                              maxLines: null,
-                              decoration: const InputDecoration(
-                                labelText: 'Renderer payloadJson',
-                                border: OutlineInputBorder(),
-                                isDense: true,
-                              ),
-                              style: const TextStyle(
-                                fontFamily: 'monospace',
-                                fontSize: 12,
-                              ),
-                            ),
-                          ),
                         if (_statusText != null)
                           Padding(
                             padding: const EdgeInsets.only(top: 8),
@@ -436,30 +417,123 @@ class _QuoteDocumentsOptionsDialogState extends State<QuoteDocumentsOptionsDialo
                     ),
                   ),
                 ),
+                  ],
+                ),
+                if (_showPayloadPreview)
+                  Positioned.fill(
+                    child: Material(
+                      color: Theme.of(context).colorScheme.surface,
+                      child: Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          border: Border.all(
+                            color: Theme.of(context).colorScheme.outlineVariant,
+                          ),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Row(
+                              children: [
+                                Text(
+                                  'Renderer payload JSON',
+                                  style: Theme.of(context).textTheme.titleSmall,
+                                ),
+                                const Spacer(),
+                                TextButton.icon(
+                                  onPressed: () async {
+                                    await Clipboard.setData(ClipboardData(text: payloadText));
+                                    if (!context.mounted) return;
+                                    showTopNotification(
+                                      context,
+                                      'Render JSON copied.',
+                                      type: TopNotificationType.success,
+                                    );
+                                  },
+                                  icon: const Icon(Icons.copy_outlined),
+                                  label: const Text('Copy'),
+                                ),
+                                IconButton(
+                                  tooltip: 'Close JSON preview',
+                                  onPressed: () => setState(() => _showPayloadPreview = false),
+                                  icon: const Icon(Icons.close),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            Expanded(
+                              child: TextFormField(
+                                initialValue: payloadText,
+                                readOnly: true,
+                                expands: true,
+                                minLines: null,
+                                maxLines: null,
+                                decoration: const InputDecoration(
+                                  border: OutlineInputBorder(),
+                                  isDense: true,
+                                ),
+                                style: const TextStyle(
+                                  fontFamily: 'monospace',
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
               ],
             );
           },
         ),
       ),
+      actionsAlignment: MainAxisAlignment.spaceBetween,
       actions: [
-        TextButton(
-          onPressed: _isPrinting ? null : () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
-        ),
         FutureBuilder<PrintDialogData>(
           future: _dataFuture,
-          builder: (context, snapshot) => FilledButton.icon(
-            onPressed: snapshot.hasData && _selectedTemplateIds.isNotEmpty && !_isPrinting
-                ? () => _print(snapshot.data!)
+          builder: (context, snapshot) => TextButton.icon(
+            onPressed: snapshot.hasData && !_isPrinting
+                ? () => setState(() => _showPayloadPreview = !_showPayloadPreview)
                 : null,
-            icon: _isPrinting
-                ? const SizedBox.square(
-                    dimension: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.print_outlined),
-            label: const Text('Print'),
+            icon: Icon(
+              _showPayloadPreview
+                  ? Icons.visibility_off_outlined
+                  : Icons.data_object_outlined,
+            ),
+            label: Text(
+              _showPayloadPreview
+                  ? 'Hide render JSON'
+                  : 'Show render JSON',
+            ),
           ),
+        ),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextButton(
+              onPressed: _isPrinting ? null : () => Navigator.of(context).pop(),
+              child: const Text('Cancel'),
+            ),
+            const SizedBox(width: 8),
+            FutureBuilder<PrintDialogData>(
+              future: _dataFuture,
+              builder: (context, snapshot) => FilledButton.icon(
+                focusNode: _printFocusNode,
+                onPressed: snapshot.hasData && _selectedTemplateIds.isNotEmpty && !_isPrinting
+                    ? () => _print(snapshot.data!)
+                    : null,
+                icon: _isPrinting
+                    ? const SizedBox.square(
+                        dimension: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.print_outlined),
+                label: const Text('Print'),
+              ),
+            ),
+          ],
         ),
       ],
     );

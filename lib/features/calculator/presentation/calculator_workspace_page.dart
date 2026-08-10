@@ -520,7 +520,7 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
     CalculatorDraft draft, {
     required bool clearSavedQuote,
   }) async {
-    final priceSignature = _priceSignature(draft);
+    var priceSignature = _priceSignature(draft);
     if (clearSavedQuote) {
       setState(() {
         _savedQuote = null;
@@ -533,6 +533,21 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
     resultNotifier.setLoading();
     try {
       final result = await ref.read(calculatorRepositoryProvider).calculate(draft);
+      final rawInput = result.raw['input'];
+      if (rawInput is Map && rawInput.containsKey('completion_week')) {
+        final rawWeek = rawInput['completion_week'];
+        final completionWeek = rawWeek is num
+            ? rawWeek.toInt()
+            : int.tryParse('${rawWeek ?? ''}');
+        if (completionWeek != draft.completionWeek) {
+          final effectiveDraft = draft.copyWith(
+            completionWeek: completionWeek,
+            clearCompletionWeek: completionWeek == null,
+          );
+          ref.read(calculatorDraftProvider.notifier).setCompletionWeek(completionWeek);
+          priceSignature = _priceSignature(effectiveDraft);
+        }
+      }
       if (mounted) {
         setState(() {
           _calculatedResult = result;
@@ -1479,8 +1494,14 @@ class _StepCard extends ConsumerWidget {
         return _DeliveryStep(
           draft: draft,
           options: calculatorContext.references['handover_types'] ?? const [],
+          standardColorOptions: calculatorContext.references['colors'] ?? const [],
+          leadTimeOptions:
+              calculatorContext.references['delivery_lead_times'] ?? const [],
+          useTdsGlassRules:
+              selectedTemplate?.productFamilyCode.toLowerCase() == 'tds',
           onHandoverChanged: notifier.setHandover,
           onCompletionWeekChanged: notifier.setCompletionWeek,
+          onDeliveryLatestChanged: notifier.setDeliveryLatest,
         );
       case 'summary':
       default:
@@ -5339,34 +5360,60 @@ class _DeliveryStep extends StatefulWidget {
   const _DeliveryStep({
     required this.draft,
     required this.options,
+    required this.standardColorOptions,
+    required this.leadTimeOptions,
+    required this.useTdsGlassRules,
     required this.onHandoverChanged,
     required this.onCompletionWeekChanged,
+    required this.onDeliveryLatestChanged,
   });
 
   final CalculatorDraft draft;
   final List<CalculatorOption> options;
+  final List<CalculatorOption> standardColorOptions;
+  final List<CalculatorOption> leadTimeOptions;
+  final bool useTdsGlassRules;
   final ValueChanged<String?> onHandoverChanged;
   final ValueChanged<int?> onCompletionWeekChanged;
+  final ValueChanged<String?> onDeliveryLatestChanged;
 
   @override
   State<_DeliveryStep> createState() => _DeliveryStepState();
 }
 
 class _DeliveryStepState extends State<_DeliveryStep> {
+  static final List<CalculatorOption> _deliveryLatestOptions = [
+    const CalculatorOption(
+      id: 'nach_vereinbarung',
+      code: 'nach_vereinbarung',
+      label: 'nach Vereinbarung',
+    ),
+    for (var week = 1; week <= 60; week++)
+      CalculatorOption(
+        id: '${week}_kw',
+        code: '${week}_kw',
+        label: '$week KW',
+      ),
+  ];
+
   late final TextEditingController _weekController;
+  bool _completionSyncScheduled = false;
 
   @override
   void initState() {
     super.initState();
     _weekController = TextEditingController(text: widget.draft.completionWeek?.toString() ?? '');
+    _scheduleCompletionSync();
   }
 
   @override
   void didUpdateWidget(covariant _DeliveryStep oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.draft.completionWeek == widget.draft.completionWeek) return;
-    final text = widget.draft.completionWeek?.toString() ?? '';
-    if (_weekController.text != text) _weekController.text = text;
+    if (oldWidget.draft.completionWeek != widget.draft.completionWeek) {
+      final text = widget.draft.completionWeek?.toString() ?? '';
+      if (_weekController.text != text) _weekController.text = text;
+    }
+    _scheduleCompletionSync();
   }
 
   @override
@@ -5375,60 +5422,198 @@ class _DeliveryStepState extends State<_DeliveryStep> {
     super.dispose();
   }
 
-  @override
-  Widget build(BuildContext context) {
+  int? _leadDays(String code) {
+    final option = widget.leadTimeOptions
+        .where((entry) => entry.code == code)
+        .firstOrNull;
+    final metadata = option?.raw['metadata_json'];
+    if (metadata is! Map) return null;
+    final raw = metadata['lead_days'];
+    if (raw is num) return raw.round();
+    return int.tryParse('${raw ?? ''}');
+  }
+
+  bool get _isSpecialColor {
+    final selectedColor = _normalizeRalCode(widget.draft.colorCode);
+    final standardColors = widget.standardColorOptions
+        .map((option) => _normalizeRalCode(option.code))
+        .whereType<String>()
+        .toSet();
+    return selectedColor != null &&
+        standardColors.isNotEmpty &&
+        !standardColors.contains(selectedColor);
+  }
+
+  bool get _hasGlass {
+    if (!widget.draft.coveringEnabled) return false;
+    if ((widget.draft.coveringCode ?? '').trim().isNotEmpty) return true;
+    return widget.draft.setContents.any(
+      (tab) => tab.moduleCoveringTypeCodes
+          .any((code) => code.trim().isNotEmpty),
+    );
+  }
+
+  int? get _tdsLeadDays {
+    if (_isSpecialColor) return _leadDays('sonder_farbe');
+    if (_hasGlass) return _leadDays('glas_8_oder_10');
+    return null;
+  }
+
+  int? get _tdsCompletionWeek {
+    final leadDays = _tdsLeadDays;
+    if (leadDays == null) return null;
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    return _mondayWeekNumber(today.add(Duration(days: leadDays)));
+  }
+
+  void _scheduleCompletionSync() {
+    if (!widget.useTdsGlassRules || _completionSyncScheduled) return;
+    _completionSyncScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _completionSyncScheduled = false;
+      if (!mounted) return;
+      final week = _tdsCompletionWeek;
+      if (widget.draft.completionWeek != week) {
+        widget.onCompletionWeekChanged(week);
+      }
+    });
+  }
+
+  bool _isDeliveryCode(String? code) =>
+      (code ?? '').trim().toLowerCase().startsWith('lieferung_');
+
+  Widget _buildManualCompletionWeek() {
     final now = DateTime.now();
     final currentWeek = _isoWeekNumber(now);
     final lastWeek = _isoWeekNumber(DateTime(now.year, 12, 28));
+    return SizedBox(
+      width: 260,
+      child: TextFormField(
+        controller: _weekController,
+        keyboardType: TextInputType.number,
+        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+        decoration: InputDecoration(
+          labelText: 'Fertigst. KW',
+          suffixText: 'KW',
+          helperText: 'Allowed: KW $currentWeek–$lastWeek (${now.year})',
+          border: const OutlineInputBorder(),
+          isDense: true,
+        ),
+        autovalidateMode: AutovalidateMode.onUserInteraction,
+        validator: (value) {
+          if (value == null || value.trim().isEmpty) return null;
+          final week = int.tryParse(value);
+          if (week == null || week < currentWeek || week > lastWeek) {
+            return 'Enter a week from $currentWeek to $lastWeek';
+          }
+          return null;
+        },
+        onChanged: (value) {
+          final week = int.tryParse(value);
+          widget.onCompletionWeekChanged(
+            week != null && week >= currentWeek && week <= lastWeek
+                ? week
+                : null,
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildTdsCompletionWeek() {
+    final leadDays = _tdsLeadDays;
+    final week = _tdsCompletionWeek;
+    final source = _isSpecialColor
+        ? 'Sonder Farbe'
+        : _hasGlass
+            ? 'Glas 8 oder 10'
+            : null;
+    return SizedBox(
+      width: 300,
+      child: InputDecorator(
+        decoration: InputDecoration(
+          labelText: 'Fertigst. KW',
+          enabled: false,
+          helperText: leadDays == null || source == null
+              ? 'No lead time required by the TDS Glas rule.'
+              : 'Automatic: today + $leadDays days ($source)',
+          border: const OutlineInputBorder(),
+          isDense: true,
+        ),
+        child: Text(week == null ? '—' : '$week'),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDelivery = _isDeliveryCode(widget.draft.handoverTypeCode);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text('Delivery / handover', style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 8),
-        const Text('Delivery type and planned completion week are stored with the calculation and quote.'),
+        Text(
+          widget.useTdsGlassRules
+              ? 'Delivery type and TDS Glas delivery dates are stored with the calculation and quote.'
+              : 'Delivery type and planned completion week are stored with the calculation and quote.',
+        ),
         const SizedBox(height: 20),
         _DropdownField(
           label: 'Delivery / handover',
           value: widget.draft.handoverTypeCode,
           options: widget.options,
           idSelector: (option) => option.code,
-          onChanged: widget.onHandoverChanged,
+          onChanged: (value) {
+            widget.onHandoverChanged(value);
+            if (!_isDeliveryCode(value)) {
+              widget.onDeliveryLatestChanged(null);
+            }
+          },
           emptyLabel: '— Delivery not selected —',
         ),
         const SizedBox(height: 16),
-        SizedBox(
-          width: 260,
-          child: TextFormField(
-            controller: _weekController,
-            keyboardType: TextInputType.number,
-            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-            decoration: InputDecoration(
-              labelText: 'Fertigst. KW',
-              suffixText: 'KW',
-              helperText: 'Allowed: KW $currentWeek–$lastWeek (${now.year})',
-              border: const OutlineInputBorder(),
-              isDense: true,
+        widget.useTdsGlassRules
+            ? _buildTdsCompletionWeek()
+            : _buildManualCompletionWeek(),
+        if (widget.useTdsGlassRules) ...[
+          const SizedBox(height: 6),
+          const Text('Toleranz nach DIN EN 1090-3'),
+        ],
+        if (widget.useTdsGlassRules && isDelivery) ...[
+          const SizedBox(height: 16),
+          SizedBox(
+            width: 300,
+            child: _DropdownField(
+              label: 'Lieferung bis spätestens',
+              value: widget.draft.deliveryLatestCode,
+              options: _deliveryLatestOptions,
+              idSelector: (option) => option.code,
+              onChanged: widget.onDeliveryLatestChanged,
+              emptyLabel: '— Not selected —',
             ),
-            autovalidateMode: AutovalidateMode.onUserInteraction,
-            validator: (value) {
-              if (value == null || value.trim().isEmpty) return null;
-              final week = int.tryParse(value);
-              if (week == null || week < currentWeek || week > lastWeek) {
-                return 'Enter a week from $currentWeek to $lastWeek';
-              }
-              return null;
-            },
-            onChanged: (value) {
-              final week = int.tryParse(value);
-              widget.onCompletionWeekChanged(
-                week != null && week >= currentWeek && week <= lastWeek ? week : null,
-              );
-            },
           ),
-        ),
+        ],
       ],
     );
   }
+}
+
+int _mondayWeekNumber(DateTime value) {
+  final day = DateTime(value.year, value.month, value.day);
+  final jan1 = DateTime(day.year, 1, 1);
+  final week1Start = jan1.subtract(Duration(days: jan1.weekday - DateTime.monday));
+  return day.difference(week1Start).inDays ~/ 7 + 1;
+}
+
+String? _deliveryLatestLabel(String? code) {
+  final normalized = (code ?? '').trim().toLowerCase();
+  if (normalized.isEmpty) return null;
+  if (normalized == 'nach_vereinbarung') return 'nach Vereinbarung';
+  final match = RegExp(r'^(\d{1,2})_kw$').firstMatch(normalized);
+  if (match == null) return code;
+  return '${match.group(1)} KW';
 }
 
 
@@ -9171,7 +9356,13 @@ class _SummaryStep extends StatelessWidget {
         _SummaryRow('Color', draft.colorCode ?? '—'),
         _SummaryRow(
           'Delivery',
-          [draft.handoverTypeCode, if (draft.completionWeek != null) 'Fertigst. KW ${draft.completionWeek}']
+          [
+            draft.handoverTypeCode,
+            if (draft.completionWeek != null)
+              'Fertigst. KW ${draft.completionWeek}',
+            if (_deliveryLatestLabel(draft.deliveryLatestCode) != null)
+              'Lieferung bis spätestens ${_deliveryLatestLabel(draft.deliveryLatestCode)}',
+          ]
               .whereType<String>()
               .join(' · '),
         ),
