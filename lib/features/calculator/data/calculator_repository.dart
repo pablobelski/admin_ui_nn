@@ -56,18 +56,33 @@ class CalculatorRepository {
     SaveQuoteMode mode = SaveQuoteMode.asNew,
     String? baseQuoteId,
     String? geometryPreviewFileId,
+    String? expandedGeometryPreviewFileId,
   }) async {
     final workspaceInput = draft.toWorkspaceJson();
+    final printAssets = <String, dynamic>{};
     if (geometryPreviewFileId != null && geometryPreviewFileId.isNotEmpty) {
-      workspaceInput['printAssets'] = {
-        'geometryPreview': {
-          'fileId': geometryPreviewFileId,
-          'contentType': 'image/png',
-          'variant': 'geometry_only',
-          'width': 450,
-          'height': 305,
-        },
+      printAssets['geometryPreview'] = {
+        'fileId': geometryPreviewFileId,
+        'contentType': 'image/png',
+        'variant': 'geometry_only',
+        'width': 450,
+        'height': 305,
       };
+    }
+    if (expandedGeometryPreviewFileId != null &&
+        expandedGeometryPreviewFileId.isNotEmpty) {
+      printAssets['expandedGeometryPreview'] = {
+        'fileId': expandedGeometryPreviewFileId,
+        'contentType': 'image/png',
+        'variant': 'geometry_expanded',
+        'width': 2400,
+        'height': 1520,
+        'logicalWidth': 1200,
+        'logicalHeight': 760,
+      };
+    }
+    if (printAssets.isNotEmpty) {
+      workspaceInput['printAssets'] = printAssets;
     }
 
     final response = await _client.postJson(
@@ -120,6 +135,34 @@ class CalculatorRepository {
     return GeneratedDocument.fromJson(response);
   }
 
+  Future<QuoteSubmitPreview> fetchQuoteSubmitPreview(
+    String quoteId, {
+    required String operation,
+  }) async {
+    final response = await _client.getJson(
+      '/api/internal/calculator/submit',
+      query: {
+        'quote_id': quoteId,
+        'operation': operation,
+      },
+    );
+    return QuoteSubmitPreview.fromJson(response);
+  }
+
+  Future<QuoteSubmitResult> submitQuoteEmail(
+    String quoteId, {
+    required String operation,
+  }) async {
+    final response = await _client.postJson(
+      '/api/internal/calculator/submit',
+      body: {
+        'quote_id': quoteId,
+        'operation': operation,
+      },
+    );
+    return QuoteSubmitResult.fromJson(response);
+  }
+
   Future<Map<String, dynamic>> fetchMediaFileUrl(String fileId) async {
     final data = await _client.getJson('/api/admin/media-files/$fileId/url');
     for (final key in ['url', 'download_url']) {
@@ -130,6 +173,134 @@ class CalculatorRepository {
     }
     return data;
   }
+}
+
+class QuoteSubmitIssue {
+  const QuoteSubmitIssue({
+    required this.code,
+    required this.message,
+    this.field,
+  });
+
+  factory QuoteSubmitIssue.fromJson(Map<String, dynamic> json) => QuoteSubmitIssue(
+        code: _repoString(json['code']),
+        message: _repoString(json['message']),
+        field: _repoNullableString(json['field']),
+      );
+
+  final String code;
+  final String message;
+  final String? field;
+}
+
+class QuoteSubmitPreview {
+  const QuoteSubmitPreview({
+    required this.canSubmit,
+    required this.operation,
+    required this.quoteId,
+    required this.quoteNo,
+    required this.statusCode,
+    required this.targetStatus,
+    required this.customerOrganizationName,
+    required this.customerDeliveryEnabled,
+    required this.to,
+    required this.cc,
+    required this.bcc,
+    required this.senderName,
+    required this.senderAddress,
+    required this.subject,
+    required this.errors,
+    required this.warnings,
+    this.customerContactName,
+    this.customerEmail,
+    this.documentBatchName,
+    this.documentBatchCode,
+    this.documentCount = 0,
+  });
+
+  factory QuoteSubmitPreview.fromJson(Map<String, dynamic> json) {
+    final quote = _repoMap(json['quote']);
+    final customer = _repoMap(json['customer']);
+    final sender = _repoMap(json['sender']);
+    final recipients = _repoMap(json['recipients']);
+    final batch = _repoMap(json['document_batch'] ?? json['documentBatch']);
+    final email = _repoMap(json['email']);
+    List<String> emails(Object? value) => value is List
+        ? value.map((entry) => _repoString(entry)).where((entry) => entry.isNotEmpty).toList(growable: false)
+        : const [];
+    return QuoteSubmitPreview(
+      canSubmit: _repoBool(json['can_submit'] ?? json['canSubmit']),
+      operation: _repoString(json['operation']),
+      quoteId: _repoString(quote['id']),
+      quoteNo: _repoString(quote['quote_no'] ?? quote['quoteNo']),
+      statusCode: _repoString(quote['status_code'] ?? quote['statusCode']),
+      targetStatus: _repoString(quote['target_status'] ?? quote['targetStatus']),
+      customerOrganizationName: _repoString(customer['organization_name'] ?? customer['organizationName']),
+      customerContactName: _repoNullableString(customer['contact_name'] ?? customer['contactName']),
+      customerEmail: _repoNullableString(customer['email']),
+      customerDeliveryEnabled: _repoBool(customer['delivery_enabled'] ?? customer['deliveryEnabled']),
+      to: emails(recipients['to']),
+      cc: emails(recipients['cc']),
+      bcc: emails(recipients['bcc']),
+      senderName: _repoString(sender['name']),
+      senderAddress: _repoString(sender['address']),
+      subject: _repoString(email['subject']),
+      documentBatchName: _repoNullableString(batch['name']),
+      documentBatchCode: _repoNullableString(batch['code']),
+      documentCount: _repoIntOrNull(batch['document_count'] ?? batch['documentCount']) ?? 0,
+      errors: _repoList(json['errors']).map(QuoteSubmitIssue.fromJson).toList(growable: false),
+      warnings: _repoList(json['warnings']).map(QuoteSubmitIssue.fromJson).toList(growable: false),
+    );
+  }
+
+  final bool canSubmit;
+  final String operation;
+  final String quoteId;
+  final String quoteNo;
+  final String statusCode;
+  final String targetStatus;
+  final String customerOrganizationName;
+  final String? customerContactName;
+  final String? customerEmail;
+  final bool customerDeliveryEnabled;
+  final List<String> to;
+  final List<String> cc;
+  final List<String> bcc;
+  final String senderName;
+  final String senderAddress;
+  final String subject;
+  final String? documentBatchName;
+  final String? documentBatchCode;
+  final int documentCount;
+  final List<QuoteSubmitIssue> errors;
+  final List<QuoteSubmitIssue> warnings;
+}
+
+class QuoteSubmitResult {
+  const QuoteSubmitResult({
+    required this.ok,
+    required this.operation,
+    required this.quoteId,
+    required this.quoteNo,
+    required this.statusCode,
+    required this.customerDeliveryEnabled,
+  });
+
+  factory QuoteSubmitResult.fromJson(Map<String, dynamic> json) => QuoteSubmitResult(
+        ok: _repoBool(json['ok']),
+        operation: _repoString(json['operation']),
+        quoteId: _repoString(json['quote_id'] ?? json['quoteId']),
+        quoteNo: _repoString(json['quote_no'] ?? json['quoteNo']),
+        statusCode: _repoString(json['status_code'] ?? json['statusCode']),
+        customerDeliveryEnabled: _repoBool(json['customer_delivery_enabled'] ?? json['customerDeliveryEnabled']),
+      );
+
+  final bool ok;
+  final String operation;
+  final String quoteId;
+  final String quoteNo;
+  final String statusCode;
+  final bool customerDeliveryEnabled;
 }
 
 class PrintDialogData {
@@ -205,7 +376,7 @@ class DocumentBatchOption {
   final List<DocumentBatchItemOption> items;
 
   List<String> get documentTemplateIds => items
-      .map((entry) => entry.documentTemplate.id)
+      .map((entry) => entry.documentTemplate?.id ?? '')
       .where((id) => id.isNotEmpty)
       .toList(growable: false);
 
@@ -216,22 +387,44 @@ class DocumentBatchItemOption {
   const DocumentBatchItemOption({
     required this.id,
     required this.batchOrder,
-    required this.documentTemplate,
+    required this.itemTypeCode,
+    this.mediaFileId,
+    this.mediaFilename,
+    this.mediaMimeType,
+    this.documentTemplate,
   });
 
   factory DocumentBatchItemOption.fromJson(Map<String, dynamic> json) {
+    final templateJson = _repoMap(
+      json['document_template'] ?? json['documentTemplate'],
+    );
     return DocumentBatchItemOption(
       id: _repoString(json['id']),
       batchOrder: _repoIntOrNull(json['batch_order'] ?? json['batchOrder']) ?? 100,
-      documentTemplate: PrintTemplateOption.fromJson(
-        _repoMap(json['document_template'] ?? json['documentTemplate']),
+      itemTypeCode: _repoString(
+        json['item_type_code'] ?? json['itemTypeCode'] ?? 'document_template',
       ),
+      mediaFileId: _repoNullableString(
+        json['media_file_id'] ?? json['mediaFileId'],
+      ),
+      mediaFilename: _repoNullableString(
+        json['media_filename'] ?? json['mediaFilename'],
+      ),
+      mediaMimeType: _repoNullableString(
+        json['media_mime_type'] ?? json['mediaMimeType'],
+      ),
+      documentTemplate:
+          templateJson.isEmpty ? null : PrintTemplateOption.fromJson(templateJson),
     );
   }
 
   final String id;
   final int batchOrder;
-  final PrintTemplateOption documentTemplate;
+  final String itemTypeCode;
+  final String? mediaFileId;
+  final String? mediaFilename;
+  final String? mediaMimeType;
+  final PrintTemplateOption? documentTemplate;
 }
 
 class PrintTemplateOption {

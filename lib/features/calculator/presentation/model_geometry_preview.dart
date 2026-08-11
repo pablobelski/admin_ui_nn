@@ -17,6 +17,11 @@ import '../data/roof_geometry_calculation.dart';
 
 const geometryOnlyPreviewWidth = 450;
 const geometryOnlyPreviewHeight = 305;
+const geometryOnlyPreviewRasterScale = 1;
+const geometryOnlyPreviewRasterWidth =
+    geometryOnlyPreviewWidth * geometryOnlyPreviewRasterScale;
+const geometryOnlyPreviewRasterHeight =
+    geometryOnlyPreviewHeight * geometryOnlyPreviewRasterScale;
 
 Rect _geometryPreviewSideRect(Size size, double pad) {
   final targetWidth = math.min(122.0, math.max(104.0, size.width * 0.27));
@@ -179,7 +184,7 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
     final label = _modelDisplayLabel;
     final hasSelection = widget.modelCode?.trim().isNotEmpty ?? false;
     final authSession = ref.watch(authSessionProvider);
-    final currentUser = _currentUserLabel(authSession);
+    final currentUser = geometryPreviewCurrentUserLabel(authSession);
 
     return Card(
       margin: EdgeInsets.zero,
@@ -980,7 +985,7 @@ String _compactMillimetres(double value) {
   return (value - rounded).abs() < 0.01 ? '$rounded' : value.toStringAsFixed(1);
 }
 
-String _currentUserLabel(AuthSessionState session) {
+String geometryPreviewCurrentUserLabel(AuthSessionState session) {
   final fullName = session.fullName?.trim();
   final email = session.email?.trim();
   if (fullName != null && fullName.isNotEmpty) {
@@ -1197,7 +1202,11 @@ Future<Uint8List> renderGeometryOnlyPreviewPng({
   required int? frontHeightMm,
 }) async {
   final recorder = ui.PictureRecorder();
-  final canvas = Canvas(recorder);
+  final canvas = Canvas(recorder)
+    ..scale(
+      geometryOnlyPreviewRasterScale.toDouble(),
+      geometryOnlyPreviewRasterScale.toDouble(),
+    );
   final size = Size(
     geometryOnlyPreviewWidth.toDouble(),
     geometryOnlyPreviewHeight.toDouble(),
@@ -1236,14 +1245,453 @@ Future<Uint8List> renderGeometryOnlyPreviewPng({
 
   final picture = recorder.endRecording();
   final image = await picture.toImage(
-    geometryOnlyPreviewWidth,
-    geometryOnlyPreviewHeight,
+    geometryOnlyPreviewRasterWidth,
+    geometryOnlyPreviewRasterHeight,
   );
   picture.dispose();
   try {
     final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
     if (byteData == null) {
       throw StateError('Geometry-only PNG encoding failed.');
+    }
+    return byteData.buffer.asUint8List(
+      byteData.offsetInBytes,
+      byteData.lengthInBytes,
+    );
+  } finally {
+    image.dispose();
+  }
+}
+
+const expandedGeometryPreviewWidth = 1200;
+const expandedGeometryPreviewHeight = 760;
+const expandedGeometryPreviewRasterScale = 2;
+const expandedGeometryPreviewRasterWidth =
+    expandedGeometryPreviewWidth * expandedGeometryPreviewRasterScale;
+const expandedGeometryPreviewRasterHeight =
+    expandedGeometryPreviewHeight * expandedGeometryPreviewRasterScale;
+
+class _CanvasTextResult {
+  const _CanvasTextResult(this.height);
+  final double height;
+}
+
+_CanvasTextResult _paintExpandedText(
+  Canvas canvas,
+  String text,
+  Offset offset, {
+  required double maxWidth,
+  double fontSize = 11,
+  FontWeight fontWeight = FontWeight.w400,
+  Color color = const Color(0xFF25262A),
+  double height = 1.18,
+  int? maxLines,
+}) {
+  final painter = TextPainter(
+    text: TextSpan(
+      text: text,
+      style: TextStyle(
+        fontSize: fontSize,
+        fontWeight: fontWeight,
+        color: color,
+        height: height,
+      ),
+    ),
+    textDirection: TextDirection.ltr,
+    maxLines: maxLines,
+    ellipsis: maxLines == null ? null : '…',
+  )..layout(maxWidth: maxWidth);
+  painter.paint(canvas, offset);
+  return _CanvasTextResult(painter.height);
+}
+
+double _paintExpandedInfoRow(
+  Canvas canvas,
+  double x,
+  double y,
+  double maxWidth,
+  String label,
+  String value,
+) {
+  final labelResult = _paintExpandedText(
+    canvas,
+    label,
+    Offset(x, y),
+    maxWidth: maxWidth,
+    fontSize: 9.5,
+    fontWeight: FontWeight.w600,
+    color: const Color(0xFF5F6269),
+  );
+  final valueResult = _paintExpandedText(
+    canvas,
+    value,
+    Offset(x, y + labelResult.height + 2),
+    maxWidth: maxWidth,
+    fontSize: 10.5,
+  );
+  return labelResult.height + valueResult.height + 10;
+}
+
+Future<Uint8List> renderExpandedGeometryPreviewPng({
+  required String? modelCode,
+  required String? modelLabel,
+  required int? widthMm,
+  required int? depthMm,
+  required int? heightMm,
+  required List<RoofGeometryParam> geometryParams,
+  required List<CalculatorSetContentTab> modules,
+  required List<String> moduleRoles,
+  required List<RoofModuleCalculation> calculatedModules,
+  required String? calculationNumber,
+  required String? calculationSavedAt,
+  required String? buyerName,
+  required String? buyerContactName,
+  required String? buyerEmail,
+  required String? buyerPhone,
+  required Map<String, dynamic> weights,
+  required String? deliveryName,
+  required int? completionWeek,
+  required String? colorCode,
+  required Color? colorSwatchColor,
+  required bool isSpecialColor,
+  required String? coveringName,
+  required List<GeometryPreviewMarkiseSegment> markiseSegments,
+  required RoofStaticBeamCalculation? staticBeam,
+  required bool wallMounted,
+  required int postCount,
+  required String? quoteNotes,
+  required int? roofAngleDeg,
+  required int? rearHeightMm,
+  required int? frontHeightMm,
+  required String currentUser,
+  bool showRoofType = true,
+}) async {
+  const logicalSize = Size(1200, 760);
+  final recorder = ui.PictureRecorder();
+  final canvas = Canvas(recorder)
+    ..scale(
+      expandedGeometryPreviewRasterScale.toDouble(),
+      expandedGeometryPreviewRasterScale.toDouble(),
+    );
+  canvas.drawRect(
+    Offset.zero & logicalSize,
+    Paint()..color = const Color(0xFFFDFDFE),
+  );
+
+  const outer = 20.0;
+  const leftWidth = 300.0;
+  const gap = 20.0;
+  final contentHeight = logicalSize.height - outer * 2;
+  final leftRect = RRect.fromRectAndRadius(
+    const Rect.fromLTWH(outer, outer, leftWidth, expandedGeometryPreviewHeight - outer * 2),
+    const Radius.circular(12),
+  );
+  canvas.drawRRect(
+    leftRect,
+    Paint()..color = const Color(0xFFF5F5F8),
+  );
+  canvas.drawRRect(
+    leftRect,
+    Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1
+      ..color = const Color(0xFFD5D6DB),
+  );
+
+  double weight(String key) => (weights[key] as num?)?.toDouble() ?? 0;
+  bool complete(String key) =>
+      weights[key] is bool ? weights[key] as bool : true;
+  String weightText(String valueKey, String completeKey) {
+    if (weights.isEmpty) return '—';
+    return '${weight(valueKey).toStringAsFixed(1)} kg${complete(completeKey) ? '' : '*'}';
+  }
+
+  final nonGlassComplete = complete('set_complete') &&
+      complete('accessories_complete') &&
+      complete('options_complete');
+  final nonGlassWeight =
+      weight('set_kg') + weight('accessories_kg') + weight('options_kg');
+  final totalGlassCount = calculatedModules.fold<int>(
+    0,
+    (sum, module) => sum + module.glassCount,
+  );
+  final totalBeamCount = calculatedModules.fold<int>(
+    0,
+    (sum, module) => sum + module.beamCount,
+  );
+  final totalMarkiseCount = markiseSegments.fold<int>(
+    0,
+    (sum, segment) => sum + segment.quantity,
+  );
+  final glassName = coveringName?.trim() ?? '';
+  final buyerNameValue = buyerName?.trim();
+  final contactDetails = [buyerContactName, buyerEmail, buyerPhone]
+      .map((value) => value?.trim() ?? '')
+      .where((value) => value.isNotEmpty)
+      .join(' · ');
+  final modelCodeValue = modelCode?.trim();
+  final displayModelLabel = (modelLabel?.trim().isNotEmpty ?? false)
+      ? modelLabel!.trim()
+      : ((modelCodeValue?.isNotEmpty ?? false) ? modelCodeValue! : '—');
+
+  var infoY = outer + 18;
+  const infoX = outer + 18;
+  const infoWidth = leftWidth - 36;
+  void info(String label, String value) {
+    infoY += _paintExpandedInfoRow(
+      canvas,
+      infoX,
+      infoY,
+      infoWidth,
+      label,
+      value,
+    );
+  }
+
+  info(
+    'Besteller / Auftraggeber',
+    buyerNameValue == null || buyerNameValue.isEmpty ? '—' : buyerNameValue,
+  );
+  if (contactDetails.isNotEmpty) {
+    info('Configurator contact', contactDetails);
+  }
+  if (showRoofType) {
+    info(
+      'Roof type',
+      modelCodeValue == null || modelCodeValue.isEmpty
+          ? displayModelLabel
+          : '$displayModelLabel ($modelCodeValue)',
+    );
+  }
+  if (colorCode?.trim().isNotEmpty == true) {
+    info(isSpecialColor ? 'Color (Sonderfarbe)' : 'Color', colorCode!.trim());
+  }
+  if (glassName.isNotEmpty || totalGlassCount > 0 || totalMarkiseCount > 0) {
+    info(
+      'Covering',
+      [
+        if (glassName.isNotEmpty || totalGlassCount > 0)
+          'Glas: ${glassName.isEmpty ? '—' : glassName} · $totalGlassCount stk.',
+        if (totalMarkiseCount > 0) 'Markise: $totalMarkiseCount stk.',
+      ].join('\n'),
+    );
+  }
+  info(
+    'Set content',
+    'Pfosten: $postCount stk.\nTräger: $totalBeamCount stk.',
+  );
+  if (wallMounted) info('Montage', 'Wandmontage');
+  if (staticBeam?.enabled == true) {
+    info('Statikträger mounting', _staticBeamDetails(staticBeam!));
+  }
+  if ((deliveryName ?? '').trim().isNotEmpty || completionWeek != null) {
+    info(
+      'Delivery',
+      [
+        if ((deliveryName ?? '').trim().isNotEmpty) deliveryName!.trim(),
+        if (completionWeek != null) 'Fertigst. KW $completionWeek',
+      ].join(' · '),
+    );
+  }
+  info(
+    'Gewicht',
+    'Set+Zub.+Zus.: '
+        '${weights.isEmpty ? '—' : '${nonGlassWeight.toStringAsFixed(1)} kg${nonGlassComplete ? '' : '*'}'}\n'
+        'Glas: ${weightText('glass_kg', 'glass_complete')} / '
+        'Markise: ${weightText('markise_kg', 'markise_complete')} / '
+        'Gesamt: ${weightText('total_kg', 'total_complete')}',
+  );
+  info(
+    'Overall dimensions',
+    'B: ${_dimensionValue(widthMm)} mm × T: ${_dimensionValue(depthMm)} mm × H: ${_dimensionValue(heightMm)} mm',
+  );
+  if (roofAngleDeg != null) info('Roof angle', '$roofAngleDeg°');
+
+  final userTop = outer + contentHeight - 72;
+  canvas.drawLine(
+    Offset(infoX, userTop - 10),
+    Offset(infoX + infoWidth, userTop - 10),
+    Paint()
+      ..color = const Color(0xFFD4D5DA)
+      ..strokeWidth = 1,
+  );
+  _paintExpandedInfoRow(
+    canvas,
+    infoX,
+    userTop,
+    infoWidth,
+    'User',
+    currentUser,
+  );
+
+  final rightX = outer + leftWidth + gap;
+  final rightWidth = logicalSize.width - rightX - outer;
+  const modulesHeight = 105.0;
+  final geometryHeight = contentHeight - modulesHeight - 12;
+  final geometrySize = Size(rightWidth, geometryHeight);
+
+  canvas.save();
+  canvas.translate(rightX, outer);
+  final geometryPainter = _ModelGeometryPreviewPainter(
+    modelCode: modelCode,
+    modelLabel: modelLabel,
+    widthMm: widthMm,
+    depthMm: depthMm,
+    heightMm: heightMm,
+    geometryParams: geometryParams,
+    colorCode: colorCode,
+    colorSwatchColor: colorSwatchColor,
+    isSpecialColor: isSpecialColor,
+    coveringName: coveringName,
+    humanImage: null,
+    lineColor: Colors.black,
+    mutedLineColor: const Color(0xFF6F7478),
+    accentColor: const Color(0xFF2B77A6),
+    surfaceColor: Colors.white,
+    highlightedModuleIndex: null,
+    highlightedGlassFieldIndex: null,
+    roofAngleDeg: roofAngleDeg,
+    rearHeightMm: rearHeightMm,
+    frontHeightMm: frontHeightMm,
+    calculatedModules: calculatedModules,
+    wallMounted: wallMounted,
+    postCount: postCount,
+    hasMarkise: markiseSegments.any((segment) => segment.quantity > 0),
+    sideInfoBottomReserve: 0,
+    alignRoofTop: true,
+  );
+  geometryPainter.paint(canvas, geometrySize);
+  canvas.restore();
+
+  final commissionText =
+      'Kommission: ${_expandedKommissionLabel(calculationNumber)}';
+  final commissionPainter = TextPainter(
+    text: const TextSpan(),
+    textDirection: TextDirection.ltr,
+  );
+  commissionPainter.text = TextSpan(
+    text: commissionText,
+    style: const TextStyle(
+      fontSize: 15,
+      fontWeight: FontWeight.w600,
+      color: Color(0xFF202124),
+    ),
+  );
+  commissionPainter.layout(maxWidth: math.max(200, rightWidth * 0.55));
+  final commissionRect = RRect.fromRectAndRadius(
+    Rect.fromLTWH(
+      rightX + 8,
+      outer + 8,
+      commissionPainter.width + 20,
+      commissionPainter.height + 8,
+    ),
+    const Radius.circular(6),
+  );
+  canvas.drawRRect(commissionRect, Paint()..color = Colors.white);
+  canvas.drawRRect(
+    commissionRect,
+    Paint()
+      ..style = PaintingStyle.stroke
+      ..color = const Color(0xFFBFC1C6),
+  );
+  commissionPainter.paint(
+    canvas,
+    Offset(rightX + 18, outer + 12),
+  );
+
+  _paintExpandedText(
+    canvas,
+    'Date: ${_displaySavedDate(calculationSavedAt)}',
+    Offset(rightX + rightWidth - 210, outer + 10),
+    maxWidth: 200,
+    fontSize: 10,
+    fontWeight: FontWeight.w600,
+    color: const Color(0xFF202124),
+  );
+
+  final notesText = quoteNotes?.trim() ?? '';
+  if (notesText.isNotEmpty) {
+    final noteY = outer + geometryHeight - 55;
+    _paintExpandedText(
+      canvas,
+      'Notes',
+      Offset(rightX + rightWidth * 0.55, noteY),
+      maxWidth: rightWidth * 0.42,
+      fontSize: 9,
+      fontWeight: FontWeight.w700,
+    );
+    _paintExpandedText(
+      canvas,
+      notesText,
+      Offset(rightX + rightWidth * 0.55, noteY + 13),
+      maxWidth: rightWidth * 0.42,
+      fontSize: 9,
+      maxLines: 3,
+    );
+  }
+
+  final modulesY = outer + geometryHeight + 10;
+  canvas.drawLine(
+    Offset(rightX, modulesY),
+    Offset(rightX + rightWidth, modulesY),
+    Paint()
+      ..color = const Color(0xFFD4D5DA)
+      ..strokeWidth = 1,
+  );
+  _paintExpandedText(
+    canvas,
+    'Modules',
+    Offset(rightX + 4, modulesY + 12),
+    maxWidth: rightWidth - 8,
+    fontSize: 11,
+    fontWeight: FontWeight.w600,
+  );
+  var moduleY = modulesY + 31;
+  if (modules.isEmpty) {
+    _paintExpandedText(
+      canvas,
+      '—',
+      Offset(rightX + 4, moduleY),
+      maxWidth: rightWidth - 8,
+      fontSize: 10.5,
+    );
+  } else {
+    for (var index = 0; index < modules.length && index < 4; index++) {
+      final markise = markiseSegments
+          .where((entry) => entry.moduleIndex == index + 1)
+          .firstOrNull;
+      final calculated = calculatedModules
+          .where((entry) => entry.moduleIndex == index + 1)
+          .firstOrNull;
+      final line =
+          '${index + 1} · ${_moduleLabel(_effectiveModuleRole(modules[index], index, moduleRoles), index + 1)} · '
+          'T: ${_dimensionValue(modules[index].moduleDepthMm)} mm × '
+          'B: ${_dimensionValue(modules[index].moduleWidthMm)} mm · '
+          'Glas: ${calculated?.glassCount ?? '—'} · '
+          'Träger: ${calculated?.beamCount ?? '—'}'
+          '${markise == null ? '' : ' · Markise: ${markise.typeLabel} · ${markise.quantity} stk.'}';
+      final painted = _paintExpandedText(
+        canvas,
+        line,
+        Offset(rightX + 4, moduleY),
+        maxWidth: rightWidth - 8,
+        fontSize: 10,
+        maxLines: 1,
+      );
+      moduleY += painted.height + 5;
+    }
+  }
+
+  final picture = recorder.endRecording();
+  final image = await picture.toImage(
+    expandedGeometryPreviewRasterWidth,
+    expandedGeometryPreviewRasterHeight,
+  );
+  picture.dispose();
+  try {
+    final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+    if (byteData == null) {
+      throw StateError('Expanded geometry preview PNG encoding failed.');
     }
     return byteData.buffer.asUint8List(
       byteData.offsetInBytes,

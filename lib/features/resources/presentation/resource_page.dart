@@ -27,7 +27,9 @@ import '../../calculator/data/roof_geometry_calculation.dart';
 import '../../calculator/presentation/calculator_providers.dart';
 import '../../calculator/presentation/model_geometry_preview.dart';
 import '../../calculator/presentation/quote_documents_button.dart';
+import '../../calculator/presentation/quote_submit_button.dart';
 import 'catalog_item_dependency_tree.dart';
+import 'document_batch_items_panel.dart';
 import 'organization_relation_tree.dart';
 
 final _uiDateTimeFormat = DateFormat('dd.MM.yy HH:mm');
@@ -58,7 +60,9 @@ class ResourcePage extends ConsumerWidget {
         Expanded(
           child: ResizableSplitPane(
             axis: isWide ? Axis.horizontal : Axis.vertical,
-            initialFraction: isWide ? 0.6 : 0.5,
+            initialFraction: isWide
+                ? (resource.key == 'document_batches' ? 0.38 : 0.6)
+                : 0.5,
             minFirstFraction: 0.25,
             minSecondFraction: 0.25,
             first: _ListCard(resource: resource, listAsync: listAsync),
@@ -1160,6 +1164,19 @@ class _DetailsCardState extends ConsumerState<_DetailsCard> {
                     if (resource.key == 'quotes')
                       Padding(
                         padding: const EdgeInsets.only(right: 8),
+                        child: QuoteSubmitButton(
+                          quoteId: data['id']?.toString() ?? '',
+                          statusCode: data['status_code']?.toString() ?? 'draft',
+                          repository: ref.read(calculatorRepositoryProvider),
+                          onCompleted: (_) async {
+                            ref.invalidate(resourceListProvider(resource));
+                            ref.invalidate(resourceDetailsProvider(resource));
+                          },
+                        ),
+                      ),
+                    if (resource.key == 'quotes')
+                      Padding(
+                        padding: const EdgeInsets.only(right: 8),
                         child: QuoteDocumentsButton(
                           quoteId: data['id']?.toString() ?? '',
                           repository: ref.read(calculatorRepositoryProvider),
@@ -1171,7 +1188,7 @@ class _DetailsCardState extends ConsumerState<_DetailsCard> {
                         child: OutlinedButton.icon(
                           onPressed: () => loadQuoteToWorkspace(context, ref, data),
                           icon: const Icon(Icons.upload_file_outlined, size: 18),
-                          label: const Text('Load to Workspace'),
+                          label: const Text('Load'),
                         ),
                       ),
                     if (resource.key == 'users')
@@ -1494,6 +1511,10 @@ class _ResourceDetailsContent extends StatelessWidget {
                 data['quote_no_external'],
                 data['quoteNoExternal'],
               ),
+              statusCode: _firstText(
+                data['status_code'],
+                data['statusCode'],
+              ),
             ),
             const SizedBox(height: 12),
             _QuoteDetailsSummaryCard(
@@ -1599,6 +1620,32 @@ class _ResourceDetailsContent extends StatelessWidget {
               ),
             ),
           ],
+        ),
+      );
+    }
+
+    if (resource.key == 'document_batches') {
+      final batchId = data['id']?.toString().trim() ?? '';
+      return ResizableSplitPane(
+        axis: Axis.vertical,
+        initialFraction: 0.42,
+        minFirstFraction: 0.25,
+        minSecondFraction: 0.35,
+        first: ListView(
+          children: [
+            _MainFieldsCard(
+              resource: resource,
+              data: data,
+              lookupLabelsByKey: lookupLabelsByKey,
+            ),
+            const SizedBox(height: 12),
+            JsonViewCard(title: 'Raw JSON', data: data),
+          ],
+        ),
+        second: DocumentBatchItemsPanel(
+          key: ValueKey('document-batch-items-$batchId'),
+          batchId: batchId,
+          repository: repository,
         ),
       );
     }
@@ -2243,15 +2290,21 @@ class _DetailRowData {
 
 
 class _QuoteNumberPlate extends StatelessWidget {
-  const _QuoteNumberPlate({required this.quoteNo, this.quoteNoExternal});
+  const _QuoteNumberPlate({
+    required this.quoteNo,
+    this.quoteNoExternal,
+    this.statusCode,
+  });
 
   final String? quoteNo;
   final String? quoteNoExternal;
+  final String? statusCode;
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final external = quoteNoExternal?.trim() ?? '';
+    final status = statusCode?.trim() ?? '';
 
     return Container(
       width: double.infinity,
@@ -2306,6 +2359,38 @@ class _QuoteNumberPlate extends StatelessWidget {
                 ),
               ],
             ),
+          if (status.isNotEmpty) ...[
+            const SizedBox(width: 20),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  'Status',
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: colorScheme.onPrimaryContainer.withValues(alpha: 0.75),
+                      ),
+                ),
+                const SizedBox(height: 2),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: colorScheme.surface.withValues(alpha: 0.72),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: colorScheme.primary.withValues(alpha: 0.30),
+                    ),
+                  ),
+                  child: Text(
+                    status,
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                          color: colorScheme.onPrimaryContainer,
+                        ),
+                  ),
+                ),
+              ],
+            ),
+          ],
         ],
       ),
     );
@@ -3060,7 +3145,7 @@ Future<void> loadQuoteToWorkspace(
         FilledButton.icon(
           onPressed: () => Navigator.of(context).pop(true),
           icon: const Icon(Icons.upload_file_outlined),
-          label: const Text('Load to Workspace'),
+          label: const Text('Load'),
         ),
       ],
     ),

@@ -127,6 +127,13 @@ const assetFileLookup = AdminLookup(
   showIdInDropdown: false,
 );
 
+const documentBatchMediaFileLookup = AdminLookup(
+  endpoint: '/api/admin/document-batch-media-files',
+  labelKeys: ['original_filename', 'mime_type'],
+  limit: 5000,
+  showIdInDropdown: false,
+);
+
 const materialPriceDimensionLookup = AdminLookup(
   endpoint: '/api/admin/material-price-dimensions',
   labelKeys: ['code', 'name', 'unit_code'],
@@ -339,6 +346,12 @@ const priceListScopeOptions = <AdminSelectOption>[
   AdminSelectOption(value: 'internal', label: 'Internal'),
   AdminSelectOption(value: 'supplier', label: 'Supplier'),
   AdminSelectOption(value: 'other', label: 'Other'),
+];
+
+const documentBatchItemTypeOptions = <AdminSelectOption>[
+  AdminSelectOption(value: 'document_template', label: 'XLS document template'),
+  AdminSelectOption(value: 'geometry_preview', label: 'Geometry preview'),
+  AdminSelectOption(value: 'media_file', label: 'Media library file'),
 ];
 
 const documentTypeOptions = <AdminSelectOption>[
@@ -906,6 +919,14 @@ const adminNavGroups = <AdminNavGroup>[
             sourceValueKey: 'document_template_id',
             selectTargetRow: true,
             icon: Icons.file_copy_outlined,
+          ),
+          AdminDetailAction(
+            label: 'Show media file',
+            targetResourceKey: 'asset_files',
+            filterKey: 'id',
+            sourceValueKey: 'media_file_id',
+            selectTargetRow: true,
+            icon: Icons.perm_media_outlined,
           ),
           AdminDetailAction(
             label: 'Show PDF in Media Library',
@@ -1593,6 +1614,18 @@ const adminNavGroups = <AdminNavGroup>[
           AdminField(key: 'source_range', label: 'Source range'),
           AdminField(key: 'version', label: 'Version', type: AdminFieldType.number),
           AdminField(key: 'status_code', label: 'Status', options: statusOptions),
+          AdminField(
+            key: 'submit_document_batch_id',
+            label: 'Submit document batch',
+            lookup: documentBatchLookup,
+            helperText: 'Merged PDF batch used by Submit/Resend. Leave empty to use the accessible default batch.',
+          ),
+          AdminField(
+            key: 'submit_customer_delivery_enabled',
+            label: 'Send Submit email to customer',
+            type: AdminFieldType.boolType,
+            helperText: 'If disabled, Submit/Resend still sends the rendered quote email to configured internal recipients/actor only.',
+          ),
           AdminField(key: 'ui_schema_json', label: 'UI schema JSON', type: AdminFieldType.json),
           AdminField(key: 'default_values_json', label: 'Default values JSON', type: AdminFieldType.json),
           AdminField(key: 'metadata_json', label: 'Metadata JSON', type: AdminFieldType.json),
@@ -2604,13 +2637,6 @@ const adminNavGroups = <AdminNavGroup>[
             selectTargetRow: true,
             icon: Icons.webhook_rounded,
           ),
-          AdminDetailAction(
-            label: 'Batch items',
-            targetResourceKey: 'document_batches_items',
-            filterKey: 'document_batch_id',
-            sourceValueKey: 'id',
-            icon: Icons.format_list_numbered_rounded,
-          ),
         ],
       ),
       AdminResourceDefinition(
@@ -2622,18 +2648,40 @@ const adminNavGroups = <AdminNavGroup>[
         supportsDelete: true,
         columns: [
           AdminColumn(key: 'document_batch_id', label: 'Batch', flex: 2, lookup: documentBatchLookup),
+          AdminColumn(key: 'item_type_code', label: 'Type'),
           AdminColumn(key: 'document_template_id', label: 'Document template', flex: 2, lookup: documentTemplateLookup),
+          AdminColumn(key: 'media_file_id', label: 'Media file', flex: 2, lookup: documentBatchMediaFileLookup),
           AdminColumn(key: 'batch_order', label: 'Batch order'),
           AdminColumn(key: 'is_active', label: 'Active'),
         ],
         listFilters: [
           AdminResourceFilter(key: 'document_batch_id', label: 'Batch', lookup: documentBatchLookup),
+          AdminResourceFilter(key: 'item_type_code', label: 'Type', options: documentBatchItemTypeOptions),
           AdminResourceFilter(key: 'document_template_id', label: 'Document template', lookup: documentTemplateLookup),
+          AdminResourceFilter(key: 'media_file_id', label: 'Media file', lookup: documentBatchMediaFileLookup),
           AdminResourceFilter(key: 'is_active', label: 'Active', options: activeFilterOptions),
         ],
         formFields: [
           AdminField(key: 'document_batch_id', label: 'Document batch', lookup: documentBatchLookup),
-          AdminField(key: 'document_template_id', label: 'Document template', lookup: documentTemplateLookup),
+          AdminField(
+            key: 'item_type_code',
+            label: 'Item type',
+            options: documentBatchItemTypeOptions,
+            defaultValue: 'document_template',
+            helperText: 'Choose an XLS template, the expanded Geometry preview, or a concrete file from Media Library.',
+          ),
+          AdminField(
+            key: 'document_template_id',
+            label: 'Document template',
+            lookup: documentTemplateLookup,
+            helperText: 'Required only for XLS document template items.',
+          ),
+          AdminField(
+            key: 'media_file_id',
+            label: 'Media file',
+            lookup: documentBatchMediaFileLookup,
+            helperText: 'Required only for Media library file items. PDF is inserted directly; images and office files are converted to PDF pages.',
+          ),
           AdminField(key: 'batch_order', label: 'Batch order', type: AdminFieldType.number, defaultValue: '100'),
           AdminField(key: 'is_active', label: 'Active', type: AdminFieldType.boolType),
         ],
