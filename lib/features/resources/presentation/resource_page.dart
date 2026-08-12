@@ -23,11 +23,13 @@ import '../../../core/ui/resource_editor_dialog.dart';
 import '../../../core/ui/searchable_select_form_field.dart';
 import '../../../core/ui/top_notification.dart';
 import '../../calculator/data/calculator_models.dart';
+import '../../calculator/data/calculator_repository.dart';
 import '../../calculator/data/roof_geometry_calculation.dart';
 import '../../calculator/presentation/calculator_providers.dart';
 import '../../calculator/presentation/model_geometry_preview.dart';
 import '../../calculator/presentation/quote_documents_button.dart';
 import '../../calculator/presentation/quote_submit_button.dart';
+import '../../calculator/presentation/quote_status_button.dart';
 import 'catalog_item_dependency_tree.dart';
 import 'document_batch_items_panel.dart';
 import 'organization_relation_tree.dart';
@@ -1168,6 +1170,11 @@ class _DetailsCardState extends ConsumerState<_DetailsCard> {
                           quoteId: data['id']?.toString() ?? '',
                           statusCode: data['status_code']?.toString() ?? 'draft',
                           repository: ref.read(calculatorRepositoryProvider),
+                          enabled: {'approved', 'sent'}.contains(
+                            (data['status_code']?.toString() ?? 'draft')
+                                .trim()
+                                .toLowerCase(),
+                          ),
                           onCompleted: (_) async {
                             ref.invalidate(resourceListProvider(resource));
                             ref.invalidate(resourceDetailsProvider(resource));
@@ -1463,6 +1470,12 @@ class _DetailsCardState extends ConsumerState<_DetailsCard> {
                               enrichedData: enrichedData,
                               lookupLabelsByKey: detailLookupLabelsByKey,
                               repository: repository,
+                              quoteRepository:
+                                  ref.read(calculatorRepositoryProvider),
+                              onQuoteStatusChanged: (_) async {
+                                ref.invalidate(resourceListProvider(resource));
+                                ref.invalidate(resourceDetailsProvider(resource));
+                              },
                               quotePreviewContext: quotePreviewContext,
                               roofModelLabelsByCode: roofModelLabelsByCode,
                             ),
@@ -1484,6 +1497,8 @@ class _ResourceDetailsContent extends StatelessWidget {
     required this.enrichedData,
     required this.lookupLabelsByKey,
     required this.repository,
+    required this.quoteRepository,
+    required this.onQuoteStatusChanged,
     required this.quotePreviewContext,
     required this.roofModelLabelsByCode,
   });
@@ -1493,6 +1508,9 @@ class _ResourceDetailsContent extends StatelessWidget {
   final Map<String, dynamic> enrichedData;
   final Map<String, Map<String, String>> lookupLabelsByKey;
   final AdminResourceRepository repository;
+  final CalculatorRepository quoteRepository;
+  final Future<void> Function(QuoteStatusChangeResult result)
+      onQuoteStatusChanged;
   final AsyncValue<CalculatorContext>? quotePreviewContext;
   final Map<String, String> roofModelLabelsByCode;
 
@@ -1506,6 +1524,7 @@ class _ResourceDetailsContent extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _QuoteNumberPlate(
+              quoteId: quoteId,
               quoteNo: _firstText(data['quote_no'], data['quoteNo']),
               quoteNoExternal: _firstText(
                 data['quote_no_external'],
@@ -1515,6 +1534,8 @@ class _ResourceDetailsContent extends StatelessWidget {
                 data['status_code'],
                 data['statusCode'],
               ),
+              repository: quoteRepository,
+              onQuoteStatusChanged: onQuoteStatusChanged,
             ),
             const SizedBox(height: 12),
             _QuoteDetailsSummaryCard(
@@ -2291,14 +2312,21 @@ class _DetailRowData {
 
 class _QuoteNumberPlate extends StatelessWidget {
   const _QuoteNumberPlate({
+    required this.quoteId,
     required this.quoteNo,
+    required this.repository,
+    required this.onQuoteStatusChanged,
     this.quoteNoExternal,
     this.statusCode,
   });
 
+  final String quoteId;
   final String? quoteNo;
   final String? quoteNoExternal;
   final String? statusCode;
+  final CalculatorRepository repository;
+  final Future<void> Function(QuoteStatusChangeResult result)
+      onQuoteStatusChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -2308,90 +2336,93 @@ class _QuoteNumberPlate extends StatelessWidget {
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 16),
       decoration: BoxDecoration(
         color: colorScheme.primaryContainer,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: colorScheme.primary.withValues(alpha: 0.35)),
       ),
-      child: Row(
-        children: [
-          Icon(Icons.receipt_long_rounded, size: 20, color: colorScheme.onPrimaryContainer),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Quote no',
-                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: colorScheme.onPrimaryContainer.withValues(alpha: 0.75),
-                      ),
-                ),
-                const SizedBox(height: 2),
-                SelectableText(
-                  quoteNo?.trim().isNotEmpty == true ? quoteNo!.trim() : '—',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
-                        color: colorScheme.onPrimaryContainer,
-                      ),
-                ),
-              ],
-            ),
-          ),
-          if (external.isNotEmpty)
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(
-                  'Kommission',
-                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: colorScheme.onPrimaryContainer.withValues(alpha: 0.75),
-                      ),
-                ),
-                const SizedBox(height: 2),
-                SelectableText(
-                  external,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                        color: colorScheme.onPrimaryContainer,
-                      ),
-                ),
-              ],
-            ),
-          if (status.isNotEmpty) ...[
-            const SizedBox(width: 20),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(
-                  'Status',
-                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: colorScheme.onPrimaryContainer.withValues(alpha: 0.75),
-                      ),
-                ),
-                const SizedBox(height: 2),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: colorScheme.surface.withValues(alpha: 0.72),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                      color: colorScheme.primary.withValues(alpha: 0.30),
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.receipt_long_rounded,
+                      size: 20,
+                      color: colorScheme.onPrimaryContainer,
                     ),
-                  ),
-                  child: Text(
-                    status,
-                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                          fontWeight: FontWeight.w700,
-                          color: colorScheme.onPrimaryContainer,
-                        ),
-                  ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            'Quote no',
+                            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                  color: colorScheme.onPrimaryContainer
+                                      .withValues(alpha: 0.75),
+                                ),
+                          ),
+                          const SizedBox(height: 2),
+                          SelectableText(
+                            quoteNo?.trim().isNotEmpty == true
+                                ? quoteNo!.trim()
+                                : '—',
+                            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                  color: colorScheme.onPrimaryContainer,
+                                ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (external.isNotEmpty)
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            'Kommission',
+                            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                  color: colorScheme.onPrimaryContainer
+                                      .withValues(alpha: 0.75),
+                                ),
+                          ),
+                          const SizedBox(height: 2),
+                          SelectableText(
+                            external,
+                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                  color: colorScheme.onPrimaryContainer,
+                                ),
+                          ),
+                        ],
+                      ),
+                  ],
                 ),
-              ],
+              ),
             ),
+            if (status.isNotEmpty) ...[
+              const SizedBox(width: 20),
+              Align(
+                alignment: Alignment.center,
+                child: QuoteStatusButton(
+                  quoteId: quoteId,
+                  statusCode: status,
+                  repository: repository,
+                  headerPlate: true,
+                  onCompleted: onQuoteStatusChanged,
+                ),
+              ),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }

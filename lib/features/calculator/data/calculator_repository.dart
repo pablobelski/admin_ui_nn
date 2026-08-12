@@ -135,6 +135,30 @@ class CalculatorRepository {
     return GeneratedDocument.fromJson(response);
   }
 
+  Future<QuoteStatusTransitions> fetchQuoteStatusTransitions(
+    String quoteId,
+  ) async {
+    final response = await _client.getJson(
+      '/api/internal/calculator/quote-status',
+      query: {'quote_id': quoteId},
+    );
+    return QuoteStatusTransitions.fromJson(response);
+  }
+
+  Future<QuoteStatusChangeResult> changeQuoteStatus(
+    String quoteId,
+    String targetStatus,
+  ) async {
+    final response = await _client.postJson(
+      '/api/internal/calculator/quote-status',
+      body: {
+        'quote_id': quoteId,
+        'target_status': targetStatus,
+      },
+    );
+    return QuoteStatusChangeResult.fromJson(response);
+  }
+
   Future<QuoteSubmitPreview> fetchQuoteSubmitPreview(
     String quoteId, {
     required String operation,
@@ -173,6 +197,78 @@ class CalculatorRepository {
     }
     return data;
   }
+}
+
+class QuoteStatusTransitionOption {
+  const QuoteStatusTransitionOption({
+    required this.statusCode,
+    required this.label,
+  });
+
+  factory QuoteStatusTransitionOption.fromJson(Map<String, dynamic> json) =>
+      QuoteStatusTransitionOption(
+        statusCode: _repoString(json['status_code'] ?? json['statusCode']),
+        label: _repoString(json['label']),
+      );
+
+  final String statusCode;
+  final String label;
+}
+
+class QuoteStatusTransitions {
+  const QuoteStatusTransitions({
+    required this.quoteId,
+    required this.quoteNo,
+    required this.statusCode,
+    required this.transitions,
+  });
+
+  factory QuoteStatusTransitions.fromJson(Map<String, dynamic> json) =>
+      QuoteStatusTransitions(
+        quoteId: _repoString(json['quote_id'] ?? json['quoteId']),
+        quoteNo: _repoString(json['quote_no'] ?? json['quoteNo']),
+        statusCode: _repoString(json['status_code'] ?? json['statusCode']),
+        transitions: _repoList(json['transitions'])
+            .map(QuoteStatusTransitionOption.fromJson)
+            .toList(growable: false),
+      );
+
+  final String quoteId;
+  final String quoteNo;
+  final String statusCode;
+  final List<QuoteStatusTransitionOption> transitions;
+}
+
+class QuoteStatusChangeResult {
+  const QuoteStatusChangeResult({
+    required this.ok,
+    required this.quoteId,
+    required this.quoteNo,
+    required this.previousStatusCode,
+    required this.statusCode,
+    required this.transitions,
+  });
+
+  factory QuoteStatusChangeResult.fromJson(Map<String, dynamic> json) =>
+      QuoteStatusChangeResult(
+        ok: _repoBool(json['ok']),
+        quoteId: _repoString(json['quote_id'] ?? json['quoteId']),
+        quoteNo: _repoString(json['quote_no'] ?? json['quoteNo']),
+        previousStatusCode: _repoString(
+          json['previous_status_code'] ?? json['previousStatusCode'],
+        ),
+        statusCode: _repoString(json['status_code'] ?? json['statusCode']),
+        transitions: _repoList(json['transitions'])
+            .map(QuoteStatusTransitionOption.fromJson)
+            .toList(growable: false),
+      );
+
+  final bool ok;
+  final String quoteId;
+  final String quoteNo;
+  final String previousStatusCode;
+  final String statusCode;
+  final List<QuoteStatusTransitionOption> transitions;
 }
 
 class QuoteSubmitIssue {

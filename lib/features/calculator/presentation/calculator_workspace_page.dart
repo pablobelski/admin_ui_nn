@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -23,6 +24,7 @@ import 'calculator_message_dropdown.dart';
 import 'model_geometry_preview.dart';
 import 'quote_documents_button.dart';
 import 'quote_submit_button.dart';
+import 'quote_status_button.dart';
 
 const _steps = <_StepDefinition>[
   _StepDefinition('product', 'Product', Icons.inventory_2_outlined),
@@ -231,6 +233,7 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
                             onSaveQuote: () => _showSaveQuoteDialog(context),
                             documentsRepository: ref.read(calculatorRepositoryProvider),
                             onQuoteSubmitted: _quoteSubmitted,
+                            onQuoteStatusChanged: _quoteStatusChanged,
                           ),
                         ),
                       ],
@@ -299,6 +302,7 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
                             onSaveQuote: () => _showSaveQuoteDialog(context),
                             documentsRepository: ref.read(calculatorRepositoryProvider),
                             onQuoteSubmitted: _quoteSubmitted,
+                            onQuoteStatusChanged: _quoteStatusChanged,
                           ),
                         ),
                       ],
@@ -703,56 +707,65 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
           draft.quoteNoExternal;
       final previewSavedAt = DateTime.now().toIso8601String();
       final currentUser = geometryPreviewCurrentUserLabel(ref.read(authSessionProvider));
-
-      final geometryPng = await renderGeometryOnlyPreviewPng(
-        modelCode: draft.modelCode,
-        modelLabel: previewData.selectedModel?.label,
-        widthMm: draft.widthMm,
-        depthMm: draft.depthMm,
-        heightMm: draft.heightMm,
-        geometryParams: geometryPreviewParamsFromDraft(draft),
-        coveringName: previewData.coveringName,
-        calculatedModules: previewData.roofCalculation.modules,
-        wallMounted: draft.wallMounted,
-        postCount: previewData.postCount,
-        roofAngleDeg: draft.roofAngleDeg,
-        rearHeightMm: draft.roofRearHeightMm ?? draft.heightMm,
-        frontHeightMm: draft.roofFrontHeightMm,
-      );
-      final expandedGeometryPng = await renderExpandedGeometryPreviewPng(
-        modelCode: draft.modelCode,
-        modelLabel: previewData.selectedModel?.label,
-        widthMm: draft.widthMm,
-        depthMm: draft.depthMm,
-        heightMm: draft.heightMm,
-        geometryParams: geometryPreviewParamsFromDraft(draft),
-        modules: draft.setContents,
-        moduleRoles: _moduleRolesFor(previewData.selectedModel),
-        calculatedModules: previewData.roofCalculation.modules,
-        calculationNumber: calculationNumber,
-        calculationSavedAt: previewSavedAt,
-        buyerName: buyerContact.organizationName,
-        buyerContactName: buyerContact.contactName,
-        buyerEmail: buyerContact.email,
-        buyerPhone: buyerContact.phone,
-        weights: serverResult.weights,
-        deliveryName: handover?.label ?? handoverTypeCode,
-        completionWeek: draft.completionWeek,
-        colorCode: colorPreview?.displayCode,
-        colorSwatchColor: colorPreview?.color,
-        isSpecialColor: colorPreview != null && !colorPreview.isStandard,
-        coveringName: previewData.coveringName,
-        markiseSegments: markiseSegments,
-        staticBeam: previewData.roofCalculation.staticBeam,
-        wallMounted: draft.wallMounted,
-        postCount: previewData.postCount,
-        quoteNotes: draft.externalNotes,
-        roofAngleDeg: draft.roofAngleDeg,
-        rearHeightMm: draft.roofRearHeightMm ?? draft.heightMm,
-        frontHeightMm: draft.roofFrontHeightMm,
-        currentUser: currentUser,
-      );
-      final uploadedGeometry = await ref.read(resourceRepositoryProvider).uploadMediaFile(
+      final mediaRepository = ref.read(resourceRepositoryProvider);
+      final humanImage = await loadGeometryPreviewHumanImage(mediaRepository);
+      late Uint8List geometryPng;
+      late Uint8List expandedGeometryPng;
+      try {
+        geometryPng = await renderGeometryOnlyPreviewPng(
+          modelCode: draft.modelCode,
+          modelLabel: previewData.selectedModel?.label,
+          widthMm: draft.widthMm,
+          depthMm: draft.depthMm,
+          heightMm: draft.heightMm,
+          geometryParams: geometryPreviewParamsFromDraft(draft),
+          coveringName: previewData.coveringName,
+          calculatedModules: previewData.roofCalculation.modules,
+          wallMounted: draft.wallMounted,
+          postCount: previewData.postCount,
+          roofAngleDeg: draft.roofAngleDeg,
+          rearHeightMm: draft.roofRearHeightMm ?? draft.heightMm,
+          frontHeightMm: draft.roofFrontHeightMm,
+          humanImage: humanImage,
+        );
+        expandedGeometryPng = await renderExpandedGeometryPreviewPng(
+          modelCode: draft.modelCode,
+          modelLabel: previewData.selectedModel?.label,
+          widthMm: draft.widthMm,
+          depthMm: draft.depthMm,
+          heightMm: draft.heightMm,
+          geometryParams: geometryPreviewParamsFromDraft(draft),
+          modules: draft.setContents,
+          moduleRoles: _moduleRolesFor(previewData.selectedModel),
+          calculatedModules: previewData.roofCalculation.modules,
+          calculationNumber: calculationNumber,
+          calculationSavedAt: previewSavedAt,
+          buyerName: buyerContact.organizationName,
+          buyerContactName: buyerContact.contactName,
+          buyerEmail: buyerContact.email,
+          buyerPhone: buyerContact.phone,
+          weights: serverResult.weights,
+          deliveryName: handover?.label ?? handoverTypeCode,
+          completionWeek: draft.completionWeek,
+          colorCode: colorPreview?.displayCode,
+          colorSwatchColor: colorPreview?.color,
+          isSpecialColor: colorPreview != null && !colorPreview.isStandard,
+          coveringName: previewData.coveringName,
+          markiseSegments: markiseSegments,
+          staticBeam: previewData.roofCalculation.staticBeam,
+          wallMounted: draft.wallMounted,
+          postCount: previewData.postCount,
+          quoteNotes: draft.externalNotes,
+          roofAngleDeg: draft.roofAngleDeg,
+          rearHeightMm: draft.roofRearHeightMm ?? draft.heightMm,
+          frontHeightMm: draft.roofFrontHeightMm,
+          currentUser: currentUser,
+          humanImage: humanImage,
+        );
+      } finally {
+        humanImage?.dispose();
+      }
+      final uploadedGeometry = await mediaRepository.uploadMediaFile(
         filename: 'geometry_${DateTime.now().toUtc().millisecondsSinceEpoch}.png',
         contentType: 'image/png',
         dataBase64: base64Encode(geometryPng),
@@ -774,7 +787,7 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
       }
 
       final uploadedExpandedGeometry =
-          await ref.read(resourceRepositoryProvider).uploadMediaFile(
+          await mediaRepository.uploadMediaFile(
         filename:
             'geometry_preview_${DateTime.now().toUtc().millisecondsSinceEpoch}.png',
         contentType: 'image/png',
@@ -855,6 +868,21 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
   }
 
   Future<void> _quoteSubmitted(QuoteSubmitResult result) async {
+    final repository = ref.read(calculatorRepositoryProvider);
+    final loaded = await repository.loadQuoteForWorkspace(result.quoteId);
+    if (!mounted) return;
+    ref.read(loadedQuoteProvider.notifier).set(loaded);
+    setState(() {
+      _savedQuote = SavedQuote(
+        id: loaded.id,
+        quoteNo: loaded.quoteNo,
+        statusCode: loaded.statusCode,
+        createdAt: loaded.createdAt,
+      );
+    });
+  }
+
+  Future<void> _quoteStatusChanged(QuoteStatusChangeResult result) async {
     final repository = ref.read(calculatorRepositoryProvider);
     final loaded = await repository.loadQuoteForWorkspace(result.quoteId);
     if (!mounted) return;
@@ -9558,6 +9586,7 @@ class _ResultPanel extends StatelessWidget {
     required this.onSaveQuote,
     required this.documentsRepository,
     required this.onQuoteSubmitted,
+    required this.onQuoteStatusChanged,
     required this.isSavingQuote,
     required this.calculationNumber,
     required this.isCalculationSaved,
@@ -9578,6 +9607,8 @@ class _ResultPanel extends StatelessWidget {
   final VoidCallback onSaveQuote;
   final CalculatorRepository documentsRepository;
   final Future<void> Function(QuoteSubmitResult result) onQuoteSubmitted;
+  final Future<void> Function(QuoteStatusChangeResult result)
+      onQuoteStatusChanged;
   final bool isSavingQuote;
   final String? calculationNumber;
   final bool isCalculationSaved;
@@ -9707,9 +9738,17 @@ class _ResultPanel extends StatelessWidget {
                           needsRecalculation: needsRecalculation,
                           quoteId: loadedQuote?.id ?? savedQuote?.id,
                           quoteStatusCode: loadedQuote?.statusCode ?? savedQuote?.statusCode ?? 'draft',
-                          canSubmit: isCalculationSaved && !needsRecalculation && result.status == 'valid',
+                          canSubmit: isCalculationSaved &&
+                              !needsRecalculation &&
+                              result.status == 'valid' &&
+                              {'approved', 'sent'}.contains(
+                                (loadedQuote?.statusCode ?? savedQuote?.statusCode ?? 'draft')
+                                    .trim()
+                                    .toLowerCase(),
+                              ),
                           repository: documentsRepository,
                           onQuoteSubmitted: onQuoteSubmitted,
+                          onQuoteStatusChanged: onQuoteStatusChanged,
                         ),
                       ),
                       TabBar(
@@ -10975,6 +11014,7 @@ class _PriceHeader extends StatelessWidget {
     required this.canSubmit,
     required this.repository,
     required this.onQuoteSubmitted,
+    required this.onQuoteStatusChanged,
   });
 
   final CalculatorResult result;
@@ -10987,6 +11027,8 @@ class _PriceHeader extends StatelessWidget {
   final bool canSubmit;
   final CalculatorRepository repository;
   final Future<void> Function(QuoteSubmitResult result) onQuoteSubmitted;
+  final Future<void> Function(QuoteStatusChangeResult result)
+      onQuoteStatusChanged;
 
   List<String> _discounts() {
     final labels = <String>[];
@@ -11135,6 +11177,7 @@ class _PriceHeader extends StatelessWidget {
                   _AttentionDropdown(
                     messages: attentionMessages,
                     groups: attentionGroups,
+                    width: 128,
                   ),
                 if (warningMessages.isNotEmpty)
                   _WarningsDropdown(
@@ -11150,15 +11193,28 @@ class _PriceHeader extends StatelessWidget {
     ),
         if ((quoteId ?? '').isNotEmpty)
           Positioned(
-            top: 38,
+            top: 43,
             right: 0,
-            child: QuoteSubmitButton(
-              quoteId: quoteId!,
-              statusCode: quoteStatusCode,
-              repository: repository,
-              enabled: canSubmit,
-              prominent: true,
-              onCompleted: onQuoteSubmitted,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                QuoteStatusButton(
+                  quoteId: quoteId!,
+                  statusCode: quoteStatusCode,
+                  repository: repository,
+                  prominent: true,
+                  onCompleted: onQuoteStatusChanged,
+                ),
+                const SizedBox(width: 8),
+                QuoteSubmitButton(
+                  quoteId: quoteId!,
+                  statusCode: quoteStatusCode,
+                  repository: repository,
+                  enabled: canSubmit,
+                  prominent: true,
+                  onCompleted: onQuoteSubmitted,
+                ),
+              ],
             ),
           ),
       ],
@@ -11171,10 +11227,12 @@ class _AttentionDropdown extends StatelessWidget {
   const _AttentionDropdown({
     required this.messages,
     this.groups = const [],
+    this.width,
   });
 
   final List<String> messages;
   final List<CalculatorMessageGroup> groups;
+  final double? width;
 
   @override
   Widget build(BuildContext context) => CalculatorMessagesDropdown(
@@ -11182,6 +11240,7 @@ class _AttentionDropdown extends StatelessWidget {
             ? [CalculatorMessageGroup(label: '', messages: messages)]
             : groups,
         attention: true,
+        width: width,
       );
 }
 

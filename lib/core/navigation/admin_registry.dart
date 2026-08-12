@@ -152,11 +152,11 @@ const quoteLookup = AdminLookup(
 
 const quoteStatusOptions = <AdminSelectOption>[
   AdminSelectOption(value: 'draft', label: 'Draft'),
+  AdminSelectOption(value: 'calculated', label: 'Calculated'),
   AdminSelectOption(value: 'approved', label: 'Approved'),
   AdminSelectOption(value: 'sent', label: 'Sent'),
-  AdminSelectOption(value: 'accepted', label: 'Accepted'),
-  AdminSelectOption(value: 'rejected', label: 'Rejected'),
   AdminSelectOption(value: 'cancelled', label: 'Cancelled'),
+  AdminSelectOption(value: 'archived', label: 'Archived'),
 ];
 
 const quoteOrderTypeOptions = <AdminSelectOption>[
@@ -179,6 +179,8 @@ const globalRoleOptions = <AdminSelectOption>[
   AdminSelectOption(value: 'sysadmin', label: 'Sysadmin'),
   AdminSelectOption(value: 'admin', label: 'Admin'),
   AdminSelectOption(value: 'manager', label: 'Manager'),
+  AdminSelectOption(value: 'calculator', label: 'Calculator'),
+  AdminSelectOption(value: 'partner', label: 'Partner'),
   AdminSelectOption(value: 'viewer', label: 'Viewer'),
 ];
 
@@ -186,6 +188,7 @@ const organizationRoleOptions = <AdminSelectOption>[
   AdminSelectOption(value: 'sysadmin', label: 'Sysadmin (VD only)'),
   AdminSelectOption(value: 'admin', label: 'Admin'),
   AdminSelectOption(value: 'manager', label: 'Manager'),
+  AdminSelectOption(value: 'calculator', label: 'Calculator'),
   AdminSelectOption(value: 'sales', label: 'Sales'),
   AdminSelectOption(value: 'partner', label: 'Partner'),
   AdminSelectOption(value: 'viewer', label: 'Viewer'),
@@ -2868,12 +2871,24 @@ const managerRestrictedGroupKeys = <String>{
   'integrations',
 };
 
+const limitedQuoteRoleResourceKeys = <String>{
+  'dashboard',
+  'calculator_workspace',
+  'quotes',
+  'quote_lines',
+  'quote_events',
+  'generated_documents',
+};
+
 bool canRoleAccessAdminResource(
   String? roleCode,
   AdminResourceDefinition resource,
 ) {
   if (resource.requiresSysadmin && roleCode != 'sysadmin') {
     return false;
+  }
+  if (roleCode == 'calculator' || roleCode == 'partner') {
+    return limitedQuoteRoleResourceKeys.contains(resource.key);
   }
   if (roleCode != 'manager') {
     return true;

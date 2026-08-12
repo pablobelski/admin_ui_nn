@@ -148,19 +148,8 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
     }
   }
 
-  Future<ui.Image?> _loadHumanImage() async {
-    try {
-      final mediaFile = await widget.mediaRepository.findMediaFileByOriginalFilename('human.png');
-      final fileId = mediaFile?['id']?.toString().trim() ?? '';
-      if (fileId.isEmpty) return null;
-      final response = await widget.mediaRepository.viewMediaFile(fileId);
-      final completer = Completer<ui.Image>();
-      ui.decodeImageFromList(response.bytes, completer.complete);
-      return completer.future;
-    } catch (_) {
-      return null;
-    }
-  }
+  Future<ui.Image?> _loadHumanImage() =>
+      loadGeometryPreviewHumanImage(widget.mediaRepository);
 
   Future<Uint8List?> _loadStaticBeamInstructionImage() async {
     final staticBeam = widget.staticBeam;
@@ -1186,6 +1175,23 @@ class _GeometryParamBag {
   static String _normalizeCode(String code) => code.trim().toUpperCase().replaceAll(RegExp(r'[^A-Z0-9]'), '');
 }
 
+Future<ui.Image?> loadGeometryPreviewHumanImage(
+  AdminResourceRepository mediaRepository,
+) async {
+  try {
+    final mediaFile =
+        await mediaRepository.findMediaFileByOriginalFilename('human.png');
+    final fileId = mediaFile?['id']?.toString().trim() ?? '';
+    if (fileId.isEmpty) return null;
+    final response = await mediaRepository.viewMediaFile(fileId);
+    final completer = Completer<ui.Image>();
+    ui.decodeImageFromList(response.bytes, completer.complete);
+    return completer.future;
+  } catch (_) {
+    return null;
+  }
+}
+
 Future<Uint8List> renderGeometryOnlyPreviewPng({
   required String? modelCode,
   required String? modelLabel,
@@ -1200,6 +1206,7 @@ Future<Uint8List> renderGeometryOnlyPreviewPng({
   required int? roofAngleDeg,
   required int? rearHeightMm,
   required int? frontHeightMm,
+  ui.Image? humanImage,
 }) async {
   final recorder = ui.PictureRecorder();
   final canvas = Canvas(recorder)
@@ -1223,7 +1230,7 @@ Future<Uint8List> renderGeometryOnlyPreviewPng({
     colorSwatchColor: null,
     isSpecialColor: false,
     coveringName: coveringName,
-    humanImage: null,
+    humanImage: humanImage,
     lineColor: Colors.black,
     mutedLineColor: const Color(0xFF6F7478),
     accentColor: Colors.black,
@@ -1364,6 +1371,7 @@ Future<Uint8List> renderExpandedGeometryPreviewPng({
   required int? rearHeightMm,
   required int? frontHeightMm,
   required String currentUser,
+  ui.Image? humanImage,
   bool showRoofType = true,
 }) async {
   const logicalSize = Size(1200, 760);
@@ -1543,7 +1551,7 @@ Future<Uint8List> renderExpandedGeometryPreviewPng({
     colorSwatchColor: colorSwatchColor,
     isSpecialColor: isSpecialColor,
     coveringName: coveringName,
-    humanImage: null,
+    humanImage: humanImage,
     lineColor: Colors.black,
     mutedLineColor: const Color(0xFF6F7478),
     accentColor: const Color(0xFF2B77A6),
