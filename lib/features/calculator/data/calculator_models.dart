@@ -718,6 +718,69 @@ class CalculatorCoveringAllocation {
   }
 }
 
+class CalculatorCoveringField {
+  const CalculatorCoveringField({
+    required this.fieldIndex,
+    required this.coveringCode,
+    required this.allocations,
+  });
+
+  factory CalculatorCoveringField.fromJson(Map<String, dynamic> json) {
+    final allocations = _list(
+      json['covering_allocations'] ?? json['coveringAllocations'],
+    )
+        .map(CalculatorCoveringAllocation.fromJson)
+        .where((allocation) => allocation.quantity > 0)
+        .toList(growable: false);
+    return CalculatorCoveringField(
+      fieldIndex: _intOrNull(json['field_index'] ?? json['fieldIndex']) ?? 1,
+      coveringCode: _nullableString(
+        json['glass_type_code'] ??
+            json['glassTypeCode'] ??
+            json['covering_code'] ??
+            json['coveringCode'],
+      ),
+      allocations: allocations,
+    );
+  }
+
+  final int fieldIndex;
+  final String? coveringCode;
+  final List<CalculatorCoveringAllocation> allocations;
+
+  int primaryQuantity(int totalSheets) => (totalSheets - allocations.fold<int>(
+        0,
+        (sum, allocation) => sum + allocation.quantity,
+      ))
+      .clamp(0, totalSheets)
+      .toInt();
+
+  CalculatorCoveringField copyWith({
+    int? fieldIndex,
+    String? coveringCode,
+    bool clearCoveringCode = false,
+    List<CalculatorCoveringAllocation>? allocations,
+  }) {
+    return CalculatorCoveringField(
+      fieldIndex: fieldIndex ?? this.fieldIndex,
+      coveringCode: clearCoveringCode ? null : coveringCode ?? this.coveringCode,
+      allocations: allocations ?? this.allocations,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'field_index': fieldIndex,
+      if ((coveringCode ?? '').trim().isNotEmpty) ...{
+        'covering_code': coveringCode,
+        'glass_type_code': coveringCode,
+      },
+      if (allocations.isNotEmpty)
+        'covering_allocations': allocations.map((entry) => entry.toJson()).toList(),
+    };
+  }
+}
+
 class CalculatorSetContentsPreview {
   const CalculatorSetContentsPreview({
     required this.tabs,
@@ -788,6 +851,15 @@ class CalculatorSetContentTab {
   }
 
   int? geometryInt(String key) => _intOrNull(geometryKey[key]);
+  List<int> geometryIntList(String key) {
+    final raw = geometryKey[key];
+    if (raw is! List) return const [];
+    return raw
+        .map(_intOrNull)
+        .whereType<int>()
+        .toList(growable: false);
+  }
+
   String? geometryString(String key) => _nullableString(geometryKey[key]);
 
   String get moduleRole => _nullableString(geometryKey['role']) ?? '';
@@ -804,15 +876,195 @@ class CalculatorSetContentTab {
           .where((allocation) =>
               allocation.allocationId.isNotEmpty && allocation.quantity > 0)
           .toList(growable: false);
-  List<String> get moduleCoveringTypeCodes => [
-        if ((moduleCoveringCode ?? '').trim().isNotEmpty)
-          moduleCoveringCode!.trim(),
-        for (final allocation in moduleCoveringAllocations)
-          if ((allocation.coveringCode ?? '').trim().isNotEmpty)
-            allocation.coveringCode!.trim(),
+  List<CalculatorCoveringField> get moduleCoveringFields => _list(
+        geometryKey['covering_fields'] ?? geometryKey['coveringFields'],
+      )
+          .map(CalculatorCoveringField.fromJson)
+          .where((field) => field.fieldIndex > 0)
+          .toList(growable: false)
+        ..sort((left, right) => left.fieldIndex.compareTo(right.fieldIndex));
+
+  List<CalculatorCoveringField> coveringFieldsFor(
+    int fieldCount,
+    int sheetsPerField,
+  ) {
+    final normalizedFieldCount = fieldCount < 1 ? 1 : fieldCount;
+    final normalizedSheets = sheetsPerField < 1 ? 1 : sheetsPerField;
+    final stored = moduleCoveringFields;
+    if (stored.isNotEmpty) {
+      return [
+        for (var index = 1; index <= normalizedFieldCount; index++)
+          stored.where((field) => field.fieldIndex == index).firstOrNull ??
+              CalculatorCoveringField(
+                fieldIndex: index,
+                coveringCode: moduleCoveringCode,
+                allocations: const [],
+              ),
       ];
+    }
+
+    final total = normalizedFieldCount * normalizedSheets;
+    final secondary = moduleCoveringAllocations;
+    final secondaryQuantity = secondary.fold<int>(
+      0,
+      (sum, allocation) => sum + allocation.quantity,
+    );
+    final sheetCodes = <String?>[
+      ...List<String?>.filled(
+        (total - secondaryQuantity).clamp(0, total).toInt(),
+        moduleCoveringCode,
+      ),
+      for (final allocation in secondary)
+        ...List<String?>.filled(allocation.quantity, allocation.coveringCode),
+    ];
+    while (sheetCodes.length < total) {
+      sheetCodes.add(moduleCoveringCode);
+    }
+
+    final fields = <CalculatorCoveringField>[];
+    for (var fieldIndex = 1; fieldIndex <= normalizedFieldCount; fieldIndex++) {
+      final codes = sheetCodes
+          .skip((fieldIndex - 1) * normalizedSheets)
+          .take(normalizedSheets)
+          .toList(growable: false);
+      final runs = <MapEntry<String?, int>>[];
+      for (final code in codes) {
+        if (runs.isNotEmpty && runs.last.key == code) {
+          final previous = runs.removeLast();
+          runs.add(MapEntry(previous.key, previous.value + 1));
+        } else {
+          runs.add(MapEntry(code, 1));
+        }
+      }
+      final primary = runs.isEmpty ? moduleCoveringCode : runs.first.key;
+      final allocations = <CalculatorCoveringAllocation>[];
+      for (var runIndex = 1; runIndex < runs.length; runIndex++) {
+        allocations.add(
+          CalculatorCoveringAllocation(
+            allocationId: 'field-$fieldIndex-split-$runIndex',
+            coveringCode: runs[runIndex].key,
+            quantity: runs[runIndex].value,
+          ),
+        );
+      }
+      fields.add(
+        CalculatorCoveringField(
+          fieldIndex: fieldIndex,
+          coveringCode: primary,
+          allocations: allocations,
+        ),
+      );
+    }
+    return fields;
+  }
+
+  List<String> get moduleCoveringTypeCodes {
+    final fields = moduleCoveringFields;
+    final values = fields.isNotEmpty
+        ? [
+            for (final field in fields) ...[
+              if ((field.coveringCode ?? '').trim().isNotEmpty)
+                field.coveringCode!.trim(),
+              for (final allocation in field.allocations)
+                if ((allocation.coveringCode ?? '').trim().isNotEmpty)
+                  allocation.coveringCode!.trim(),
+            ],
+          ]
+        : [
+            if ((moduleCoveringCode ?? '').trim().isNotEmpty)
+              moduleCoveringCode!.trim(),
+            for (final allocation in moduleCoveringAllocations)
+              if ((allocation.coveringCode ?? '').trim().isNotEmpty)
+                allocation.coveringCode!.trim(),
+          ];
+    return values.toSet().toList(growable: false);
+  }
+
+  CalculatorSetContentTab withCoveringFields(
+    List<CalculatorCoveringField> fields,
+  ) {
+    final nextGeometry = <String, dynamic>{...geometryKey};
+    final normalized = fields
+        .where((field) => field.fieldIndex > 0)
+        .map((field) => field.toJson())
+        .toList(growable: false);
+    if (normalized.isEmpty) {
+      nextGeometry.remove('covering_fields');
+      nextGeometry.remove('coveringFields');
+    } else {
+      nextGeometry['covering_fields'] = normalized;
+      nextGeometry.remove('coveringFields');
+    }
+    return copyWith(geometryKey: nextGeometry);
+  }
+
+  CalculatorSetContentTab withoutCoveringFields() {
+    final nextGeometry = <String, dynamic>{...geometryKey}
+      ..remove('covering_fields')
+      ..remove('coveringFields');
+    return copyWith(geometryKey: nextGeometry);
+  }
+
   int? get moduleMaxGlassFieldWidthMm =>
       geometryInt('max_glass_field_width_mm');
+
+  Map<String, dynamic> get moduleManufacturingSplits => _map(
+        geometryKey['manufacturing_splits'] ??
+            geometryKey['manufacturingSplits'],
+      );
+
+  String manufacturingSplitMode(String kind) {
+    final split = _map(moduleManufacturingSplits[kind]);
+    final mode = _string(split['mode']).trim().toLowerCase();
+    if (const {'auto', 'manual', 'as_glass', 'as_profile'}.contains(mode) ||
+        RegExp(r'^as_module:(main|small|left|right|middle)$').hasMatch(mode)) {
+      return mode;
+    }
+    return 'auto';
+  }
+
+  List<int> manufacturingSplitCuts(String kind) {
+    final split = _map(moduleManufacturingSplits[kind]);
+    final raw = split['cut_positions_mm'] ?? split['cutPositionsMm'];
+    if (raw is! List) return const [];
+    return raw
+        .map(_intOrNull)
+        .whereType<int>()
+        .where((value) => value > 0)
+        .toSet()
+        .toList(growable: false)
+      ..sort();
+  }
+
+  CalculatorSetContentTab withManufacturingSplit(
+    String kind, {
+    required String mode,
+    required List<int> cutPositionsMm,
+  }) {
+    final normalizedKind = kind.trim().toLowerCase();
+    if (normalizedKind != 'glass' && normalizedKind != 'profiles') return this;
+    final splits = <String, dynamic>{...moduleManufacturingSplits};
+    final requestedMode = mode.trim().toLowerCase();
+    final normalizedMode = const {'auto', 'manual', 'as_glass', 'as_profile'}
+                .contains(requestedMode) ||
+            RegExp(r'^as_module:(main|small|left|right|middle)$')
+                .hasMatch(requestedMode)
+        ? requestedMode
+        : 'auto';
+    final cuts = cutPositionsMm
+        .where((value) => value > 0)
+        .toSet()
+        .toList(growable: false)
+      ..sort();
+    splits[normalizedKind] = {
+      'mode': normalizedMode,
+      'cut_positions_mm': cuts,
+    };
+    final nextGeometry = <String, dynamic>{...geometryKey};
+    nextGeometry['manufacturing_splits'] = splits;
+    nextGeometry.remove('manufacturingSplits');
+    return copyWith(geometryKey: nextGeometry);
+  }
 
   // Backward-compatible getters kept for Set contents and older saved quotes.
   int? get blockWidthMm => moduleWidthMm;
@@ -1434,23 +1686,44 @@ class CalculatorDraft {
       final width = tab.moduleWidthMm;
       final depth = tab.moduleDepthMm;
       if (role.isEmpty && width == null && depth == null) continue;
+      final fieldCoverings = tab.moduleCoveringFields.isNotEmpty
+          ? tab.moduleCoveringFields
+          : [
+              CalculatorCoveringField(
+                fieldIndex: 1,
+                coveringCode: tab.moduleCoveringCode ?? coveringCode,
+                allocations: tab.moduleCoveringAllocations,
+              ),
+            ];
+      final primaryCovering = fieldCoverings
+          .map((field) => field.coveringCode?.trim())
+          .whereType<String>()
+          .where((value) => value.isNotEmpty)
+          .firstOrNull;
       moduleJson.add({
         'role': role.isEmpty ? 'main' : role,
         if (width != null) 'width_mm': width,
         if (depth != null) 'depth_mm': depth,
-        if (coveringEnabled &&
-            (tab.moduleCoveringCode ?? coveringCode)?.isNotEmpty == true) ...{
-          'covering_code': tab.moduleCoveringCode ?? coveringCode,
-          'glass_type_code': tab.moduleCoveringCode ?? coveringCode,
+        if (coveringEnabled && primaryCovering != null) ...{
+          'covering_code': primaryCovering,
+          'glass_type_code': primaryCovering,
         },
         if (coveringEnabled && tab.moduleCoveringAllocations.isNotEmpty)
           'covering_allocations': tab.moduleCoveringAllocations
               .map((allocation) => allocation.toJson())
               .toList(),
+        if (coveringEnabled && fieldCoverings.any((field) =>
+            (field.coveringCode ?? '').trim().isNotEmpty ||
+            field.allocations.isNotEmpty))
+          'covering_fields': fieldCoverings
+              .map((field) => field.toJson())
+              .toList(),
         if (coveringEnabled &&
             (tab.moduleMaxGlassFieldWidthMm ?? maxGlassFieldWidthMm) != null)
           'max_glass_field_width_mm':
               tab.moduleMaxGlassFieldWidthMm ?? maxGlassFieldWidthMm,
+        if (tab.moduleManufacturingSplits.isNotEmpty)
+          'manufacturing_splits': tab.moduleManufacturingSplits,
       });
     }
 
@@ -1648,6 +1921,8 @@ class CalculatorResult {
     required this.manualBom,
     required this.derivedAccessories,
     required this.setDeltaBom,
+    required this.reserveItems,
+    required this.reserveWarnings,
     required this.derivedAccessoryDiagnostics,
     required this.manualComponentDiagnostics,
     required this.setDeltaDiagnostics,
@@ -1678,6 +1953,10 @@ class CalculatorResult {
       manualBom: _list(json['manualBom'] ?? json['manual_bom']),
       derivedAccessories: _list(json['derivedAccessories'] ?? json['derived_accessories']),
       setDeltaBom: _list(json['setDeltaBom'] ?? json['set_delta_bom']),
+      reserveItems: _list(json['reserveItems'] ?? json['reserve_items']),
+      reserveWarnings: _stringList(
+        json['reserveWarnings'] ?? json['reserve_warnings'],
+      ),
       derivedAccessoryDiagnostics: _list(json['derivedAccessoryDiagnostics'] ?? json['derived_accessory_diagnostics']),
       manualComponentDiagnostics: _list(json['manualComponentDiagnostics'] ?? json['manual_component_diagnostics']),
       setDeltaDiagnostics: _list(json['setDeltaDiagnostics'] ?? json['set_delta_diagnostics']),
@@ -1711,6 +1990,8 @@ class CalculatorResult {
   final List<Map<String, dynamic>> manualBom;
   final List<Map<String, dynamic>> derivedAccessories;
   final List<Map<String, dynamic>> setDeltaBom;
+  final List<Map<String, dynamic>> reserveItems;
+  final List<String> reserveWarnings;
   final List<Map<String, dynamic>> derivedAccessoryDiagnostics;
   final List<Map<String, dynamic>> manualComponentDiagnostics;
   final List<Map<String, dynamic>> setDeltaDiagnostics;
@@ -1718,6 +1999,12 @@ class CalculatorResult {
   final List<Map<String, dynamic>> setContentDiagnostics;
   final List<Map<String, dynamic>> trace;
   final Map<String, dynamic> raw;
+
+  List<CalculatorSetContentTab> get setContents => _list(
+        raw['setContents'] ?? raw['set_contents'],
+      )
+          .map(CalculatorSetContentTab.fromJson)
+          .toList(growable: false);
 }
 
 class SavedQuote {
@@ -1984,6 +2271,16 @@ Map<String, dynamic> _roofModuleGeometry(Map<String, dynamic> module) {
           allocation.allocationId.isNotEmpty && allocation.quantity > 0)
       .map((allocation) => allocation.toJson())
       .toList(growable: false);
+  final coveringFields = _list(
+    module['covering_fields'] ?? module['coveringFields'],
+  )
+      .map(CalculatorCoveringField.fromJson)
+      .where((field) => field.fieldIndex > 0)
+      .map((field) => field.toJson())
+      .toList(growable: false);
+  final manufacturingSplits = _map(
+    module['manufacturing_splits'] ?? module['manufacturingSplits'],
+  );
   return {
     if (role != null) 'role': role,
     if (width != null && width > 0) 'width_mm': width,
@@ -1994,8 +2291,12 @@ Map<String, dynamic> _roofModuleGeometry(Map<String, dynamic> module) {
     },
     if (coveringAllocations.isNotEmpty)
       'covering_allocations': coveringAllocations,
+    if (coveringFields.isNotEmpty)
+      'covering_fields': coveringFields,
     if (maxGlassFieldWidth != null && maxGlassFieldWidth > 0)
       'max_glass_field_width_mm': maxGlassFieldWidth,
+    if (manufacturingSplits.isNotEmpty)
+      'manufacturing_splits': manufacturingSplits,
   };
 }
 

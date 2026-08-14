@@ -187,6 +187,27 @@ class CalculatorRepository {
     return QuoteSubmitResult.fromJson(response);
   }
 
+  Future<QuoteIntegrationOverview> fetchQuoteIntegrations(
+    String quoteId,
+  ) async {
+    final response = await _client.getJson(
+      '/api/internal/calculator/integrations',
+      query: {'quote_id': quoteId},
+    );
+    return QuoteIntegrationOverview.fromJson(response);
+  }
+
+  Future<QuoteIntegrationResult> runQuoteIntegration(
+    String quoteId,
+    String operation,
+  ) async {
+    final response = await _client.postJson(
+      '/api/internal/calculator/integrations',
+      body: {'quote_id': quoteId, 'operation': operation},
+    );
+    return QuoteIntegrationResult.fromJson(response);
+  }
+
   Future<Map<String, dynamic>> fetchMediaFileUrl(String fileId) async {
     final data = await _client.getJson('/api/admin/media-files/$fileId/url');
     for (final key in ['url', 'download_url']) {
@@ -397,6 +418,114 @@ class QuoteSubmitResult {
   final String quoteNo;
   final String statusCode;
   final bool customerDeliveryEnabled;
+}
+
+class QuoteIntegrationJob {
+  const QuoteIntegrationJob({
+    required this.id,
+    required this.endpointCode,
+    required this.endpointName,
+    required this.operationCode,
+    required this.statusCode,
+    required this.attemptCount,
+    required this.createdAt,
+    required this.externalKey,
+    this.latestMessage,
+    this.errorText,
+    this.finishedAt,
+  });
+
+  factory QuoteIntegrationJob.fromJson(Map<String, dynamic> json) =>
+      QuoteIntegrationJob(
+        id: _repoString(json['id']),
+        endpointCode: _repoString(json['endpoint_code'] ?? json['endpointCode']),
+        endpointName: _repoString(json['endpoint_name'] ?? json['endpointName']),
+        operationCode: _repoString(json['operation_code'] ?? json['operationCode']),
+        statusCode: _repoString(json['status_code'] ?? json['statusCode']),
+        attemptCount: _repoIntOrNull(json['attempt_count'] ?? json['attemptCount']) ?? 0,
+        createdAt: _repoString(json['created_at'] ?? json['createdAt']),
+        externalKey: _repoString(json['external_key'] ?? json['externalKey']),
+        latestMessage: _repoNullableString(json['latest_message'] ?? json['latestMessage']),
+        errorText: _repoNullableString(json['error_text'] ?? json['errorText']),
+        finishedAt: _repoNullableString(json['finished_at'] ?? json['finishedAt']),
+      );
+
+  final String id;
+  final String endpointCode;
+  final String endpointName;
+  final String operationCode;
+  final String statusCode;
+  final int attemptCount;
+  final String createdAt;
+  final String externalKey;
+  final String? latestMessage;
+  final String? errorText;
+  final String? finishedAt;
+}
+
+class QuoteIntegrationOverview {
+  const QuoteIntegrationOverview({
+    required this.reserveItems,
+    required this.reserveWarnings,
+    required this.payloads,
+    required this.jobs,
+    required this.connections,
+    required this.permissions,
+  });
+
+  factory QuoteIntegrationOverview.fromJson(Map<String, dynamic> json) {
+    final reserve = _repoMap(json['reserve']);
+    return QuoteIntegrationOverview(
+      reserveItems: _repoList(reserve['items']),
+      reserveWarnings: _repoList(reserve['warnings'])
+          .map((entry) => '$entry')
+          .toList(growable: false),
+      payloads: _repoMap(json['payloads']),
+      jobs: _repoList(json['jobs'])
+          .map(QuoteIntegrationJob.fromJson)
+          .toList(growable: false),
+      connections: _repoList(json['connections']),
+      permissions: _repoMap(json['permissions']),
+    );
+  }
+
+  final List<Map<String, dynamic>> reserveItems;
+  final List<String> reserveWarnings;
+  final Map<String, dynamic> payloads;
+  final List<QuoteIntegrationJob> jobs;
+  final List<Map<String, dynamic>> connections;
+  final Map<String, dynamic> permissions;
+
+  Map<String, dynamic> payloadFor(String operation) =>
+      _repoMap(payloads[operation]);
+}
+
+class QuoteIntegrationResult {
+  const QuoteIntegrationResult({
+    required this.ok,
+    required this.operation,
+    required this.jobId,
+    required this.statusCode,
+    required this.prepared,
+    required this.reused,
+  });
+
+  factory QuoteIntegrationResult.fromJson(Map<String, dynamic> json) =>
+      QuoteIntegrationResult(
+        ok: _repoBool(json['ok']),
+        operation: _repoString(json['operation']),
+        jobId: _repoString(json['job_id'] ?? json['jobId']),
+        statusCode: _repoString(json['status_code'] ?? json['statusCode']),
+        prepared: _repoBool(json['prepared']),
+        reused: _repoBool(json['reused']),
+      );
+
+  final bool ok;
+  final String operation;
+  final String jobId;
+  final String statusCode;
+  final bool prepared;
+  final bool reused;
 }
 
 class PrintDialogData {

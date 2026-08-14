@@ -82,6 +82,7 @@ String _setContentsRequestSignature(CalculatorDraft draft) {
           'depth_mm': tab.moduleDepthMm,
           'covering_code': tab.moduleCoveringCode,
           'max_glass_field_width_mm': tab.moduleMaxGlassFieldWidthMm,
+          'manufacturing_splits': tab.moduleManufacturingSplits,
         },
     ],
   });
@@ -364,7 +365,7 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
     if (normalized == null || normalized.isEmpty) {
       updatedTab = updatedTab.withCoveringAllocations(const []);
     }
-    tabs[tabIndex] = updatedTab.copyWith(items: const []);
+    tabs[tabIndex] = updatedTab.withoutCoveringFields().copyWith(items: const []);
     state = state.copyWith(
       setContents: tabs,
       clearCovering: true,
@@ -539,6 +540,78 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
     _setModuleCoveringAllocations(tabIndex, normalized);
   }
 
+  void setSetContentModuleCoveringFields(
+    int tabIndex,
+    List<CalculatorCoveringField> fields, {
+    required int sheetsPerField,
+  }) {
+    _ensureSetContentModuleCount(tabIndex + 1);
+    if (tabIndex < 0 || tabIndex >= state.setContents.length) return;
+    final normalizedFields = fields
+        .where((field) => field.fieldIndex > 0)
+        .toList(growable: false)
+      ..sort((left, right) => left.fieldIndex.compareTo(right.fieldIndex));
+    if (normalizedFields.isEmpty) return;
+
+    String? firstPrimary;
+    for (final field in normalizedFields) {
+      final code = field.coveringCode?.trim() ?? '';
+      if (code.isNotEmpty) {
+        firstPrimary = code;
+        break;
+      }
+    }
+    final legacyAllocations = <CalculatorCoveringAllocation>[];
+    var sequence = 1;
+    for (var fieldOffset = 0; fieldOffset < normalizedFields.length; fieldOffset++) {
+      final field = normalizedFields[fieldOffset];
+      final secondaryQuantity = field.allocations.fold<int>(
+        0,
+        (sum, allocation) => sum + allocation.quantity,
+      );
+      final primaryQuantity = math.max(0, sheetsPerField - secondaryQuantity).toInt();
+      final fieldPrimary = field.coveringCode?.trim();
+      if (fieldOffset > 0 && primaryQuantity > 0 && (fieldPrimary ?? '').isNotEmpty) {
+        legacyAllocations.add(
+          CalculatorCoveringAllocation(
+            allocationId: 'field-${field.fieldIndex}-primary-$sequence',
+            coveringCode: fieldPrimary,
+            quantity: primaryQuantity,
+          ),
+        );
+        sequence += 1;
+      }
+      for (final allocation in field.allocations) {
+        if (allocation.quantity <= 0) continue;
+        legacyAllocations.add(
+          CalculatorCoveringAllocation(
+            allocationId: allocation.allocationId.trim().isEmpty
+                ? 'field-${field.fieldIndex}-split-$sequence'
+                : allocation.allocationId,
+            coveringCode: allocation.coveringCode,
+            quantity: allocation.quantity,
+          ),
+        );
+        sequence += 1;
+      }
+    }
+
+    final tabs = [...state.setContents];
+    var updated = tabs[tabIndex].withCoveringFields(normalizedFields);
+    updated = updated
+        .withGeometryText('covering_code', firstPrimary)
+        .withGeometryText('glass_type_code', firstPrimary)
+        .withCoveringAllocations(legacyAllocations)
+        .withCoveringFields(normalizedFields)
+        .copyWith(items: const []);
+    tabs[tabIndex] = updated;
+    state = state.copyWith(
+      setContents: tabs,
+      clearCovering: true,
+      clearMaxGlassFieldWidth: true,
+    );
+  }
+
   void _setModuleCoveringAllocations(
     int tabIndex,
     List<CalculatorCoveringAllocation> allocations,
@@ -546,6 +619,7 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
     final tabs = [...state.setContents];
     tabs[tabIndex] = tabs[tabIndex]
         .withCoveringAllocations(allocations)
+        .withoutCoveringFields()
         .copyWith(items: const []);
     state = state.copyWith(
       setContents: tabs,
@@ -809,6 +883,23 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
     setSetContentModuleRoles(roles);
   }
 
+  void updateSetContentModuleManufacturingSplit(
+    int tabIndex,
+    String kind,
+    String mode,
+    List<int> cutPositionsMm,
+  ) {
+    _ensureSetContentModuleCount(tabIndex + 1);
+    if (tabIndex < 0 || tabIndex >= state.setContents.length) return;
+    final tabs = [...state.setContents];
+    tabs[tabIndex] = tabs[tabIndex].withManufacturingSplit(
+      kind,
+      mode: mode,
+      cutPositionsMm: cutPositionsMm,
+    );
+    state = state.copyWith(setContents: tabs);
+  }
+
   void updateSetContentModuleGeometry(int tabIndex, String key, String value) {
     final normalizedKey = key.trim();
     if (normalizedKey.isEmpty) return;
@@ -1058,6 +1149,17 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
     state = state.copyWith(setContents: tabs);
   }
 
+  void removeManualSetContentItem(int tabIndex, int itemIndex) {
+    if (tabIndex < 0 || tabIndex >= state.setContents.length) return;
+    final tab = state.setContents[tabIndex];
+    if (itemIndex < 0 || itemIndex >= tab.items.length) return;
+    if (!tab.items[itemIndex].isManual) return;
+    final items = [...tab.items]..removeAt(itemIndex);
+    final tabs = [...state.setContents];
+    tabs[tabIndex] = tab.copyWith(items: items);
+    state = state.copyWith(setContents: tabs);
+  }
+
   void addManualSetContentItem(
     int tabIndex,
     CalculatorCatalogItemOption catalogItem, {
@@ -1065,6 +1167,8 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
     num quantity = 1,
     String? salesUnitCode,
     int? lengthMm,
+    int? manufacturingFieldIndex,
+    int? manufacturingFieldCount,
   }) {
     if (state.setContents.isEmpty) return;
     final normalizedTab = tabIndex < 0 || tabIndex >= state.setContents.length ? 0 : tabIndex;
@@ -1102,6 +1206,10 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
             'profile_no': variant?.profileNo ?? catalogItem.profileNo,
           'article_no': articleNo,
           'unit_code': unit,
+          if (manufacturingFieldIndex != null && manufacturingFieldIndex > 0)
+            'manufacturing_field_index': manufacturingFieldIndex,
+          if (manufacturingFieldCount != null && manufacturingFieldCount > 0)
+            'manufacturing_field_count': manufacturingFieldCount,
         },
       },
     );

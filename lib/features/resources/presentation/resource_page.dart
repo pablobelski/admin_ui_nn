@@ -29,6 +29,7 @@ import '../../calculator/presentation/calculator_providers.dart';
 import '../../calculator/presentation/model_geometry_preview.dart';
 import '../../calculator/presentation/quote_documents_button.dart';
 import '../../calculator/presentation/quote_submit_button.dart';
+import '../../calculator/presentation/quote_integrations_panel.dart';
 import '../../calculator/presentation/quote_status_button.dart';
 import 'catalog_item_dependency_tree.dart';
 import 'document_batch_items_panel.dart';
@@ -1142,310 +1143,319 @@ class _DetailsCardState extends ConsumerState<_DetailsCard> {
                               : 'Details',
                       style: Theme.of(context).textTheme.titleLarge,
                     ),
-                    const Spacer(),
-                    if (accessibleDetailActions.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: _DetailActionsMenu(
-                          actions: accessibleDetailActions,
-                          data: data,
-                          onSelected: (action) => _openDetailAction(ref, action, data),
-                        ),
-                      ),
-                    if (_hasDetailImageButton(resource))
-                      Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: OutlinedButton.icon(
-                          onPressed: mediaFiles.isEmpty
-                              ? null
-                              : () => _showMediaPreview(context, repository, mediaFiles),
-                          icon: const Icon(Icons.image_outlined, size: 18),
-                          label: const Text('View image'),
-                        ),
-                      ),
-                    if (resource.key == 'quotes')
-                      Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: QuoteSubmitButton(
-                          quoteId: data['id']?.toString() ?? '',
-                          statusCode: data['status_code']?.toString() ?? 'draft',
-                          repository: ref.read(calculatorRepositoryProvider),
-                          enabled: {'approved', 'sent'}.contains(
-                            (data['status_code']?.toString() ?? 'draft')
-                                .trim()
-                                .toLowerCase(),
-                          ),
-                          onCompleted: (_) async {
-                            ref.invalidate(resourceListProvider(resource));
-                            ref.invalidate(resourceDetailsProvider(resource));
-                          },
-                        ),
-                      ),
-                    if (resource.key == 'quotes')
-                      Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: QuoteDocumentsButton(
-                          quoteId: data['id']?.toString() ?? '',
-                          repository: ref.read(calculatorRepositoryProvider),
-                        ),
-                      ),
-                    if (resource.key == 'quotes')
-                      Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: OutlinedButton.icon(
-                          onPressed: () => loadQuoteToWorkspace(context, ref, data),
-                          icon: const Icon(Icons.upload_file_outlined, size: 18),
-                          label: const Text('Load'),
-                        ),
-                      ),
-                    if (resource.key == 'users')
-                      Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: Tooltip(
-                          message: isCurrentUser
-                              ? 'Use Change password in the top bar for your own account'
-                              : 'Assign or reset this user password',
-                          child: OutlinedButton.icon(
-                            onPressed: isCurrentUser
-                                ? null
-                                : () async {
-                                    final passwordInput = await showDialog<_UserPasswordInput>(
-                                      context: context,
-                                      builder: (_) => const _SetUserPasswordDialog(),
-                                    );
-                                    if (passwordInput == null) return;
-                                    try {
-                                      await repository.setUserPassword(
-                                        userId: browserState.selectedId!,
-                                        password: passwordInput.password,
-                                        mustChangePassword: passwordInput.mustChangePassword,
-                                      );
-                                      ref.invalidate(resourceListProvider(resource));
-                                      ref.invalidate(resourceDetailsProvider(resource));
-                                      if (!context.mounted) return;
-                                      showTopNotification(
-                                        context,
-                                        passwordInput.mustChangePassword
-                                            ? 'Temporary password saved. The user must choose a new password at next sign-in.'
-                                            : 'Password assigned.',
-                                        type: TopNotificationType.success,
-                                      );
-                                    } catch (error) {
-                                      if (!context.mounted) return;
-                                      showTopNotification(
-                                        context,
-                                        'Password reset failed: $error',
-                                        type: TopNotificationType.error,
-                                      );
-                                    }
-                                  },
-                            icon: const Icon(Icons.password_rounded, size: 18),
-                            label: const Text('Password'),
-                          ),
-                        ),
-                      ),
-                    if (mustChangePassword)
-                      Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: OutlinedButton.icon(
-                          onPressed: () async {
-                            final confirmed = await showDialog<bool>(
-                              context: context,
-                              builder: (dialogContext) => AlertDialog(
-                                title: const Text('Clear password change requirement?'),
-                                content: const Text(
-                                  'The user will be able to continue signing in with the currently assigned password.',
-                                ),
-                                actions: [
-                                  TextButton(
-                                    onPressed: () => Navigator.of(dialogContext).pop(false),
-                                    child: const Text('Cancel'),
-                                  ),
-                                  FilledButton(
-                                    onPressed: () => Navigator.of(dialogContext).pop(true),
-                                    child: const Text('Clear flag'),
-                                  ),
-                                ],
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Wrap(
+                        alignment: WrapAlignment.end,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        runSpacing: 4,
+                        children: [
+                          if (accessibleDetailActions.isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.only(right: 8),
+                              child: _DetailActionsMenu(
+                                actions: accessibleDetailActions,
+                                data: data,
+                                onSelected: (action) => _openDetailAction(ref, action, data),
                               ),
-                            );
-                            if (confirmed != true) return;
-
-                            try {
-                              await repository.setUserPasswordChangeRequired(
-                                userId: browserState.selectedId!,
-                                mustChangePassword: false,
-                              );
-                              ref.invalidate(resourceListProvider(resource));
-                              ref.invalidate(resourceDetailsProvider(resource));
-                              if (!context.mounted) return;
-                              showTopNotification(
-                                context,
-                                'Password change requirement cleared.',
-                                type: TopNotificationType.success,
-                              );
-                            } catch (error) {
-                              if (!context.mounted) return;
-                              showTopNotification(
-                                context,
-                                'Flag reset failed: $error',
-                                type: TopNotificationType.error,
-                              );
-                            }
-                          },
-                          icon: const Icon(Icons.lock_reset_rounded, size: 18),
-                          label: const Text('Clear reset flag'),
-                        ),
-                      ),
-                    if (canShowCatalogItemTree)
-                      IconButton(
-                        tooltip: _showCatalogItemTree ? 'Hide dependency tree' : 'Show dependency tree',
-                        onPressed: rootCatalogItemId == null
-                            ? null
-                            : () => setState(() {
-                                  _showCatalogItemTree = !_showCatalogItemTree;
-                                  if (_showCatalogItemTree) _showOrganizationTree = false;
-                                }),
-                        icon: Icon(
-                          _showCatalogItemTree
-                              ? Icons.account_tree_rounded
-                              : Icons.account_tree_outlined,
-                        ),
-                      ),
-                    if (resource.key == 'organizations')
-                      IconButton(
-                        tooltip: 'Create calculation',
-                        onPressed: () => _startCalculationForOrganization(ref, data),
-                        icon: const Icon(Icons.calculate_outlined),
-                      ),
-                    if (canShowOrganizationTree)
-                      IconButton(
-                        tooltip: _showOrganizationTree ? 'Hide organization tree' : 'Show organization tree',
-                        onPressed: rootOrganizationId == null
-                            ? null
-                            : () => setState(() {
-                                  _showOrganizationTree = !_showOrganizationTree;
-                                  if (_showOrganizationTree) _showCatalogItemTree = false;
-                                }),
-                        icon: Icon(
-                          _showOrganizationTree
-                              ? Icons.account_tree_rounded
-                              : Icons.account_tree_outlined,
-                        ),
-                      ),
-                    if (resource.key == 'generated_documents')
-                      IconButton(
-                        tooltip: 'View document',
-                        onPressed: generatedDocumentAction == null
-                            ? null
-                            : () => _openQuoteGeneratedDocument(
-                                  context,
-                                  repository,
-                                  generatedDocumentAction,
-                                ),
-                        icon: const Icon(Icons.picture_as_pdf_outlined),
-                      ),
-                    if (resource.key != 'generated_documents' &&
-                        !_hasDetailImageButton(resource) &&
-                        mediaFiles.isNotEmpty)
-                      IconButton(
-                        tooltip: 'Preview media',
-                        onPressed: () => _showMediaPreview(context, repository, mediaFiles),
-                        icon: const Icon(Icons.visibility_outlined),
-                      ),
-                    if (mediaFiles.isNotEmpty)
-                      IconButton(
-                        tooltip: mediaFiles.length == 1 ? 'Download file' : 'Download files',
-                        onPressed: () => _downloadMediaFiles(context, repository, mediaFiles),
-                        icon: const Icon(Icons.download_outlined),
-                      ),
-                    if (resource.supportsEdit)
-                      IconButton(
-                        tooltip: 'Edit',
-                        onPressed: () async {
-                          final payload = await showDialog<Map<String, dynamic>>(
-                            context: context,
-                            builder: (_) => ResourceEditorDialog(
-                              resource: resource,
-                              repository: repository,
-                              initialData: data,
                             ),
-                          );
-                          if (payload == null) return;
-                          try {
-                            await repository.update(
-                              resource,
-                              browserState.selectedId!,
-                              payload,
-                            );
-                            ref.invalidate(resourceListProvider(resource));
-                            ref.invalidate(resourceDetailsProvider(resource));
-                          } catch (error) {
-                            if (!context.mounted) return;
-                            showTopNotification(
-                              context,
-                              'Update failed: $error',
-                              type: TopNotificationType.error,
-                            );
-                          }
-                        },
-                        icon: const Icon(Icons.edit_outlined),
-                      ),
-                    if (resource.supportsDelete)
-                      IconButton(
-                        tooltip: isCurrentUser ? 'You cannot delete your own account' : 'Delete',
-                        onPressed: isCurrentUser
-                            ? null
-                            : () async {
-                                final selectedId = browserState.selectedId;
-                                if (selectedId == null) return;
-
-                                final isUser = resource.key == 'users';
-                                final userLabel = data['email']?.toString() ?? selectedId;
-                                final confirmed = await showDialog<bool>(
-                                  context: context,
-                                  builder: (dialogContext) => AlertDialog(
-                                    title: Text(isUser ? 'Delete user?' : 'Delete row?'),
-                                    content: Text(
-                                      isUser
-                                          ? 'Delete $userLabel? The account credentials and organization links will be removed. Historical documents remain available.'
-                                          : 'Delete this record?',
-                                    ),
-                                    actions: [
-                                      TextButton(
-                                        onPressed: () => Navigator.of(dialogContext).pop(false),
-                                        child: const Text('Cancel'),
-                                      ),
-                                      FilledButton.tonal(
-                                        onPressed: () => Navigator.of(dialogContext).pop(true),
-                                        child: const Text('Delete'),
-                                      ),
-                                    ],
-                                  ),
-                                );
-                                if (confirmed != true) return;
-
-                                try {
-                                  await repository.delete(resource, selectedId);
-                                  ref.read(resourceBrowserProvider(resource.key).notifier).select(null);
+                          if (_hasDetailImageButton(resource))
+                            Padding(
+                              padding: const EdgeInsets.only(right: 8),
+                              child: OutlinedButton.icon(
+                                onPressed: mediaFiles.isEmpty
+                                    ? null
+                                    : () => _showMediaPreview(context, repository, mediaFiles),
+                                icon: const Icon(Icons.image_outlined, size: 18),
+                                label: const Text('View image'),
+                              ),
+                            ),
+                          if (resource.key == 'quotes')
+                            Padding(
+                              padding: const EdgeInsets.only(right: 8),
+                              child: QuoteSubmitButton(
+                                quoteId: data['id']?.toString() ?? '',
+                                statusCode: data['status_code']?.toString() ?? 'draft',
+                                repository: ref.read(calculatorRepositoryProvider),
+                                enabled: {'approved', 'sent'}.contains(
+                                  (data['status_code']?.toString() ?? 'draft')
+                                      .trim()
+                                      .toLowerCase(),
+                                ),
+                                onCompleted: (_) async {
                                   ref.invalidate(resourceListProvider(resource));
                                   ref.invalidate(resourceDetailsProvider(resource));
-                                  if (!context.mounted) return;
-                                  showTopNotification(
-                                    context,
-                                    isUser ? 'User deleted.' : 'Record deleted.',
-                                    type: TopNotificationType.success,
+                                },
+                              ),
+                            ),
+                          if (resource.key == 'quotes')
+                            Padding(
+                              padding: const EdgeInsets.only(right: 8),
+                              child: QuoteDocumentsButton(
+                                quoteId: data['id']?.toString() ?? '',
+                                repository: ref.read(calculatorRepositoryProvider),
+                              ),
+                            ),
+                          if (resource.key == 'quotes')
+                            Padding(
+                              padding: const EdgeInsets.only(right: 8),
+                              child: OutlinedButton.icon(
+                                onPressed: () => loadQuoteToWorkspace(context, ref, data),
+                                icon: const Icon(Icons.upload_file_outlined, size: 18),
+                                label: const Text('Load'),
+                              ),
+                            ),
+                          if (resource.key == 'users')
+                            Padding(
+                              padding: const EdgeInsets.only(right: 8),
+                              child: Tooltip(
+                                message: isCurrentUser
+                                    ? 'Use Change password in the top bar for your own account'
+                                    : 'Assign or reset this user password',
+                                child: OutlinedButton.icon(
+                                  onPressed: isCurrentUser
+                                      ? null
+                                      : () async {
+                                          final passwordInput = await showDialog<_UserPasswordInput>(
+                                            context: context,
+                                            builder: (_) => const _SetUserPasswordDialog(),
+                                          );
+                                          if (passwordInput == null) return;
+                                          try {
+                                            await repository.setUserPassword(
+                                              userId: browserState.selectedId!,
+                                              password: passwordInput.password,
+                                              mustChangePassword: passwordInput.mustChangePassword,
+                                            );
+                                            ref.invalidate(resourceListProvider(resource));
+                                            ref.invalidate(resourceDetailsProvider(resource));
+                                            if (!context.mounted) return;
+                                            showTopNotification(
+                                              context,
+                                              passwordInput.mustChangePassword
+                                                  ? 'Temporary password saved. The user must choose a new password at next sign-in.'
+                                                  : 'Password assigned.',
+                                              type: TopNotificationType.success,
+                                            );
+                                          } catch (error) {
+                                            if (!context.mounted) return;
+                                            showTopNotification(
+                                              context,
+                                              'Password reset failed: $error',
+                                              type: TopNotificationType.error,
+                                            );
+                                          }
+                                        },
+                                  icon: const Icon(Icons.password_rounded, size: 18),
+                                  label: const Text('Password'),
+                                ),
+                              ),
+                            ),
+                          if (mustChangePassword)
+                            Padding(
+                              padding: const EdgeInsets.only(right: 8),
+                              child: OutlinedButton.icon(
+                                onPressed: () async {
+                                  final confirmed = await showDialog<bool>(
+                                    context: context,
+                                    builder: (dialogContext) => AlertDialog(
+                                      title: const Text('Clear password change requirement?'),
+                                      content: const Text(
+                                        'The user will be able to continue signing in with the currently assigned password.',
+                                      ),
+                                      actions: [
+                                        TextButton(
+                                          onPressed: () => Navigator.of(dialogContext).pop(false),
+                                          child: const Text('Cancel'),
+                                        ),
+                                        FilledButton(
+                                          onPressed: () => Navigator.of(dialogContext).pop(true),
+                                          child: const Text('Clear flag'),
+                                        ),
+                                      ],
+                                    ),
                                   );
+                                  if (confirmed != true) return;
+
+                                  try {
+                                    await repository.setUserPasswordChangeRequired(
+                                      userId: browserState.selectedId!,
+                                      mustChangePassword: false,
+                                    );
+                                    ref.invalidate(resourceListProvider(resource));
+                                    ref.invalidate(resourceDetailsProvider(resource));
+                                    if (!context.mounted) return;
+                                    showTopNotification(
+                                      context,
+                                      'Password change requirement cleared.',
+                                      type: TopNotificationType.success,
+                                    );
+                                  } catch (error) {
+                                    if (!context.mounted) return;
+                                    showTopNotification(
+                                      context,
+                                      'Flag reset failed: $error',
+                                      type: TopNotificationType.error,
+                                    );
+                                  }
+                                },
+                                icon: const Icon(Icons.lock_reset_rounded, size: 18),
+                                label: const Text('Clear reset flag'),
+                              ),
+                            ),
+                          if (canShowCatalogItemTree)
+                            IconButton(
+                              tooltip: _showCatalogItemTree ? 'Hide dependency tree' : 'Show dependency tree',
+                              onPressed: rootCatalogItemId == null
+                                  ? null
+                                  : () => setState(() {
+                                        _showCatalogItemTree = !_showCatalogItemTree;
+                                        if (_showCatalogItemTree) _showOrganizationTree = false;
+                                      }),
+                              icon: Icon(
+                                _showCatalogItemTree
+                                    ? Icons.account_tree_rounded
+                                    : Icons.account_tree_outlined,
+                              ),
+                            ),
+                          if (resource.key == 'organizations')
+                            IconButton(
+                              tooltip: 'Create calculation',
+                              onPressed: () => _startCalculationForOrganization(ref, data),
+                              icon: const Icon(Icons.calculate_outlined),
+                            ),
+                          if (canShowOrganizationTree)
+                            IconButton(
+                              tooltip: _showOrganizationTree ? 'Hide organization tree' : 'Show organization tree',
+                              onPressed: rootOrganizationId == null
+                                  ? null
+                                  : () => setState(() {
+                                        _showOrganizationTree = !_showOrganizationTree;
+                                        if (_showOrganizationTree) _showCatalogItemTree = false;
+                                      }),
+                              icon: Icon(
+                                _showOrganizationTree
+                                    ? Icons.account_tree_rounded
+                                    : Icons.account_tree_outlined,
+                              ),
+                            ),
+                          if (resource.key == 'generated_documents')
+                            IconButton(
+                              tooltip: 'View document',
+                              onPressed: generatedDocumentAction == null
+                                  ? null
+                                  : () => _openQuoteGeneratedDocument(
+                                        context,
+                                        repository,
+                                        generatedDocumentAction,
+                                      ),
+                              icon: const Icon(Icons.picture_as_pdf_outlined),
+                            ),
+                          if (resource.key != 'generated_documents' &&
+                              !_hasDetailImageButton(resource) &&
+                              mediaFiles.isNotEmpty)
+                            IconButton(
+                              tooltip: 'Preview media',
+                              onPressed: () => _showMediaPreview(context, repository, mediaFiles),
+                              icon: const Icon(Icons.visibility_outlined),
+                            ),
+                          if (mediaFiles.isNotEmpty)
+                            IconButton(
+                              tooltip: mediaFiles.length == 1 ? 'Download file' : 'Download files',
+                              onPressed: () => _downloadMediaFiles(context, repository, mediaFiles),
+                              icon: const Icon(Icons.download_outlined),
+                            ),
+                          if (resource.supportsEdit)
+                            IconButton(
+                              tooltip: 'Edit',
+                              onPressed: () async {
+                                final payload = await showDialog<Map<String, dynamic>>(
+                                  context: context,
+                                  builder: (_) => ResourceEditorDialog(
+                                    resource: resource,
+                                    repository: repository,
+                                    initialData: data,
+                                  ),
+                                );
+                                if (payload == null) return;
+                                try {
+                                  await repository.update(
+                                    resource,
+                                    browserState.selectedId!,
+                                    payload,
+                                  );
+                                  ref.invalidate(resourceListProvider(resource));
+                                  ref.invalidate(resourceDetailsProvider(resource));
                                 } catch (error) {
                                   if (!context.mounted) return;
                                   showTopNotification(
                                     context,
-                                    'Delete failed: $error',
+                                    'Update failed: $error',
                                     type: TopNotificationType.error,
                                   );
                                 }
                               },
-                        icon: const Icon(Icons.delete_outline),
+                              icon: const Icon(Icons.edit_outlined),
+                            ),
+                          if (resource.supportsDelete)
+                            IconButton(
+                              tooltip: isCurrentUser ? 'You cannot delete your own account' : 'Delete',
+                              onPressed: isCurrentUser
+                                  ? null
+                                  : () async {
+                                      final selectedId = browserState.selectedId;
+                                      if (selectedId == null) return;
+
+                                      final isUser = resource.key == 'users';
+                                      final userLabel = data['email']?.toString() ?? selectedId;
+                                      final confirmed = await showDialog<bool>(
+                                        context: context,
+                                        builder: (dialogContext) => AlertDialog(
+                                          title: Text(isUser ? 'Delete user?' : 'Delete row?'),
+                                          content: Text(
+                                            isUser
+                                                ? 'Delete $userLabel? The account credentials and organization links will be removed. Historical documents remain available.'
+                                                : 'Delete this record?',
+                                          ),
+                                          actions: [
+                                            TextButton(
+                                              onPressed: () => Navigator.of(dialogContext).pop(false),
+                                              child: const Text('Cancel'),
+                                            ),
+                                            FilledButton.tonal(
+                                              onPressed: () => Navigator.of(dialogContext).pop(true),
+                                              child: const Text('Delete'),
+                                            ),
+                                          ],
+                                        ),
+                                      );
+                                      if (confirmed != true) return;
+
+                                      try {
+                                        await repository.delete(resource, selectedId);
+                                        ref.read(resourceBrowserProvider(resource.key).notifier).select(null);
+                                        ref.invalidate(resourceListProvider(resource));
+                                        ref.invalidate(resourceDetailsProvider(resource));
+                                        if (!context.mounted) return;
+                                        showTopNotification(
+                                          context,
+                                          isUser ? 'User deleted.' : 'Record deleted.',
+                                          type: TopNotificationType.success,
+                                        );
+                                      } catch (error) {
+                                        if (!context.mounted) return;
+                                        showTopNotification(
+                                          context,
+                                          'Delete failed: $error',
+                                          type: TopNotificationType.error,
+                                        );
+                                      }
+                                    },
+                              icon: const Icon(Icons.delete_outline),
+                            ),
+                        ],
                       ),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 12),
@@ -1518,8 +1528,20 @@ class _ResourceDetailsContent extends StatelessWidget {
   Widget build(BuildContext context) {
     if (resource.key == 'quotes') {
       final quoteId = data['id']?.toString() ?? '';
+      final quoteResult = _mapFromJsonLike(data['result_json'] ?? data['resultJson']);
+      final reserveValue = quoteResult['reserveItems'] ?? quoteResult['reserve_items'];
+      final reserveItems = reserveValue is List
+          ? reserveValue
+              .whereType<Map>()
+              .map((entry) => Map<String, dynamic>.from(entry))
+              .toList(growable: false)
+          : const <Map<String, dynamic>>[];
+      final reserveWarningsValue = quoteResult['reserveWarnings'] ?? quoteResult['reserve_warnings'];
+      final reserveWarnings = reserveWarningsValue is List
+          ? reserveWarningsValue.map((entry) => '$entry').toList(growable: false)
+          : const <String>[];
       return DefaultTabController(
-        length: 5,
+        length: 7,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -1550,6 +1572,8 @@ class _ResourceDetailsContent extends StatelessWidget {
                 Tab(text: 'Details'),
                 Tab(text: 'Documents'),
                 Tab(text: 'Lines'),
+                Tab(text: 'Reserve'),
+                Tab(text: 'Integrations'),
                 Tab(text: 'Raw JSON'),
               ],
             ),
@@ -1574,6 +1598,15 @@ class _ResourceDetailsContent extends StatelessWidget {
                     key: ValueKey('quote-lines-$quoteId'),
                     quoteId: quoteId,
                     repository: repository,
+                  ),
+                  ReserveMaterialsView(
+                    items: reserveItems,
+                    warnings: reserveWarnings,
+                  ),
+                  QuoteIntegrationsTab(
+                    key: ValueKey('quote-integrations-$quoteId'),
+                    quoteId: quoteId,
+                    repository: quoteRepository,
                   ),
                   ListView(children: [JsonViewCard(title: 'Raw JSON', data: enrichedData)]),
                 ],
@@ -2050,8 +2083,12 @@ class _QuoteLinesTab extends StatefulWidget {
   State<_QuoteLinesTab> createState() => _QuoteLinesTabState();
 }
 
-class _QuoteLinesTabState extends State<_QuoteLinesTab> {
+class _QuoteLinesTabState extends State<_QuoteLinesTab>
+    with AutomaticKeepAliveClientMixin<_QuoteLinesTab> {
   late Future<ResourceListResponse> _linesFuture;
+
+  @override
+  bool get wantKeepAlive => true;
 
   AdminResourceDefinition get _resource => findResourceByKey('quote_lines');
 
@@ -2088,6 +2125,7 @@ class _QuoteLinesTabState extends State<_QuoteLinesTab> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     return FutureBuilder<ResourceListResponse>(
       future: _linesFuture,
       builder: (context, snapshot) {
@@ -2629,7 +2667,13 @@ class _SavedQuoteGeometryPreviewTab extends StatelessWidget {
             markiseSegments: markiseSegments,
             staticBeam: roofCalculation?.staticBeam,
             wallMounted: draft.wallMounted,
-            postCount: roofCalculation?.postCount ?? 0,
+            postCount: geometryPreviewPostCount(
+              calculatedPostCount: roofCalculation?.postCount ?? 0,
+              modules: draft.setContents,
+              effectiveSetBom:
+                  resultJson['effectiveSetBom'] ?? resultJson['effective_set_bom'],
+              manualBom: resultJson['manualBom'] ?? resultJson['manual_bom'],
+            ),
             quoteNotes: externalNotes ?? draft.externalNotes,
             warnings: warnings,
             roofAngleDeg: roofCalculation?.angleDeg ?? slope.angleDeg,

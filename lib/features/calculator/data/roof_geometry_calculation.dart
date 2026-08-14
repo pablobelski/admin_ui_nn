@@ -60,6 +60,12 @@ class RoofModuleCalculation {
     required this.glassWidthMm,
     required this.glassLengthMm,
     required this.glassAreaM2,
+    this.glassDepthSegmentLengthsMm = const [],
+    this.glassSplitMode = 'auto',
+    this.glassCutPositionsMm = const [],
+    this.profileSplitMode = 'auto',
+    this.profileCutPositionsMm = const [],
+    this.beamSegmentLengthsMm = const [],
     this.coveringCode,
     this.maxGlassFieldWidthMm,
   });
@@ -77,6 +83,12 @@ class RoofModuleCalculation {
   final int glassWidthMm;
   final int glassLengthMm;
   final double glassAreaM2;
+  final List<int> glassDepthSegmentLengthsMm;
+  final String glassSplitMode;
+  final List<int> glassCutPositionsMm;
+  final String profileSplitMode;
+  final List<int> profileCutPositionsMm;
+  final List<int> beamSegmentLengthsMm;
   final String? coveringCode;
   final int? maxGlassFieldWidthMm;
 }
@@ -162,6 +174,27 @@ RoofGeometryCalculation? roofGeometryCalculationFromSources(
     final glassWidthMm = _asInt(module['glass_width_mm'] ?? module['glassWidthMm']);
     final glassLengthMm = _asInt(module['glass_length_mm'] ?? module['glassLengthMm']);
     final glassAreaM2 = _asDouble(module['glass_area_m2'] ?? module['glassAreaM2']);
+    final glassDepthSegmentLengthsMm = _intList(
+      module['glass_depth_segment_lengths_mm'] ??
+          module['glassDepthSegmentLengthsMm'],
+    );
+    final glassSplitMode = _nullableText(
+          module['glass_split_mode'] ?? module['glassSplitMode'],
+        ) ??
+        'auto';
+    final glassCutPositionsMm = _intList(
+      module['glass_cut_positions_mm'] ?? module['glassCutPositionsMm'],
+    );
+    final profileSplitMode = _nullableText(
+          module['profile_split_mode'] ?? module['profileSplitMode'],
+        ) ??
+        'auto';
+    final profileCutPositionsMm = _intList(
+      module['profile_cut_positions_mm'] ?? module['profileCutPositionsMm'],
+    );
+    final beamSegmentLengthsMm = _intList(
+      module['beam_segment_lengths_mm'] ?? module['beamSegmentLengthsMm'],
+    );
     final coveringCode = _nullableText(
       module['glass_type_code'] ??
           module['covering_code'] ??
@@ -201,6 +234,16 @@ RoofGeometryCalculation? roofGeometryCalculationFromSources(
         glassWidthMm: glassWidthMm,
         glassLengthMm: glassLengthMm,
         glassAreaM2: glassAreaM2,
+        glassDepthSegmentLengthsMm: glassDepthSegmentLengthsMm.isEmpty
+            ? [glassLengthMm]
+            : glassDepthSegmentLengthsMm,
+        glassSplitMode: glassSplitMode,
+        glassCutPositionsMm: glassCutPositionsMm,
+        profileSplitMode: profileSplitMode,
+        profileCutPositionsMm: profileCutPositionsMm,
+        beamSegmentLengthsMm: beamSegmentLengthsMm.isEmpty
+            ? [beamLengthMm]
+            : beamSegmentLengthsMm,
         coveringCode: coveringCode,
         maxGlassFieldWidthMm: maxGlassFieldWidthMm,
       ),
@@ -287,6 +330,12 @@ RoofGeometryCalculation calculateRoofGeometryForDraft({
     'single_glass_field_max_beam_length_mm',
   ) ??
       _number(params, 'glassMaxPanelLengthMm', 'glass_max_panel_length_mm');
+  final profileSplitThresholdMm = _number(
+        params,
+        'profileSplitThresholdMm',
+        'profile_split_threshold_mm',
+      ) ??
+      7080;
   final defaultMaxGlassFieldWidthMm = _number(
     params,
     'defaultMaxGlassFieldWidthMm',
@@ -424,15 +473,133 @@ RoofGeometryCalculation calculateRoofGeometryForDraft({
     final roundedBeamStep = (beamStep * 10).round() / 10;
     final glassWidth = (roundedBeamStep - wallGutterBlendeClearanceMm + glassOverlap).truncate();
     final unsplitGlassLength = (beamLength + glassFrontAdd + _angleCorrection(angle)).round();
-    final glassDepthFieldCount = math.max(
+
+    final beamRunStartMm = backOffset.round();
+    final beamRunEndMm = (depth - frontOffset).round();
+    final glassSplitMode = tab.manufacturingSplitMode('glass');
+    final profileSplitMode = tab.manufacturingSplitMode('profiles');
+    final manualGlassCutPositionsMm = _normalizedManualCutPositions(
+      tab.manufacturingSplitCuts('glass'),
+      glassSplitMode,
+      beamRunStartMm,
+      beamRunEndMm,
+    );
+    final manualProfileCutPositionsMm = _normalizedManualCutPositions(
+      tab.manufacturingSplitCuts('profiles'),
+      profileSplitMode,
+      beamRunStartMm,
+      beamRunEndMm,
+    );
+    final automaticProfilePieceCount = math.max(
+      1,
+      (beamLength / profileSplitThresholdMm).ceil(),
+    ).toInt();
+    final automaticProfileCutPositionsMm = _automaticCutPositions(
+      beamRunStartMm,
+      beamRunEndMm,
+      automaticProfilePieceCount,
+    );
+
+    final automaticGlassDepthFieldCount = math.max(
       1,
       (beamLength / singleGlassFieldMaxBeamLength).ceil(),
     ).toInt();
-    final totalGlassJointGap = glassDepthJointGap * math.max(0, glassDepthFieldCount - 1);
-    final glassLength = ((unsplitGlassLength - totalGlassJointGap) / glassDepthFieldCount).round();
+    final automaticGlassCutPositionsMm = _automaticCutPositions(
+      beamRunStartMm,
+      beamRunEndMm,
+      automaticGlassDepthFieldCount,
+    );
+
+    final baseProfileCutPositionsMm = profileSplitMode == 'manual'
+        ? manualProfileCutPositionsMm
+        : profileSplitMode.startsWith('as_module:')
+            ? _moduleLengthCutPositions(
+                profileSplitMode,
+                orderedTabs,
+                beamRunStartMm,
+                beamRunEndMm,
+                frontOffset,
+              )
+            : automaticProfileCutPositionsMm;
+    final baseGlassCutPositionsMm = glassSplitMode == 'manual'
+        ? manualGlassCutPositionsMm
+        : glassSplitMode.startsWith('as_module:')
+            ? _moduleLengthCutPositions(
+                glassSplitMode,
+                orderedTabs,
+                beamRunStartMm,
+                beamRunEndMm,
+                frontOffset,
+              )
+            : automaticGlassCutPositionsMm;
+
+    late final List<int> profileCutPositionsMm;
+    late final List<int> glassCutPositionsMm;
+    if (profileSplitMode == 'as_glass' && glassSplitMode == 'as_profile') {
+      profileCutPositionsMm = automaticProfileCutPositionsMm;
+      glassCutPositionsMm = profileCutPositionsMm;
+    } else {
+      profileCutPositionsMm = profileSplitMode == 'as_glass'
+          ? baseGlassCutPositionsMm
+          : baseProfileCutPositionsMm;
+      glassCutPositionsMm = glassSplitMode == 'as_profile'
+          ? profileCutPositionsMm
+          : baseGlassCutPositionsMm;
+    }
+
+    final beamSegmentLengthsMm = profileSplitMode != 'auto'
+        ? _slopedSegmentsFromWallCuts(
+            beamRunStartMm,
+            beamRunEndMm,
+            profileCutPositionsMm,
+            angle,
+          )
+        : List<int>.filled(
+            automaticProfilePieceCount,
+            automaticProfilePieceCount > 1
+                ? (beamLength / automaticProfilePieceCount).round()
+                : beamLength,
+            growable: false,
+          );
+    final automaticGlassJointGap =
+        glassDepthJointGap * math.max(0, automaticGlassDepthFieldCount - 1);
+    final automaticGlassLength =
+        ((unsplitGlassLength - automaticGlassJointGap) /
+                automaticGlassDepthFieldCount)
+            .round();
+
+    final resolvedGlassBeamSegmentsMm = glassSplitMode != 'auto'
+        ? _slopedSegmentsFromWallCuts(
+            beamRunStartMm,
+            beamRunEndMm,
+            glassCutPositionsMm,
+            angle,
+          )
+        : const <int>[];
+    final glassDepthSegmentLengthsMm = glassSplitMode != 'auto'
+        ? _manualGlassSegmentLengths(
+            resolvedGlassBeamSegmentsMm,
+            glassFrontAdd,
+            glassDepthJointGap,
+            angle,
+          )
+        : List<int>.filled(
+            automaticGlassDepthFieldCount,
+            automaticGlassLength,
+            growable: false,
+          );
+    final glassDepthFieldCount =
+        math.max(1, glassDepthSegmentLengthsMm.length).toInt();
+    final totalGlassLengthMm = glassDepthSegmentLengthsMm.fold<int>(
+      0,
+      (sum, value) => sum + value,
+    );
+    final glassLength = (totalGlassLengthMm / glassDepthFieldCount).round();
     final glassCount = glassCountAcrossWidth * glassDepthFieldCount;
     final glassArea = _roundAreaUp(
-      glassCount * (glassWidth / 1000) * (glassLength / 1000),
+      glassCountAcrossWidth *
+          (glassWidth / 1000) *
+          (totalGlassLengthMm / 1000),
     );
     calculated.add(
       RoofModuleCalculation(
@@ -449,6 +616,12 @@ RoofGeometryCalculation calculateRoofGeometryForDraft({
         glassWidthMm: glassWidth,
         glassLengthMm: glassLength,
         glassAreaM2: glassArea,
+        glassDepthSegmentLengthsMm: glassDepthSegmentLengthsMm,
+        glassSplitMode: glassSplitMode,
+        glassCutPositionsMm: glassCutPositionsMm,
+        profileSplitMode: profileSplitMode,
+        profileCutPositionsMm: profileCutPositionsMm,
+        beamSegmentLengthsMm: beamSegmentLengthsMm,
         coveringCode: coveringCode,
         maxGlassFieldWidthMm: maxGlassWidth,
       ),
@@ -531,6 +704,99 @@ String _staticBeamFallbackLabel(String code) {
   return labels[code] ?? code;
 }
 
+List<int> _normalizedManualCutPositions(
+  List<int> requested,
+  String mode,
+  int minPositionMm,
+  int maxPositionMm,
+) {
+  if (mode != 'manual') return const [];
+  final values = requested
+      .where((value) => value > minPositionMm && value < maxPositionMm)
+      .toSet()
+      .toList(growable: false)
+    ..sort();
+  return values;
+}
+
+List<int> _automaticCutPositions(
+  int startPositionMm,
+  int endPositionMm,
+  int pieceCount,
+) {
+  if (pieceCount <= 1) return const [];
+  final runMm = endPositionMm - startPositionMm;
+  return List<int>.generate(
+    pieceCount - 1,
+    (index) => (startPositionMm + runMm * (index + 1) / pieceCount).round(),
+    growable: false,
+  );
+}
+
+List<int> _moduleLengthCutPositions(
+  String mode,
+  List<CalculatorSetContentTab> tabs,
+  int minPositionMm,
+  int maxPositionMm,
+  double frontOffsetMm,
+) {
+  if (!mode.startsWith('as_module:')) return const [];
+  final role = mode.substring('as_module:'.length).trim().toLowerCase();
+  CalculatorSetContentTab? reference;
+  for (final tab in tabs) {
+    if (tab.moduleRole.trim().toLowerCase() == role) {
+      reference = tab;
+      break;
+    }
+  }
+  final depthMm = reference?.moduleDepthMm;
+  if (depthMm == null || depthMm <= 0) return const [];
+  final referenceRunMm = depthMm - minPositionMm - frontOffsetMm;
+  if (referenceRunMm <= 0) return const [];
+  final cutPositionMm = (maxPositionMm - referenceRunMm).round();
+  if (cutPositionMm <= minPositionMm || cutPositionMm >= maxPositionMm) {
+    return const [];
+  }
+  return [cutPositionMm];
+}
+
+List<int> _slopedSegmentsFromWallCuts(
+  int startPositionMm,
+  int endPositionMm,
+  List<int> cutPositionsMm,
+  int angleDeg,
+) {
+  final cosine = math.cos(angleDeg * math.pi / 180);
+  final points = [startPositionMm, ...cutPositionsMm, endPositionMm];
+  return List<int>.generate(
+    math.max(0, points.length - 1),
+    (index) => math.max(
+      1,
+      ((points[index + 1] - points[index]) / cosine).round(),
+    ).toInt(),
+    growable: false,
+  );
+}
+
+List<int> _manualGlassSegmentLengths(
+  List<int> beamSegmentsMm,
+  double glassFrontAddMm,
+  double glassDepthJointGapMm,
+  int angleDeg,
+) {
+  if (beamSegmentsMm.isEmpty) return const [];
+  final segments = [...beamSegmentsMm];
+  segments[segments.length - 1] +=
+      (glassFrontAddMm + _angleCorrection(angleDeg)).round();
+  final halfGap = glassDepthJointGapMm / 2;
+  for (var index = 0; index < segments.length - 1; index++) {
+    segments[index] = math.max(1, (segments[index] - halfGap).round()).toInt();
+    segments[index + 1] =
+        math.max(1, (segments[index + 1] - halfGap).round()).toInt();
+  }
+  return segments;
+}
+
 int _calculateBeamCount(
   int widthMm,
   double beamWidthMm,
@@ -609,6 +875,15 @@ Map<String, dynamic> _optionMetadata(CalculatorOption? model) {
   final raw = model.raw['metadata_json'] ?? model.raw['metadata'];
   if (raw is Map) return Map<String, dynamic>.from(raw);
   return model.raw;
+}
+
+List<int> _intList(Object? value) {
+  if (value is! List) return const [];
+  return value
+      .map(_asInt)
+      .whereType<int>()
+      .where((entry) => entry > 0)
+      .toList(growable: false);
 }
 
 List<String> _stringList(Object? value) {

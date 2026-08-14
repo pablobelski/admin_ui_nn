@@ -4,6 +4,9 @@ import '../../../core/http/api_client.dart';
 import '../../../core/ui/top_notification.dart';
 import '../data/calculator_repository.dart';
 
+final Map<String, List<QuoteStatusTransitionOption>>
+    _quoteStatusTransitionsCache = {};
+
 class QuoteStatusButton extends StatefulWidget {
   const QuoteStatusButton({
     super.key,
@@ -44,6 +47,9 @@ class _QuoteStatusButtonState extends State<QuoteStatusButton> {
     if (normalized.isEmpty) return 'Status';
     return normalized;
   }
+
+  String _cacheKey(String statusCode) =>
+      '${widget.quoteId.trim()}:${statusCode.trim().toLowerCase()}';
 
   Future<String?> _showTransitionsMenu(
     List<QuoteStatusTransitionOption> transitions,
@@ -99,17 +105,22 @@ class _QuoteStatusButtonState extends State<QuoteStatusButton> {
 
   Future<void> _open() async {
     if (_busy || widget.quoteId.trim().isEmpty) return;
-    setState(() => _busy = true);
     try {
-      final available =
-          await widget.repository.fetchQuoteStatusTransitions(widget.quoteId);
-      if (!mounted) return;
-      if (available.statusCode.trim().isNotEmpty) {
-        setState(() => _statusCode = available.statusCode);
+      var transitions = _quoteStatusTransitionsCache[_cacheKey(_statusCode)];
+      if (transitions == null) {
+        setState(() => _busy = true);
+        final available =
+            await widget.repository.fetchQuoteStatusTransitions(widget.quoteId);
+        if (!mounted) return;
+        if (available.statusCode.trim().isNotEmpty) {
+          _statusCode = available.statusCode;
+        }
+        transitions = available.transitions;
+        _quoteStatusTransitionsCache[_cacheKey(_statusCode)] = transitions;
+        setState(() => _busy = false);
       }
 
-      setState(() => _busy = false);
-      final targetStatus = await _showTransitionsMenu(available.transitions);
+      final targetStatus = await _showTransitionsMenu(transitions);
       if (!mounted || targetStatus == null) return;
 
       setState(() => _busy = true);
@@ -118,7 +129,10 @@ class _QuoteStatusButtonState extends State<QuoteStatusButton> {
         targetStatus,
       );
       if (!mounted) return;
-      setState(() => _statusCode = result.statusCode);
+      _statusCode = result.statusCode;
+      _quoteStatusTransitionsCache[_cacheKey(result.statusCode)] =
+          result.transitions;
+      setState(() {});
       await widget.onCompleted?.call(result);
       if (!mounted) return;
       showTopNotification(

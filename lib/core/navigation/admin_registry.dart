@@ -291,6 +291,14 @@ const statusOptions = <AdminSelectOption>[
   AdminSelectOption(value: 'archived', label: 'Archived'),
 ];
 
+const integrationJobStatusOptions = <AdminSelectOption>[
+  AdminSelectOption(value: 'pending', label: 'Pending'),
+  AdminSelectOption(value: 'running', label: 'Running'),
+  AdminSelectOption(value: 'succeeded', label: 'Succeeded'),
+  AdminSelectOption(value: 'failed', label: 'Failed'),
+  AdminSelectOption(value: 'cancelled', label: 'Cancelled'),
+];
+
 const scopeOptions = <AdminSelectOption>[
   AdminSelectOption(value: 'customer', label: 'Customer'),
   AdminSelectOption(value: 'b2b', label: 'B2B'),
@@ -761,6 +769,13 @@ const adminNavGroups = <AdminNavGroup>[
             filterKey: 'quote_id',
             sourceValueKey: 'id',
             icon: Icons.picture_as_pdf_outlined,
+          ),
+          AdminDetailAction(
+            label: 'Show integration jobs',
+            targetResourceKey: 'integration_jobs',
+            filterKey: 'quote_id',
+            sourceValueKey: 'id',
+            icon: Icons.sync_outlined,
           ),
           AdminDetailAction(
             label: 'Show buyer organization',
@@ -2840,11 +2855,17 @@ const adminNavGroups = <AdminNavGroup>[
         endpoint: '/api/admin/integration-jobs',
         icon: Icons.sync_outlined,
         columns: [
-          AdminColumn(key: 'entity_type_code', label: 'Entity', isPrimary: true),
-          AdminColumn(key: 'operation_code', label: 'Operation'),
+          AdminColumn(key: 'operation_code', label: 'Operation', isPrimary: true, flex: 2),
           AdminColumn(key: 'status_code', label: 'Status'),
+          AdminColumn(key: 'quote_id', label: 'Quote id', flex: 2),
           AdminColumn(key: 'attempt_count', label: 'Attempts'),
-          AdminColumn(key: 'scheduled_at', label: 'Scheduled'),
+          AdminColumn(key: 'error_text', label: 'Description', flex: 3),
+          AdminColumn(key: 'created_at', label: 'Created'),
+        ],
+        listFilters: [
+          AdminResourceFilter(key: 'quote_id', label: 'Quote id'),
+          AdminResourceFilter(key: 'operation_code', label: 'Operation'),
+          AdminResourceFilter(key: 'status_code', label: 'Status', options: integrationJobStatusOptions),
         ],
         formFields: [
           AdminField(key: 'integration_endpoint_id', label: 'Endpoint id'),
@@ -2854,10 +2875,62 @@ const adminNavGroups = <AdminNavGroup>[
           AdminField(key: 'operation_code', label: 'Operation code'),
           AdminField(key: 'external_key', label: 'External key'),
           AdminField(key: 'payload_json', label: 'Payload JSON', type: AdminFieldType.json),
-          AdminField(key: 'status_code', label: 'Status', options: statusOptions),
+          AdminField(key: 'status_code', label: 'Status', options: integrationJobStatusOptions),
         ],
         supportsCreate: false,
         supportsEdit: false,
+        detailActions: [
+          AdminDetailAction(
+            label: 'Show job events',
+            targetResourceKey: 'integration_job_events',
+            filterKey: 'integration_job_id',
+            sourceValueKey: 'id',
+            icon: Icons.event_note_outlined,
+          ),
+          AdminDetailAction(
+            label: 'Show quote',
+            targetResourceKey: 'quotes',
+            filterKey: 'id',
+            sourceValueKey: 'quote_id',
+            selectTargetRow: true,
+            icon: Icons.request_quote_outlined,
+          ),
+        ],
+      ),
+      AdminResourceDefinition(
+        key: 'integration_job_events',
+        title: 'Integration Job Events',
+        endpoint: '/api/admin/integration-job-events',
+        icon: Icons.event_note_outlined,
+        columns: [
+          AdminColumn(key: 'event_at', label: 'Time'),
+          AdminColumn(key: 'level_code', label: 'Level'),
+          AdminColumn(key: 'message', label: 'Message', isPrimary: true, flex: 4),
+          AdminColumn(key: 'integration_job_id', label: 'Job id', flex: 2),
+        ],
+        listFilters: [
+          AdminResourceFilter(key: 'integration_job_id', label: 'Job id'),
+          AdminResourceFilter(key: 'level_code', label: 'Level'),
+        ],
+        formFields: [
+          AdminField(key: 'integration_job_id', label: 'Job id', readOnly: true),
+          AdminField(key: 'event_at', label: 'Event time', readOnly: true),
+          AdminField(key: 'level_code', label: 'Level', readOnly: true),
+          AdminField(key: 'message', label: 'Message', type: AdminFieldType.longText, readOnly: true),
+          AdminField(key: 'payload_json', label: 'Payload JSON', type: AdminFieldType.json, readOnly: true),
+        ],
+        supportsCreate: false,
+        supportsEdit: false,
+        detailActions: [
+          AdminDetailAction(
+            label: 'Show job',
+            targetResourceKey: 'integration_jobs',
+            filterKey: 'id',
+            sourceValueKey: 'integration_job_id',
+            selectTargetRow: true,
+            icon: Icons.sync_outlined,
+          ),
+        ],
       ),
     ],
   ),

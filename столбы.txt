@@ -1,0 +1,1 @@
+module intersections / cut endpoints → свободные canonical corners/junctions → остальные точки по периметру с учётом равномерности и длины кромки → fallback

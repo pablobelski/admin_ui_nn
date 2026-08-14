@@ -23,6 +23,97 @@ const geometryOnlyPreviewRasterWidth =
 const geometryOnlyPreviewRasterHeight =
     geometryOnlyPreviewHeight * geometryOnlyPreviewRasterScale;
 
+Future<ui.Image?>? _geometryPreviewHumanImageFutureCache;
+final Map<String, Future<Uint8List?>> _geometryPreviewMediaBytesFutureCache =
+    {};
+
+bool _isGeometryPreviewPostItem(CalculatorSetContentItem item) {
+  final source = item.sourceComponent;
+  final candidates = <String?>[
+    item.articleNo,
+    item.profileNo,
+    item.baseCode,
+    item.variantSku,
+    '${source['article_no'] ?? source['articleNo'] ?? ''}',
+    '${source['profile_no'] ?? source['profileNo'] ?? ''}',
+    '${source['base_code'] ?? source['baseCode'] ?? ''}',
+    '${source['variant_sku'] ?? source['variantSku'] ?? ''}',
+  ];
+  for (final raw in candidates) {
+    final value = raw?.trim() ?? '';
+    if (value.isEmpty) continue;
+    if (value == '15190' ||
+        value.endsWith(':15190') ||
+        value.contains(':15190:') ||
+        value.startsWith('15190:')) {
+      return true;
+    }
+  }
+  return false;
+}
+
+int geometryPreviewPostCount({
+  required int calculatedPostCount,
+  required List<CalculatorSetContentTab> modules,
+  Object? effectiveSetBom,
+  Object? manualBom,
+}) {
+  double bomPostQuantity(Object? value) {
+    if (value is! List) return 0;
+    var total = 0.0;
+    for (final raw in value) {
+      if (raw is! Map) continue;
+      final line = Map<String, dynamic>.from(raw);
+      final sourceRaw = line['source'];
+      final source = sourceRaw is Map
+          ? Map<String, dynamic>.from(sourceRaw)
+          : const <String, dynamic>{};
+      final article = '${line['article_no'] ?? line['articleNo'] ?? source['article_no'] ?? source['articleNo'] ?? ''}'
+          .trim();
+      if (article != '15190') continue;
+      final rawQuantity = line['quantity'] ?? source['quantity'];
+      final quantity = rawQuantity is num
+          ? rawQuantity.toDouble()
+          : double.tryParse('$rawQuantity') ?? 0;
+      if (quantity > 0) total += quantity;
+    }
+    return total;
+  }
+
+  var resolved = calculatedPostCount.toDouble();
+  var hasDraftAdjustment = false;
+  for (final module in modules) {
+    for (final item in module.items) {
+      if (!_isGeometryPreviewPostItem(item)) continue;
+      if (item.isManual) {
+        hasDraftAdjustment = true;
+        if (item.enabled) resolved += item.quantity.toDouble();
+        continue;
+      }
+      if (!item.isCalculated || item.calculatedQuantity == null) continue;
+      final differs = !item.enabled ||
+          (item.quantity.toDouble() - item.calculatedQuantity!.toDouble()).abs() > 0.000001;
+      if (!differs) continue;
+      hasDraftAdjustment = true;
+      if (!item.enabled) {
+        resolved -= item.calculatedQuantity!.toDouble();
+      } else {
+        resolved += item.quantity.toDouble() - item.calculatedQuantity!.toDouble();
+      }
+    }
+  }
+  if (hasDraftAdjustment) {
+    return math.max(0, resolved.round()).toInt();
+  }
+
+  final effectiveQuantity = bomPostQuantity(effectiveSetBom);
+  final manualQuantity = bomPostQuantity(manualBom);
+  if (effectiveQuantity > 0 || manualQuantity > 0) {
+    return math.max(0, (effectiveQuantity + manualQuantity).round()).toInt();
+  }
+  return math.max(0, calculatedPostCount).toInt();
+}
+
 Rect _geometryPreviewSideRect(Size size, double pad) {
   final targetWidth = math.min(122.0, math.max(104.0, size.width * 0.27));
   final left = math.max(pad + 80.0, size.width - pad - targetWidth);
@@ -155,15 +246,18 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
     final staticBeam = widget.staticBeam;
     final filename = staticBeam?.instructionMediaFilename?.trim() ?? '';
     if (staticBeam?.enabled != true || filename.isEmpty) return null;
-    try {
-      final mediaFile = await widget.mediaRepository.findMediaFileByOriginalFilename(filename);
-      final fileId = mediaFile?['id']?.toString().trim() ?? '';
-      if (fileId.isEmpty) return null;
-      final response = await widget.mediaRepository.viewMediaFile(fileId);
-      return response.bytes;
-    } catch (_) {
-      return null;
-    }
+    return _geometryPreviewMediaBytesFutureCache.putIfAbsent(filename, () async {
+      try {
+        final mediaFile = await widget.mediaRepository
+            .findMediaFileByOriginalFilename(filename);
+        final fileId = mediaFile?['id']?.toString().trim() ?? '';
+        if (fileId.isEmpty) return null;
+        final response = await widget.mediaRepository.viewMediaFile(fileId);
+        return response.bytes;
+      } catch (_) {
+        return null;
+      }
+    });
   }
 
   @override
@@ -255,6 +349,7 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
             depthMm: widget.depthMm,
             heightMm: widget.heightMm,
             geometryParams: widget.geometryParams,
+            modules: widget.modules,
             colorCode: widget.colorCode,
             colorSwatchColor: widget.colorSwatchColor,
             isSpecialColor: widget.isSpecialColor,
@@ -1177,6 +1272,12 @@ class _GeometryParamBag {
 
 Future<ui.Image?> loadGeometryPreviewHumanImage(
   AdminResourceRepository mediaRepository,
+) =>
+    _geometryPreviewHumanImageFutureCache ??=
+        _loadGeometryPreviewHumanImage(mediaRepository);
+
+Future<ui.Image?> _loadGeometryPreviewHumanImage(
+  AdminResourceRepository mediaRepository,
 ) async {
   try {
     final mediaFile =
@@ -1199,6 +1300,7 @@ Future<Uint8List> renderGeometryOnlyPreviewPng({
   required int? depthMm,
   required int? heightMm,
   required List<RoofGeometryParam> geometryParams,
+  List<CalculatorSetContentTab> modules = const [],
   required String? coveringName,
   required List<RoofModuleCalculation> calculatedModules,
   required bool wallMounted,
@@ -1226,6 +1328,7 @@ Future<Uint8List> renderGeometryOnlyPreviewPng({
     depthMm: depthMm,
     heightMm: heightMm,
     geometryParams: geometryParams,
+    modules: modules,
     colorCode: null,
     colorSwatchColor: null,
     isSpecialColor: false,
@@ -1547,6 +1650,7 @@ Future<Uint8List> renderExpandedGeometryPreviewPng({
     depthMm: depthMm,
     heightMm: heightMm,
     geometryParams: geometryParams,
+    modules: modules,
     colorCode: colorCode,
     colorSwatchColor: colorSwatchColor,
     isSpecialColor: isSpecialColor,
@@ -1718,6 +1822,7 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     required this.depthMm,
     required this.heightMm,
     required this.geometryParams,
+    required this.modules,
     required this.colorCode,
     required this.colorSwatchColor,
     required this.isSpecialColor,
@@ -1747,6 +1852,7 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
   final int? depthMm;
   final int? heightMm;
   final List<RoofGeometryParam> geometryParams;
+  final List<CalculatorSetContentTab> modules;
   final String? colorCode;
   final Color? colorSwatchColor;
   final bool isSpecialColor;
@@ -1886,7 +1992,9 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
       ..strokeWidth = 1.0
       ..strokeCap = StrokeCap.round;
     final roofFillPaint = Paint()
-      ..color = _roofCoveringFillColor()
+      ..color = modules.isEmpty
+          ? _roofCoveringFillColor()
+          : Colors.white.withValues(alpha: 0.30)
       ..style = PaintingStyle.fill;
     final shadowPaint = Paint()
       ..color = Colors.black.withValues(alpha: 0.055)
@@ -1907,18 +2015,21 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     _drawGroundShadow(canvas, s, layout, shadowPaint);
     _drawWallGuides(canvas, s, layout, guidePaint);
 
-    // Painter order creates the same visual overlap as a simple 3D scene:
-    // rear supports/edge, complete roof plane, then front supports/gutter.
-    _drawPostsForEdge(canvas, s, layout, layout.back, k);
-    _drawRoofEdge(canvas, s, layout.back, layout.heightMm, k);
-
     _drawRoofFill(canvas, s, layout, roofFillPaint);
+    _drawRoofCoveringFields(canvas, s, layout);
     _drawHighlightedModule(canvas, s, layout);
-    _drawGlassDepthSplits(canvas, s, layout);
+
+    // Draw every support before roof edges/rafters. Structural roof lines are
+    // therefore painted over the support tops instead of supports obscuring
+    // the beam/gutter drawing.
+    _drawPostsForEdge(canvas, s, layout, layout.back, k);
+    _drawPostsOutsideFrontBack(canvas, s, layout, k);
+    _drawPostsForEdge(canvas, s, layout, layout.front, k);
+
+    _drawRoofEdge(canvas, s, layout.back, layout.heightMm, k);
     _drawRafters(canvas, s, layout, k);
     _drawRoofSideEdges(canvas, s, layout, k);
-
-    _drawPostsForEdge(canvas, s, layout, layout.front, k);
+    _drawManufacturingSplits(canvas, s, layout);
     _drawRoofEdge(canvas, s, layout.front, layout.heightMm, k, isGutter: true);
     _drawDimensions(canvas, s, params, layout, profile, dimensionPaint);
 
@@ -2288,15 +2399,161 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     );
   }
 
-  Color _roofCoveringFillColor() {
-    final value = coveringName?.trim().toLowerCase() ?? '';
-    if (value.contains('matt')) {
+  Color _coveringFillColor(String? value) {
+    final normalized = value?.trim().toLowerCase() ?? '';
+    final fallback = coveringName?.trim().toLowerCase() ?? '';
+    final resolved = normalized.isNotEmpty ? normalized : fallback;
+    if (resolved.contains('matt') || resolved.contains('opal')) {
       return const Color(0xFFD9DDE1).withValues(alpha: 0.78);
     }
-    if (value.contains('klar')) {
+    if (resolved.contains('klar') || resolved.contains('clear')) {
       return const Color(0xFFCFEAF7).withValues(alpha: 0.74);
     }
     return Colors.white.withValues(alpha: 0.26);
+  }
+
+  Color _roofCoveringFillColor() => _coveringFillColor(coveringName);
+
+  CalculatorSetContentTab? _moduleInputFor(int moduleIndex) {
+    if (moduleIndex > 0 && moduleIndex <= modules.length) {
+      return modules[moduleIndex - 1];
+    }
+    final calculation = _calculatedModuleFor(moduleIndex);
+    final role = calculation?.role.trim();
+    if (role == null || role.isEmpty) return null;
+    return modules
+        .where((module) => module.moduleRole.trim() == role)
+        .cast<CalculatorSetContentTab?>()
+        .firstOrNull;
+  }
+
+  void _drawRoofCoveringFields(
+    Canvas canvas,
+    Offset Function(double, double, double) s,
+    _RoofLayout layout,
+  ) {
+    if (modules.isEmpty) return;
+
+    for (final area in layout.moduleAreas) {
+      if (area.corners.length != 4) continue;
+      final calculation = _calculatedModuleFor(area.index);
+      final module = _moduleInputFor(area.index);
+      if (calculation == null || module == null) continue;
+      final fieldCount = math.max(1, calculation.glassDepthFieldCount).toInt();
+      final sheetsPerField = math.max(
+        1,
+        (calculation.glassCount / fieldCount).round(),
+      ).toInt();
+      final fields = module.coveringFieldsFor(fieldCount, sheetsPerField);
+
+      for (var fieldOffset = 0; fieldOffset < fieldCount; fieldOffset++) {
+        final fieldIndex = fieldOffset + 1;
+        final field = fields
+            .where((entry) => entry.fieldIndex == fieldIndex)
+            .cast<CalculatorCoveringField?>()
+            .firstOrNull;
+        final corners = fieldCount > 1
+            ? _glassFieldCorners(
+                area.corners,
+                fieldIndex,
+                fieldCount,
+                calculation.glassDepthSegmentLengthsMm,
+              )
+            : area.corners;
+        if (field == null) {
+          _drawCoveringBand(
+            canvas,
+            s,
+            layout,
+            corners,
+            0,
+            1,
+            module.moduleCoveringCode,
+          );
+          continue;
+        }
+
+        final allocations = field.allocations
+            .where((entry) => entry.quantity > 0)
+            .toList(growable: false);
+        final secondaryQuantity = allocations.fold<int>(
+          0,
+          (sum, entry) => sum + entry.quantity,
+        );
+        final primaryQuantity = math.max(0, sheetsPerField - secondaryQuantity).toInt();
+        final runs = <MapEntry<String?, int>>[
+          if (primaryQuantity > 0)
+            MapEntry(field.coveringCode ?? module.moduleCoveringCode, primaryQuantity),
+          for (final allocation in allocations)
+            MapEntry(allocation.coveringCode ?? field.coveringCode, allocation.quantity),
+        ];
+        if (runs.isEmpty) {
+          runs.add(MapEntry(field.coveringCode ?? module.moduleCoveringCode, sheetsPerField));
+        }
+
+        var consumed = 0;
+        for (final run in runs) {
+          if (consumed >= sheetsPerField) break;
+          final accepted = math.min(run.value, sheetsPerField - consumed).toInt();
+          if (accepted <= 0) continue;
+          final start = consumed / sheetsPerField;
+          final end = (consumed + accepted) / sheetsPerField;
+          _drawCoveringBand(
+            canvas,
+            s,
+            layout,
+            corners,
+            start,
+            end,
+            run.key,
+          );
+          consumed += accepted;
+        }
+        if (consumed < sheetsPerField) {
+          _drawCoveringBand(
+            canvas,
+            s,
+            layout,
+            corners,
+            consumed / sheetsPerField,
+            1,
+            field.coveringCode ?? module.moduleCoveringCode,
+          );
+        }
+      }
+    }
+  }
+
+  void _drawCoveringBand(
+    Canvas canvas,
+    Offset Function(double, double, double) s,
+    _RoofLayout layout,
+    List<Offset> corners,
+    double start,
+    double end,
+    String? coveringCode,
+  ) {
+    if (corners.length != 4 || end <= start) return;
+    final band = <Offset>[
+      Offset.lerp(corners[0], corners[1], start)!,
+      Offset.lerp(corners[0], corners[1], end)!,
+      Offset.lerp(corners[3], corners[2], end)!,
+      Offset.lerp(corners[3], corners[2], start)!,
+    ];
+    final path = Path();
+    final first = s(band.first.dx, band.first.dy, layout.heightMm);
+    path.moveTo(first.dx, first.dy);
+    for (final point in band.skip(1)) {
+      final projected = s(point.dx, point.dy, layout.heightMm);
+      path.lineTo(projected.dx, projected.dy);
+    }
+    path.close();
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = _coveringFillColor(coveringCode)
+        ..style = PaintingStyle.fill,
+    );
   }
 
   void _drawGroundShadow(
@@ -2366,7 +2623,12 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
         fieldIndex >= 1 &&
         fieldIndex <= fieldCount &&
         area.corners.length == 4) {
-      corners = _glassFieldCorners(area.corners, fieldIndex, fieldCount);
+      corners = _glassFieldCorners(
+        area.corners,
+        fieldIndex,
+        fieldCount,
+        calculation?.glassDepthSegmentLengthsMm ?? const [],
+      );
     }
 
     final path = Path();
@@ -2378,44 +2640,150 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     }
     path.close();
 
+    final isGlassFieldHighlight = fieldIndex != null;
     canvas.drawPath(
       path,
       Paint()
-        ..color = const Color(0xFF61FFDF).withValues(alpha: 0.30)
+        ..color = (isGlassFieldHighlight
+                ? const Color(0xFF9CFF57)
+                : const Color(0xFF61FFDF))
+            .withValues(alpha: isGlassFieldHighlight ? 0.42 : 0.30)
         ..style = PaintingStyle.fill,
     );
     canvas.drawPath(
       path,
       Paint()
-        ..color = const Color(0xFFB8BAFF).withValues(alpha: 0.82)
+        ..color = (isGlassFieldHighlight
+                ? const Color(0xFF59C800)
+                : const Color(0xFFB8BAFF))
+            .withValues(alpha: 0.86)
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.2,
+        ..strokeWidth = isGlassFieldHighlight ? 1.5 : 1.2,
     );
   }
 
-  void _drawGlassDepthSplits(
+  void _drawManufacturingSplits(
     Canvas canvas,
     Offset Function(double, double, double) s,
     _RoofLayout layout,
   ) {
-    final paint = Paint()
-      ..color = lineColor.withValues(alpha: 0.72)
+    final cutPaint = Paint()
+      ..color = Colors.black.withValues(alpha: 0.88)
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.0
+      ..strokeWidth = 1.15
       ..strokeCap = StrokeCap.round;
+    final dimensionPaint = Paint()
+      ..color = Colors.black.withValues(alpha: 0.80)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 0.9
+      ..strokeCap = StrokeCap.round;
+    final extensionPaint = Paint()
+      ..color = Colors.black.withValues(alpha: 0.42)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 0.7;
 
     for (final area in layout.moduleAreas) {
       if (area.corners.length != 4) continue;
-      final fieldCount = _calculatedModuleFor(area.index)?.glassDepthFieldCount ?? 1;
-      if (fieldCount <= 1) continue;
-      for (var splitIndex = 1; splitIndex < fieldCount; splitIndex++) {
-        final t = splitIndex / fieldCount;
-        final left = Offset.lerp(area.corners[0], area.corners[3], t)!;
-        final right = Offset.lerp(area.corners[1], area.corners[2], t)!;
-        canvas.drawLine(
-          s(left.dx, left.dy, layout.heightMm),
-          s(right.dx, right.dy, layout.heightMm),
-          paint,
+      final calculation = _calculatedModuleFor(area.index);
+      if (calculation == null || calculation.depthMm <= 0) continue;
+      final glassCuts = calculation.glassCutPositionsMm;
+      final profileCuts = calculation.profileCutPositionsMm;
+      if (glassCuts.isEmpty && profileCuts.isEmpty) continue;
+
+      final cutKinds = <int, Set<String>>{};
+      for (final cut in glassCuts) {
+        cutKinds.putIfAbsent(cut, () => <String>{}).add('glass');
+      }
+      for (final cut in profileCuts) {
+        cutKinds.putIfAbsent(cut, () => <String>{}).add('profile');
+      }
+      final cuts = cutKinds.keys.toList()..sort();
+
+      final projectedCenter = s(
+        area.corners.map((point) => point.dx).reduce((a, b) => a + b) / 4,
+        area.corners.map((point) => point.dy).reduce((a, b) => a + b) / 4,
+        layout.heightMm,
+      );
+      final usedLabelAnchors = <Offset>[];
+
+      for (final cutMm in cuts) {
+        final kinds = cutKinds[cutMm] ?? const <String>{};
+        final t = (1 - cutMm / calculation.depthMm).clamp(0.0, 1.0);
+        final leftPlan = Offset.lerp(area.corners[0], area.corners[3], t)!;
+        final rightPlan = Offset.lerp(area.corners[1], area.corners[2], t)!;
+        final left = s(leftPlan.dx, leftPlan.dy, layout.heightMm);
+        final right = s(rightPlan.dx, rightPlan.dy, layout.heightMm);
+        if ((right - left).distance <= 0) continue;
+
+        // A coincident glass/profile joint is one physical cut line on the
+        // drawing, so draw the dashed cut only once and annotate it jointly.
+        _drawDashedLine(
+          canvas,
+          left,
+          right,
+          cutPaint,
+          dashLength: 6,
+          gapLength: 4,
+        );
+
+        final useRightSide = right.dx >= left.dx;
+        final cutSide = useRightSide ? right : left;
+        final wallPlan = useRightSide ? area.corners[2] : area.corners[3];
+        final wallSide = s(wallPlan.dx, wallPlan.dy, layout.heightMm);
+        final sideDirection = cutSide - wallSide;
+        final sideDistance = sideDirection.distance;
+        if (sideDistance <= 0) continue;
+
+        var outward = Offset(-sideDirection.dy, sideDirection.dx) / sideDistance;
+        final sideMidpoint = _lerp(wallSide, cutSide, 0.5);
+        if ((sideMidpoint + outward * 10 - projectedCenter).distance <
+            (sideMidpoint - outward * 10 - projectedCenter).distance) {
+          outward = outward * -1;
+        }
+
+        // Keep cut dimensions outside the ordinary TK/BW labels. Nearby cut
+        // labels are pushed to another, compact lane and placed to the right
+        // of the dimension line so the line never crosses the caption.
+        var lane = 0;
+        Offset dimensionStart = Offset.zero;
+        Offset dimensionEnd = Offset.zero;
+        Offset labelAnchor = Offset.zero;
+        while (true) {
+          final dimensionOffset = 14.0 + lane * 5.0;
+          dimensionStart = wallSide + outward * dimensionOffset;
+          dimensionEnd = cutSide + outward * dimensionOffset;
+          labelAnchor = Offset(
+            math.max(dimensionStart.dx, dimensionEnd.dx) + 6,
+            _lerp(dimensionStart, dimensionEnd, 0.5).dy,
+          );
+          final overlapsExisting = usedLabelAnchors.any(
+            (anchor) => (anchor - labelAnchor).distance < 82,
+          );
+          if (!overlapsExisting || lane >= 5) break;
+          lane++;
+        }
+        usedLabelAnchors.add(labelAnchor);
+
+        canvas.drawLine(wallSide, dimensionStart, extensionPaint);
+        canvas.drawLine(cutSide, dimensionEnd, extensionPaint);
+        _dimLine(canvas, dimensionStart, dimensionEnd, dimensionPaint);
+
+        final isGlass = kinds.contains('glass');
+        final isProfile = kinds.contains('profile');
+        final label = isGlass && isProfile
+            ? 'glass\\profile cut: $cutMm mm'
+            : isProfile
+                ? 'profile cut: $cutMm mm'
+                : 'glass cut: $cutMm mm';
+        _drawText(
+          canvas,
+          label,
+          labelAnchor,
+          Colors.black,
+          geometryOnly ? 11 : 10.5,
+          isBold: true,
+          hAlign: 0,
+          maxWidth: 180,
         );
       }
     }
@@ -2430,9 +2798,17 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     List<Offset> corners,
     int fieldIndex,
     int fieldCount,
+    List<int> segmentLengthsMm,
   ) {
-    final start = (fieldIndex - 1) / fieldCount;
-    final end = fieldIndex / fieldCount;
+    final lengths = segmentLengthsMm.length == fieldCount &&
+            segmentLengthsMm.every((value) => value > 0)
+        ? segmentLengthsMm
+        : List<int>.filled(fieldCount, 1, growable: false);
+    final total = lengths.fold<int>(0, (sum, value) => sum + value);
+    final wallBefore = lengths.take(fieldIndex - 1).fold<int>(0, (sum, value) => sum + value);
+    final wallAfter = wallBefore + lengths[fieldIndex - 1];
+    final start = 1 - wallAfter / total;
+    final end = 1 - wallBefore / total;
     return [
       Offset.lerp(corners[0], corners[3], start)!,
       Offset.lerp(corners[1], corners[2], start)!,
@@ -2531,6 +2907,27 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     }
     for (final point in _effectivePostPoints(layout).where((point) => _pointOnEdge(point, edge))) {
       _drawPost(canvas, s(point.dx, point.dy, layout.heightMm), s(point.dx, point.dy, 0), k);
+    }
+  }
+
+  void _drawPostsOutsideFrontBack(
+    Canvas canvas,
+    Offset Function(double, double, double) s,
+    _RoofLayout layout,
+    double k,
+  ) {
+    final points = _effectivePostPoints(layout).where(
+      (point) =>
+          !_pointOnEdge(point, layout.front) &&
+          !_pointOnEdge(point, layout.back),
+    );
+    for (final point in points) {
+      _drawPost(
+        canvas,
+        s(point.dx, point.dy, layout.heightMm),
+        s(point.dx, point.dy, 0),
+        k,
+      );
     }
   }
 
@@ -3366,48 +3763,450 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     final canonical = _canonicalPostPoints(layout);
     if (postCount <= 0) return canonical;
 
+    final structuralPriority = _structuralPriorityPostPoints(layout);
+    // Keep the old placement untouched for ordinary roofs without module
+    // junctions/manufacturing cuts. The broader perimeter distribution is only
+    // needed when there are meaningful structural points to respect.
+    if (structuralPriority.isEmpty) {
+      final points = <Offset>[];
+
+      void append(List<Offset> candidates, int target) {
+        for (final point in candidates) {
+          if (points.length >= target) return;
+          if (!points.any((entry) => (entry - point).distance < 1)) {
+            points.add(point);
+          }
+        }
+      }
+
+      void fillStandard(int target) {
+        if (points.length >= target) return;
+        final front = _edgePostCorners(layout.front, isFront: true);
+        append(front.external, target);
+        append(front.internal, target);
+
+        if (!wallMounted && points.length < target) {
+          final back = _edgePostCorners(layout.back, isFront: false);
+          append(back.external, target);
+          append(back.internal, target);
+        }
+
+        if (points.length < target) {
+          append(_segmentJointPostPoints(layout, layout.front, points), target);
+        }
+        if (!wallMounted && points.length < target) {
+          append(_segmentJointPostPoints(layout, layout.back, points), target);
+        }
+
+        if (points.length < target) {
+          final widestFrontGap = _widestGapBeamPoint(layout, layout.front, points);
+          if (widestFrontGap != null) append([widestFrontGap], target);
+        }
+        if (!wallMounted && points.length < target) {
+          final widestBackGap = _widestGapBeamPoint(layout, layout.back, points);
+          if (widestBackGap != null) append([widestBackGap], target);
+        }
+
+        if (points.length < target) {
+          append(_supplementalEdgePoints(layout, layout.front, points), target);
+        }
+        if (!wallMounted && points.length < target) {
+          append(_supplementalEdgePoints(layout, layout.back, points), target);
+        }
+      }
+
+      fillStandard(postCount);
+      return points;
+    }
+
+    final preferredModules = _preferredPostModuleIndices();
     final points = <Offset>[];
-    void append(List<Offset> candidates) {
+
+    void append(List<Offset> candidates, int target) {
       for (final point in candidates) {
-        if (points.length >= postCount) return;
-        if (!points.any((entry) => (entry - point).distance < 1)) points.add(point);
+        if (points.length >= target) return;
+        if (!points.any((entry) => (entry - point).distance < 1)) {
+          points.add(point);
+        }
       }
     }
 
-    final front = _edgePostCorners(layout.front, isFront: true);
-    append(front.external);
-    append(front.internal);
-
-    if (!wallMounted) {
-      final back = _edgePostCorners(layout.back, isFront: false);
-      append(back.external);
-      append(back.internal);
+    // First reserve explicitly added/overridden Pfosten in the module where
+    // the user configured them. Inside that module, module intersections and
+    // manufacturing-cut endpoints are preferred before generic perimeter
+    // positions.
+    for (final moduleIndex in preferredModules) {
+      if (points.length >= postCount) break;
+      final candidate = _preferredPostPointForModule(
+        layout,
+        moduleIndex,
+        points,
+      );
+      if (candidate != null) append([candidate], postCount);
     }
 
+    // Structural points are stronger than the old front-edge preference:
+    // module-area intersections first, then the endpoints of glass/profile
+    // cuts. This is what moves posts to the meaningful red-line positions on
+    // complex L/U/T roofs instead of accumulating them along one gutter edge.
+    append(
+      _orderPostCandidatesBySpacing(structuralPriority, points),
+      postCount,
+    );
+
+    // Keep the original layout's canonical corner/junction supports ahead of
+    // generic side-edge midpoints. A dashed recommended support therefore gets
+    // occupied before a less useful position is introduced elsewhere.
+    append(
+      _orderPostCandidatesBySpacing(_canonicalPostPoints(layout), points),
+      postCount,
+    );
+
+    // After structural/canonical points are occupied, distribute the remainder
+    // across all free perimeter edges. Spacing remains the main criterion, but
+    // longer supporting edges receive a small preference over short side edges.
+    append(
+      _orderPerimeterPostCandidates(
+        layout,
+        _perimeterPostCandidates(layout),
+        points,
+      ),
+      postCount,
+    );
+
+    // Defensive fallback: preserve the former front/back beam-placement logic
+    // if an unusual geometry did not provide enough perimeter candidates.
     if (points.length < postCount) {
-      append(_segmentJointPostPoints(layout, layout.front, points));
-    }
-    if (!wallMounted && points.length < postCount) {
-      append(_segmentJointPostPoints(layout, layout.back, points));
-    }
-
-    if (points.length < postCount) {
-      final widestFrontGap = _widestGapBeamPoint(layout, layout.front, points);
-      if (widestFrontGap != null) append([widestFrontGap]);
-    }
-    if (!wallMounted && points.length < postCount) {
-      final widestBackGap = _widestGapBeamPoint(layout, layout.back, points);
-      if (widestBackGap != null) append([widestBackGap]);
-    }
-
-    if (points.length < postCount) {
-      append(_supplementalEdgePoints(layout, layout.front, points));
-    }
-    if (!wallMounted && points.length < postCount) {
-      append(_supplementalEdgePoints(layout, layout.back, points));
+      final front = _edgePostCorners(layout.front, isFront: true);
+      append(front.external, postCount);
+      append(front.internal, postCount);
+      if (!wallMounted && points.length < postCount) {
+        final back = _edgePostCorners(layout.back, isFront: false);
+        append(back.external, postCount);
+        append(back.internal, postCount);
+      }
+      if (points.length < postCount) {
+        append(_supplementalEdgePoints(layout, layout.front, points), postCount);
+      }
+      if (!wallMounted && points.length < postCount) {
+        append(_supplementalEdgePoints(layout, layout.back, points), postCount);
+      }
     }
 
     return points;
+  }
+
+  List<int> _preferredPostModuleIndices() {
+    final result = <int>[];
+    for (var tabIndex = 0; tabIndex < modules.length; tabIndex++) {
+      final tab = modules[tabIndex];
+      var positiveAdjustment = 0.0;
+      for (final item in tab.items) {
+        if (!_isGeometryPreviewPostItem(item)) continue;
+        if (item.isManual) {
+          if (item.enabled) positiveAdjustment += item.quantity.toDouble();
+          continue;
+        }
+        final calculated = item.calculatedQuantity?.toDouble();
+        if (!item.isCalculated || calculated == null) continue;
+        final current = item.enabled ? item.quantity.toDouble() : 0.0;
+        if (current > calculated) positiveAdjustment += current - calculated;
+      }
+      if (positiveAdjustment <= 0) continue;
+
+      final normalizedRole = tab.moduleRole.trim().toLowerCase();
+      final calculated = calculatedModules
+          .where((entry) => entry.role.trim().toLowerCase() == normalizedRole)
+          .cast<RoofModuleCalculation?>()
+          .firstOrNull;
+      final moduleIndex = calculated?.moduleIndex ?? tabIndex + 1;
+      for (var index = 0; index < positiveAdjustment.round(); index++) {
+        result.add(moduleIndex);
+      }
+    }
+    return result;
+  }
+
+  Offset? _preferredPostPointForModule(
+    _RoofLayout layout,
+    int moduleIndex,
+    List<Offset> occupied,
+  ) {
+    final area = layout.moduleAreas
+        .where((entry) => entry.index == moduleIndex)
+        .cast<_RoofModuleArea?>()
+        .firstOrNull;
+    if (area == null || area.corners.isEmpty) return null;
+
+    final structural = _structuralPriorityPostPoints(layout)
+        .where((point) => _pointInsideModuleArea(point, area))
+        .where(
+          (point) => !occupied.any((entry) => (entry - point).distance < 1),
+        )
+        .toList(growable: false);
+    if (structural.isNotEmpty) {
+      return _orderPostCandidatesBySpacing(structural, occupied).first;
+    }
+
+    final canonical = _canonicalPostPoints(layout)
+        .where((point) => _pointInsideModuleArea(point, area))
+        .where(
+          (point) => !occupied.any((entry) => (entry - point).distance < 1),
+        )
+        .toList(growable: false);
+    if (canonical.isNotEmpty) {
+      return _orderPostCandidatesBySpacing(canonical, occupied).first;
+    }
+
+    final perimeter = _perimeterPostCandidates(layout)
+        .where((point) => _pointInsideModuleArea(point, area))
+        .where(
+          (point) => !occupied.any((entry) => (entry - point).distance < 1),
+        )
+        .toList(growable: false);
+    if (perimeter.isEmpty) return null;
+    return _orderPerimeterPostCandidates(layout, perimeter, occupied).first;
+  }
+
+  List<Offset> _structuralPriorityPostPoints(_RoofLayout layout) {
+    final moduleJoints = <Offset>[];
+    for (var i = 0; i < layout.moduleAreas.length; i++) {
+      final first = layout.moduleAreas[i];
+      for (var j = i + 1; j < layout.moduleAreas.length; j++) {
+        final second = layout.moduleAreas[j];
+        for (final point in first.corners) {
+          if (_pointOnModuleBoundary(point, second.corners)) {
+            moduleJoints.add(point);
+          }
+        }
+        for (final point in second.corners) {
+          if (_pointOnModuleBoundary(point, first.corners)) {
+            moduleJoints.add(point);
+          }
+        }
+      }
+    }
+
+    final cutEndpoints = <Offset>[];
+    for (final area in layout.moduleAreas) {
+      if (area.corners.length != 4) continue;
+      final calculation = _calculatedModuleFor(area.index);
+      if (calculation == null || calculation.depthMm <= 0) continue;
+      final cuts = <int>{
+        ...calculation.glassCutPositionsMm,
+        ...calculation.profileCutPositionsMm,
+      }.toList()
+        ..sort();
+      for (final cutMm in cuts) {
+        if (cutMm <= 0 || cutMm >= calculation.depthMm) continue;
+        final t = (1 - cutMm / calculation.depthMm).clamp(0.0, 1.0);
+        cutEndpoints.add(Offset.lerp(area.corners[0], area.corners[3], t)!);
+        cutEndpoints.add(Offset.lerp(area.corners[1], area.corners[2], t)!);
+      }
+    }
+
+    final points = _mergeNearbyPostPoints([...moduleJoints, ...cutEndpoints]);
+    if (!wallMounted) return points;
+    return points
+        .where((point) => !_pointOnEdge(point, layout.back))
+        .toList(growable: false);
+  }
+
+  bool _pointInsideModuleArea(Offset point, _RoofModuleArea area) {
+    if (area.corners.isEmpty) return false;
+    final xs = area.corners.map((entry) => entry.dx);
+    final ys = area.corners.map((entry) => entry.dy);
+    final minX = xs.reduce((a, b) => math.min(a, b).toDouble());
+    final maxX = xs.reduce((a, b) => math.max(a, b).toDouble());
+    final minY = ys.reduce((a, b) => math.min(a, b).toDouble());
+    final maxY = ys.reduce((a, b) => math.max(a, b).toDouble());
+    const tolerance = 1.0;
+    return point.dx >= minX - tolerance &&
+        point.dx <= maxX + tolerance &&
+        point.dy >= minY - tolerance &&
+        point.dy <= maxY + tolerance;
+  }
+
+  bool _pointOnModuleBoundary(Offset point, List<Offset> corners) {
+    if (corners.length < 2) return false;
+    for (var index = 0; index < corners.length; index++) {
+      final start = corners[index];
+      final end = corners[(index + 1) % corners.length];
+      if (_pointOnPlanSegment(point, start, end)) return true;
+    }
+    return false;
+  }
+
+  bool _pointOnPlanSegment(Offset point, Offset start, Offset end) {
+    final delta = end - start;
+    final lengthSquared = delta.dx * delta.dx + delta.dy * delta.dy;
+    if (lengthSquared <= 1e-9) return (point - start).distance < 1;
+    final t = (((point.dx - start.dx) * delta.dx +
+                (point.dy - start.dy) * delta.dy) /
+            lengthSquared)
+        .clamp(0.0, 1.0)
+        .toDouble();
+    final projected = start + delta * t;
+    return (point - projected).distance < 1;
+  }
+
+  List<List<Offset>> _freePerimeterSegments(_RoofLayout layout) {
+    final segments = <List<Offset>>[];
+
+    void addPolyline(List<Offset> points) {
+      for (var index = 0; index < points.length - 1; index++) {
+        if ((points[index + 1] - points[index]).distance > 1) {
+          segments.add([points[index], points[index + 1]]);
+        }
+      }
+    }
+
+    addPolyline(layout.front);
+    if (!wallMounted) addPolyline(layout.back);
+    if (layout.front.isNotEmpty && layout.back.isNotEmpty) {
+      final left = [layout.front.first, layout.back.first];
+      final right = [layout.front.last, layout.back.last];
+      if ((left[1] - left[0]).distance > 1) segments.add(left);
+      if ((right[1] - right[0]).distance > 1) segments.add(right);
+    }
+    return segments;
+  }
+
+  List<Offset> _perimeterPostCandidates(_RoofLayout layout) {
+    final candidates = <Offset>[];
+    final rafterX = _effectiveRafterX(layout);
+    const fractions = <double>[
+      0,
+      1,
+      0.5,
+      0.25,
+      0.75,
+      0.125,
+      0.375,
+      0.625,
+      0.875,
+    ];
+
+    for (final segment in _freePerimeterSegments(layout)) {
+      final start = segment[0];
+      final end = segment[1];
+      final delta = end - start;
+      for (final fraction in fractions) {
+        candidates.add(start + delta * fraction);
+      }
+
+      // Horizontal gutter/wall-parallel edges keep the old beam-intersection
+      // preference, while side edges can use their own evenly spaced support
+      // positions (including manufacturing cut endpoints from the priority set).
+      if (delta.dy.abs() < 1) {
+        final minX = math.min(start.dx, end.dx);
+        final maxX = math.max(start.dx, end.dx);
+        for (final x in rafterX) {
+          if (x < minX - 1 || x > maxX + 1) continue;
+          final t = delta.dx.abs() < 1e-9
+              ? 0.0
+              : ((x - start.dx) / delta.dx).clamp(0.0, 1.0).toDouble();
+          candidates.add(start + delta * t);
+        }
+      }
+    }
+    return _uniquePoints(candidates);
+  }
+
+  List<Offset> _orderPostCandidatesBySpacing(
+    List<Offset> candidates,
+    List<Offset> occupied,
+  ) {
+    final remaining = _uniquePoints(candidates)
+        .where(
+          (point) => !occupied.any((entry) => (entry - point).distance < 1),
+        )
+        .toList();
+    final ordered = <Offset>[];
+    final spacing = <Offset>[...occupied];
+
+    while (remaining.isNotEmpty) {
+      remaining.sort((a, b) {
+        final scoreA = _minimumPlanDistance(a, spacing);
+        final scoreB = _minimumPlanDistance(b, spacing);
+        final bySpacing = scoreB.compareTo(scoreA);
+        if (bySpacing != 0) return bySpacing;
+
+        final byY = a.dy.compareTo(b.dy);
+        if (byY != 0) return byY;
+        return a.dx.compareTo(b.dx);
+      });
+      final next = remaining.removeAt(0);
+      ordered.add(next);
+      spacing.add(next);
+    }
+    return ordered;
+  }
+
+  List<Offset> _orderPerimeterPostCandidates(
+    _RoofLayout layout,
+    List<Offset> candidates,
+    List<Offset> occupied,
+  ) {
+    final remaining = _uniquePoints(candidates)
+        .where(
+          (point) => !occupied.any((entry) => (entry - point).distance < 1),
+        )
+        .toList();
+    final ordered = <Offset>[];
+    final spacing = <Offset>[...occupied];
+
+    while (remaining.isNotEmpty) {
+      remaining.sort((a, b) {
+        final scoreA =
+            _minimumPlanDistance(a, spacing) +
+            _perimeterSupportSpan(layout, a) * 0.12;
+        final scoreB =
+            _minimumPlanDistance(b, spacing) +
+            _perimeterSupportSpan(layout, b) * 0.12;
+        final byScore = scoreB.compareTo(scoreA);
+        if (byScore != 0) return byScore;
+
+        final byY = a.dy.compareTo(b.dy);
+        if (byY != 0) return byY;
+        return a.dx.compareTo(b.dx);
+      });
+      final next = remaining.removeAt(0);
+      ordered.add(next);
+      spacing.add(next);
+    }
+    return ordered;
+  }
+
+  double _perimeterSupportSpan(_RoofLayout layout, Offset point) {
+    var longest = 0.0;
+    for (final segment in _freePerimeterSegments(layout)) {
+      if (segment.length != 2) continue;
+      if (!_pointOnPlanSegment(point, segment[0], segment[1])) continue;
+      longest = math.max(longest, (segment[1] - segment[0]).distance);
+    }
+    return longest;
+  }
+
+  double _minimumPlanDistance(Offset point, List<Offset> others) {
+    if (others.isEmpty) return double.infinity;
+    return others
+        .map((entry) => (entry - point).distance)
+        .reduce((a, b) => math.min(a, b).toDouble());
+  }
+
+  List<Offset> _mergeNearbyPostPoints(
+    List<Offset> points, {
+    double toleranceMm = 80,
+  }) {
+    final merged = <Offset>[];
+    for (final point in points) {
+      if (merged.any((entry) => (entry - point).distance < toleranceMm)) {
+        continue;
+      }
+      merged.add(point);
+    }
+    return merged;
   }
 
   List<Offset> _recommendedPostPoints(_RoofLayout layout) {
@@ -3658,6 +4457,7 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     double fontSize, {
     bool isBold = false,
     double hAlign = 0.5,
+    double maxWidth = 86,
   }) {
     final painter = TextPainter(
       text: TextSpan(
@@ -3669,7 +4469,7 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
         ),
       ),
       textDirection: ui.TextDirection.ltr,
-    )..layout(maxWidth: 86);
+    )..layout(maxWidth: maxWidth);
     painter.paint(canvas, at - Offset(painter.width * hAlign, painter.height / 2));
   }
 
@@ -3736,6 +4536,7 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
         oldDelegate.depthMm != depthMm ||
         oldDelegate.heightMm != heightMm ||
         !_sameGeometryParams(oldDelegate.geometryParams, geometryParams) ||
+        oldDelegate.modules != modules ||
         oldDelegate.colorCode != colorCode ||
         oldDelegate.colorSwatchColor != colorSwatchColor ||
         oldDelegate.isSpecialColor != isSpecialColor ||
