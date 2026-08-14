@@ -109,7 +109,7 @@ class _QuoteSubmitButtonState extends State<QuoteSubmitButton> {
         builder: (_) => _IntegrationConfirmationDialog(
           title: label,
           message: operation == 'send_sevdesk'
-              ? 'Prepare and register the Send to Sevdesk payload for this quote? External delivery remains disabled in this iteration.'
+              ? 'Send this quote payload to the configured Firebase database?'
               : operation == 'create_reserve'
                   ? 'Create and send the warehouse reserve for this quote?'
                   : 'Create the TDS Glas commission row in Test_VD-Buchaltung 2026 / UNT-Kommission?',
@@ -125,9 +125,7 @@ class _QuoteSubmitButtonState extends State<QuoteSubmitButton> {
         context,
         result.reused
             ? '$label was already completed for this data version.'
-            : result.prepared
-                ? 'Send to Sevdesk payload prepared and registered successfully.'
-                : '$label completed successfully.',
+            : '$label completed successfully.',
         type: TopNotificationType.success,
       );
     } catch (error) {
