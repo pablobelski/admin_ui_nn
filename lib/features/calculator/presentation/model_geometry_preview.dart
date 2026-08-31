@@ -1921,9 +1921,17 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     final rotationRad = _planRotationDeg * math.pi / 180;
     final rotationCos = math.cos(rotationRad);
     final rotationSin = math.sin(rotationRad);
+    final projectedWidthAxisLength = math.sqrt(
+      math.pow(rotationCos - rotationSin * projDx, 2) +
+          math.pow(rotationSin * projDy, 2),
+    );
 
     Offset projectPlan(double xMm, double yMm) {
-      final viewX = profile.mirrorView ? layout.widthMm - xMm : xMm;
+      final rawViewX = profile.mirrorView ? layout.widthMm - xMm : xMm;
+      // Keep one millimetre of roof width at the same visual scale as one
+      // millimetre of height. Plan rotation followed by the oblique depth
+      // projection otherwise shortens the width axis.
+      final viewX = rawViewX / projectedWidthAxisLength;
       final rotatedX = viewX * rotationCos + yMm * rotationSin;
       final rotatedY = -viewX * rotationSin + yMm * rotationCos;
       return Offset(
