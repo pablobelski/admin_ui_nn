@@ -247,37 +247,59 @@ class _ConnectionExpansionCard extends StatelessWidget {
   final Map<String, dynamic> connection;
   final List<QuoteIntegrationJob> jobs;
 
+  IconData _jobStatusIcon(String status) => switch (status) {
+        'succeeded' => Icons.check_circle,
+        'failed' => Icons.error,
+        'running' => Icons.sync,
+        'pending' => Icons.schedule,
+        'cancelled' => Icons.pause_circle,
+        _ => Icons.help_outline,
+      };
+
+  Color _jobStatusColor(BuildContext context, String status, bool hasErrors) =>
+      switch (status) {
+        'succeeded' => Colors.green,
+        'failed' => Theme.of(context).colorScheme.error,
+        'running' => Colors.blue,
+        'pending' => Colors.orange,
+        'cancelled' => Colors.grey,
+        _ => hasErrors ? Theme.of(context).colorScheme.error : Colors.green,
+      };
+
   @override
   Widget build(BuildContext context) {
     final active = connection['is_active'] == true;
     final configured = connection['configured'] == true;
     final ok = active && configured;
+    final jobCount = connection['job_count'] is num
+        ? (connection['job_count'] as num).toInt()
+        : int.tryParse('${connection['job_count'] ?? ''}') ?? jobs.length;
+    final hasJobErrors = connection['has_errors'] == true;
+    final latestStatus = '${connection['latest_status_code'] ?? ''}'
+        .trim()
+        .toLowerCase();
     final provider = '${connection['provider_code'] ?? '—'}';
     final status = ok
         ? 'Ready'
         : !active
             ? 'Inactive'
             : 'Needs setup';
-    final statusColor = ok
-        ? Colors.green
-        : configured
-            ? Colors.orange
-            : Theme.of(context).colorScheme.error;
     return Card(
       clipBehavior: Clip.antiAlias,
       child: ExpansionTile(
-        leading: Icon(
-          ok
-              ? Icons.check_circle
-              : configured
-                  ? Icons.pause_circle
-                  : Icons.settings_outlined,
-          color: statusColor,
-        ),
+        leading: jobCount == 0
+            ? null
+            : Icon(
+                _jobStatusIcon(latestStatus),
+                color: _jobStatusColor(context, latestStatus, hasJobErrors),
+              ),
         title: Text(
           '${connection['name'] ?? connection['code'] ?? 'Integration'}',
         ),
-        subtitle: Text('$status · $provider · ${jobs.length} job(s)'),
+        subtitle: Text(
+          '$status · $provider · $jobCount job(s)'
+          '${latestStatus.isEmpty ? '' : ' · latest: $latestStatus'}',
+        ),
         children: [
           const Divider(height: 1),
           Padding(
@@ -344,7 +366,10 @@ class _IntegrationJobCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final message = job.errorText ?? job.latestMessage ?? job.endpointName;
+    final serverResponse = job.serverResponse ??
+        job.errorText ??
+        job.latestMessage ??
+        'No server response recorded';
     return Card(
       margin: const EdgeInsets.fromLTRB(12, 4, 12, 4),
       child: ListTile(
@@ -356,8 +381,8 @@ class _IntegrationJobCard extends StatelessWidget {
           ],
         ),
         subtitle: Text(
-          '$message\n${_date(job.createdAt)} · attempts ${job.attemptCount}'
-          '\nKey: ${job.externalKey}\nJob: ${job.id}',
+          'Server: $serverResponse\n${_date(job.createdAt)} · attempts ${job.attemptCount}'
+          '\nJob: ${job.id}',
         ),
       ),
     );

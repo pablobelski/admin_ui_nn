@@ -438,8 +438,10 @@ class _ListCard extends ConsumerWidget {
             }
 
             final baseColumnWidths = _listColumnWidths(
+              context: context,
               resource: resource,
               columns: visibleColumns,
+              rows: response.items,
               useCompactLayout: useCompactLayout,
             );
             final fixedContentWidth = adminRowNumberColumnWidth +
@@ -608,6 +610,14 @@ Widget _buildListValueCell({
   required double? width,
 }) {
 
+  if (resource.key == 'quotes' && column.key == 'integration_statuses') {
+    return _QuoteIntegrationStatusCell(
+      statuses: row['integration_statuses'],
+      width: width,
+      flex: useCompactLayout ? null : column.flex,
+    );
+  }
+
   if (_isInlinePreviewColumn(resource, column)) {
     return _MediaPreviewListCell(
       repository: repository,
@@ -634,16 +644,51 @@ bool _usesCompactListLayout(AdminResourceDefinition resource) {
 }
 
 Map<String, double> _listColumnWidths({
+  required BuildContext context,
   required AdminResourceDefinition resource,
   required List<AdminColumn> columns,
+  required List<Map<String, dynamic>> rows,
   required bool useCompactLayout,
 }) {
   return <String, double>{
     for (final column in columns)
       column.key: useCompactLayout
-          ? _compactColumnWidth(resource.key, column)
+          ? resource.key == 'quotes' && column.key == 'quote_no'
+              ? _quoteNoColumnWidth(context, column, rows)
+              : _compactColumnWidth(resource.key, column)
           : column.flex * 180.0,
   };
+}
+
+double _quoteNoColumnWidth(
+  BuildContext context,
+  AdminColumn column,
+  List<Map<String, dynamic>> rows,
+) {
+  final textDirection = Directionality.of(context);
+  final textScaler = MediaQuery.textScalerOf(context);
+  final headerStyle = Theme.of(context).textTheme.labelMedium?.copyWith(
+        fontWeight: FontWeight.w700,
+      );
+  final valueStyle = Theme.of(context).textTheme.bodyMedium?.copyWith(
+        fontWeight: FontWeight.w600,
+      );
+
+  double measure(String value, TextStyle? style) {
+    final painter = TextPainter(
+      text: TextSpan(text: value, style: style),
+      textDirection: textDirection,
+      textScaler: textScaler,
+      maxLines: 1,
+    )..layout();
+    return painter.width;
+  }
+
+  var widest = measure(column.label, headerStyle);
+  for (final row in rows) {
+    widest = math.max(widest, measure('${row[column.key] ?? '—'}', valueStyle));
+  }
+  return math.max(160, widest + adminTableColumnGap + 8);
 }
 
 Map<String, double> _expandListColumnWidths({
@@ -770,18 +815,140 @@ double _compactColumnWidth(String resourceKey, AdminColumn column) {
   if (resourceKey == 'quotes') {
     return switch (key) {
       'created_at' => 138,
-      'quote_no' => 128,
-      'quote_no_external' => 170,
+      'quote_no' => 160,
+      'created_by_name' => 180,
       'status_code' => 96,
       'order_type_code' => 104,
       'buyer_organization_id' => 180,
       'configurator_template_id' => 180,
       'calculated_amount_eur' => 130,
+      'integration_statuses' => 140,
       _ => 130,
     };
   }
 
   return _defaultCompactColumnWidth(column);
+}
+
+class _QuoteIntegrationStatusCell extends StatelessWidget {
+  const _QuoteIntegrationStatusCell({
+    required this.statuses,
+    this.width,
+    this.flex,
+  });
+
+  final Object? statuses;
+  final double? width;
+  final int? flex;
+
+  static const _labels = <String, String>{
+    'quote_email': 'Mail',
+    'reserve_google_queue': 'Reserve',
+    'accounting_google_sheet': 'Kommission',
+    'sevdesk_quote': 'Sevdesk',
+  };
+
+  static const _letters = <String, String>{
+    'quote_email': 'M',
+    'reserve_google_queue': 'R',
+    'accounting_google_sheet': 'K',
+    'sevdesk_quote': 'S',
+  };
+
+  static const _icons = <String, IconData>{
+    'quote_email': Icons.mail_outline,
+    'reserve_google_queue': Icons.inventory_2_outlined,
+    'accounting_google_sheet': Icons.playlist_add_check_circle_outlined,
+    'sevdesk_quote': Icons.receipt_long_outlined,
+  };
+
+  static const _order = <String>[
+    'reserve_google_queue',
+    'sevdesk_quote',
+    'accounting_google_sheet',
+    'quote_email',
+  ];
+
+  static int _jobCount(Map<String, dynamic> entry) {
+    final value = entry['job_count'];
+    return value is num ? value.toInt() : int.tryParse('$value') ?? 0;
+  }
+
+  static int _orderIndex(Map<String, dynamic> entry) {
+    final index = _order.indexOf('${entry['endpoint_code'] ?? ''}');
+    return index < 0 ? _order.length : index;
+  }
+
+  Color _statusColor(BuildContext context, Map<String, dynamic> entry) {
+    final status = '${entry['latest_status_code'] ?? ''}'.trim().toLowerCase();
+    return switch (status) {
+      'succeeded' => Colors.green,
+      'failed' => Theme.of(context).colorScheme.error,
+      'running' => Colors.blue,
+      'pending' => Colors.orange,
+      'cancelled' => Colors.grey,
+      _ => entry['has_errors'] == true
+          ? Theme.of(context).colorScheme.error
+          : Colors.green,
+    };
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final entries = statuses is List
+        ? (statuses as List)
+            .whereType<Map>()
+            .map((entry) => Map<String, dynamic>.from(entry))
+            .where((entry) => _jobCount(entry) > 0)
+            .toList(growable: false)
+        : <Map<String, dynamic>>[];
+    entries.sort((a, b) => _orderIndex(a).compareTo(_orderIndex(b)));
+
+    final child = Padding(
+      padding: const EdgeInsetsDirectional.only(end: adminTableColumnGap),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: Wrap(
+          spacing: 8,
+          runSpacing: 2,
+          children: [
+            for (final entry in entries)
+              Builder(builder: (context) {
+                final code = '${entry['endpoint_code'] ?? ''}';
+                final status = '${entry['latest_status_code'] ?? ''}'.trim();
+                final color = _statusColor(context, entry);
+                return Tooltip(
+                  message: '${_labels[code] ?? code}: '
+                      '${status.isEmpty ? (entry['has_errors'] == true ? 'failed' : 'succeeded') : status}',
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        _icons[code] ?? Icons.sync_outlined,
+                        size: 17,
+                        color: color,
+                      ),
+                      const SizedBox(width: 2),
+                      Text(
+                        _letters[code] ??
+                            (code.isEmpty ? '?' : code.substring(0, 1).toUpperCase()),
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                              color: color,
+                              fontWeight: FontWeight.w700,
+                            ),
+                      ),
+                    ],
+                  ),
+                );
+              }),
+          ],
+        ),
+      ),
+    );
+
+    if (width != null) return SizedBox(width: width, child: child);
+    return Expanded(flex: flex ?? 1, child: child);
+  }
 }
 
 double _defaultCompactColumnWidth(AdminColumn column) {

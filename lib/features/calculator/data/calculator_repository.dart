@@ -431,6 +431,7 @@ class QuoteIntegrationJob {
     required this.createdAt,
     required this.externalKey,
     this.latestMessage,
+    this.serverResponse,
     this.errorText,
     this.finishedAt,
   });
@@ -446,6 +447,7 @@ class QuoteIntegrationJob {
         createdAt: _repoString(json['created_at'] ?? json['createdAt']),
         externalKey: _repoString(json['external_key'] ?? json['externalKey']),
         latestMessage: _repoNullableString(json['latest_message'] ?? json['latestMessage']),
+        serverResponse: _repoNullableString(json['server_response'] ?? json['serverResponse']),
         errorText: _repoNullableString(json['error_text'] ?? json['errorText']),
         finishedAt: _repoNullableString(json['finished_at'] ?? json['finishedAt']),
       );
@@ -459,6 +461,7 @@ class QuoteIntegrationJob {
   final String createdAt;
   final String externalKey;
   final String? latestMessage;
+  final String? serverResponse;
   final String? errorText;
   final String? finishedAt;
 }
@@ -467,6 +470,7 @@ class QuoteIntegrationOverview {
   const QuoteIntegrationOverview({
     required this.reserveItems,
     required this.reserveWarnings,
+    required this.reserveComplete,
     required this.payloads,
     required this.jobs,
     required this.connections,
@@ -480,6 +484,7 @@ class QuoteIntegrationOverview {
       reserveWarnings: _repoList(reserve['warnings'])
           .map((entry) => '$entry')
           .toList(growable: false),
+      reserveComplete: _repoBool(reserve['complete']),
       payloads: _repoMap(json['payloads']),
       jobs: _repoList(json['jobs'])
           .map(QuoteIntegrationJob.fromJson)
@@ -491,6 +496,7 @@ class QuoteIntegrationOverview {
 
   final List<Map<String, dynamic>> reserveItems;
   final List<String> reserveWarnings;
+  final bool reserveComplete;
   final Map<String, dynamic> payloads;
   final List<QuoteIntegrationJob> jobs;
   final List<Map<String, dynamic>> connections;

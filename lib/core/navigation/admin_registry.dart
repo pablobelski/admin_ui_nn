@@ -161,7 +161,7 @@ const quoteStatusOptions = <AdminSelectOption>[
 
 const quoteOrderTypeOptions = <AdminSelectOption>[
   AdminSelectOption(value: 'offer', label: 'Offer'),
-  AdminSelectOption(value: 'order', label: 'Order'),
+  AdminSelectOption(value: 'order', label: 'Auftragsbestätigung'),
 ];
 
 // END quote admin block: admin-registry-quote-lookups-v2
@@ -716,12 +716,13 @@ const adminNavGroups = <AdminNavGroup>[
         columns: [
           AdminColumn(key: 'created_at', label: 'Saved at', flex: 2),
           AdminColumn(key: 'quote_no', label: 'Quote no', isPrimary: true, flex: 2),
-          AdminColumn(key: 'quote_no_external', label: 'Kommission name', flex: 2),
+          AdminColumn(key: 'calculated_amount_eur', label: 'Amount EUR'),
+          AdminColumn(key: 'created_by_name', label: 'Author', flex: 2),
           AdminColumn(key: 'status_code', label: 'Status'),
           AdminColumn(key: 'order_type_code', label: 'Type'),
           AdminColumn(key: 'buyer_organization_id', label: 'Buyer', flex: 2, lookup: organizationLookup),
           AdminColumn(key: 'configurator_template_id', label: 'Template', flex: 2, lookup: configuratorTemplateLookup),
-          AdminColumn(key: 'calculated_amount_eur', label: 'Amount EUR'),
+          AdminColumn(key: 'integration_statuses', label: 'Integrations'),
         ],
         listFilters: [
           AdminResourceFilter(key: 'seller_organization_id', label: 'Seller', lookup: organizationLookup),
@@ -733,6 +734,7 @@ const adminNavGroups = <AdminNavGroup>[
         ],
         formFields: [
           AdminField(key: 'quote_no', label: 'Quote no', readOnly: true),
+          AdminField(key: 'created_by_name', label: 'Author', readOnly: true),
           AdminField(key: 'quote_no_external', label: 'Kommission name', readOnly: true),
           AdminField(key: 'external_notes', label: 'Quote notes', type: AdminFieldType.longText, readOnly: true),
           AdminField(key: 'seller_organization_id', label: 'Seller', lookup: organizationLookup, readOnly: true),

@@ -104,6 +104,17 @@ class _QuoteSubmitButtonState extends State<QuoteSubmitButton> {
     try {
       final overview = await widget.repository.fetchQuoteIntegrations(widget.quoteId);
       if (!mounted) return;
+      if (operation == 'create_reserve' && !overview.reserveComplete) {
+        final details = overview.reserveWarnings.isEmpty
+            ? 'The material requirement is incomplete.'
+            : overview.reserveWarnings.join('\n');
+        showTopNotification(
+          context,
+          'Create Reserve is blocked: $details',
+          type: TopNotificationType.error,
+        );
+        return;
+      }
       final confirmed = await showDialog<bool>(
         context: context,
         builder: (_) => _IntegrationConfirmationDialog(
