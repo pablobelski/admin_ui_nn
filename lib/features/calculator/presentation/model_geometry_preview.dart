@@ -108,7 +108,7 @@ int geometryPreviewPostCount({
 
   final effectiveQuantity = bomPostQuantity(effectiveSetBom);
   final manualQuantity = bomPostQuantity(manualBom);
-  if (effectiveQuantity > 0 || manualQuantity > 0) {
+  if (effectiveSetBom is List || effectiveQuantity > 0 || manualQuantity > 0) {
     return math.max(0, (effectiveQuantity + manualQuantity).round()).toInt();
   }
   return math.max(0, calculatedPostCount).toInt();
@@ -3768,8 +3768,9 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
   }
 
   List<Offset> _effectivePostPoints(_RoofLayout layout) {
-    final canonical = _canonicalPostPoints(layout);
-    if (postCount <= 0) return canonical;
+    // Leave the canonical support points free when the active BOM has no posts;
+    // _recommendedPostPoints then renders the minimum assumed supports dashed.
+    if (postCount <= 0) return const [];
 
     final structuralPriority = _structuralPriorityPostPoints(layout);
     // Keep the old placement untouched for ordinary roofs without module

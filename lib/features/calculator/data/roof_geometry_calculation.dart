@@ -458,15 +458,18 @@ RoofGeometryCalculation calculateRoofGeometryForDraft({
     final longLeg = depth - backOffset - frontOffset;
     if (longLeg <= 0) continue;
     final glassCountOffset = offsets[role] ?? -1;
-    final beamCount = _calculateBeamCount(
-      width,
-      beamWidth,
-      glassOverlap,
-      maxGlassWidth,
-      draft.forceOddBeams,
-      beamCountOffsets[role] ?? -1,
-    );
-    final beamLength = (longLeg / math.cos(angle * math.pi / 180)).round();
+    final beamOverride = _beamOverrideForTab(tab);
+    final beamCount = beamOverride.beamCount ??
+        _calculateBeamCount(
+          width,
+          beamWidth,
+          glassOverlap,
+          maxGlassWidth,
+          draft.forceOddBeams,
+          beamCountOffsets[role] ?? -1,
+        );
+    final beamLength = beamOverride.beamLengthMm ??
+        (longLeg / math.cos(angle * math.pi / 180)).round();
     final glassCountAcrossWidth = math.max(0, beamCount + glassCountOffset).toInt();
     if (glassCountAcrossWidth <= 0) continue;
     final beamStep = (width - beamCount * beamWidth) / glassCountAcrossWidth;
@@ -547,7 +550,7 @@ RoofGeometryCalculation calculateRoofGeometryForDraft({
           : baseGlassCutPositionsMm;
     }
 
-    final beamSegmentLengthsMm = profileSplitMode != 'auto'
+    final calculatedBeamSegmentLengthsMm = profileSplitMode != 'auto'
         ? _slopedSegmentsFromWallCuts(
             beamRunStartMm,
             beamRunEndMm,
@@ -561,6 +564,9 @@ RoofGeometryCalculation calculateRoofGeometryForDraft({
                 : beamLength,
             growable: false,
           );
+    final beamSegmentLengthsMm = beamOverride.beamLengthMm != null
+        ? _scaleSegmentLengthsToTotal(calculatedBeamSegmentLengthsMm, beamLength)
+        : calculatedBeamSegmentLengthsMm;
     final automaticGlassJointGap =
         glassDepthJointGap * math.max(0, automaticGlassDepthFieldCount - 1);
     final automaticGlassLength =
@@ -568,7 +574,7 @@ RoofGeometryCalculation calculateRoofGeometryForDraft({
                 automaticGlassDepthFieldCount)
             .round();
 
-    final resolvedGlassBeamSegmentsMm = glassSplitMode != 'auto'
+    final calculatedGlassBeamSegmentsMm = glassSplitMode != 'auto'
         ? _slopedSegmentsFromWallCuts(
             beamRunStartMm,
             beamRunEndMm,
@@ -576,6 +582,9 @@ RoofGeometryCalculation calculateRoofGeometryForDraft({
             angle,
           )
         : const <int>[];
+    final resolvedGlassBeamSegmentsMm = beamOverride.beamLengthMm != null
+        ? _scaleSegmentLengthsToTotal(calculatedGlassBeamSegmentsMm, beamLength)
+        : calculatedGlassBeamSegmentsMm;
     final glassDepthSegmentLengthsMm = glassSplitMode != 'auto'
         ? _manualGlassSegmentLengths(
             resolvedGlassBeamSegmentsMm,
@@ -795,6 +804,141 @@ List<int> _manualGlassSegmentLengths(
         math.max(1, (segments[index + 1] - halfGap).round()).toInt();
   }
   return segments;
+}
+
+/// Article that carries the module beam (Träger) rows in Set Contents.
+/// Overriding its quantity or installed length changes the glass fields and the
+/// dependent profiles 15184 / 15189 / 16912, so the geometry itself has to
+/// follow the override instead of only the resulting BOM. Mirrors
+/// `resolveBeamModuleOverrides` in `roof-calculation-service.ts`.
+const String _beamOverrideArticleNo = '15698';
+
+class _BeamModuleOverride {
+  const _BeamModuleOverride({this.beamCount, this.beamLengthMm});
+
+  final int? beamCount;
+  final int? beamLengthMm;
+}
+
+bool _setContentItemHasArticle(
+  CalculatorSetContentItem item,
+  String articleNo,
+) {
+  final wanted = articleNo.trim();
+  if (wanted.isEmpty) return false;
+  for (final value in [item.articleNo, item.profileNo, item.baseCode]) {
+    final normalized = value?.trim() ?? '';
+    if (normalized == wanted ||
+        normalized.split(RegExp(r'\s+')).first == wanted) {
+      return true;
+    }
+  }
+  return false;
+}
+
+num _setContentSourceNumber(
+  CalculatorSetContentItem item,
+  String snakeKey,
+  String camelKey,
+  num fallback,
+) {
+  final raw = item.sourceComponent[snakeKey] ?? item.sourceComponent[camelKey];
+  return raw is num ? raw : num.tryParse('$raw') ?? fallback;
+}
+
+_BeamModuleOverride _beamOverrideForTab(CalculatorSetContentTab tab) {
+  const empty = _BeamModuleOverride();
+  final items = tab.items
+      .where((item) =>
+          item.isCalculated &&
+          _setContentItemHasArticle(item, _beamOverrideArticleNo))
+      .toList(growable: false);
+  if (items.isEmpty) return empty;
+  final active = items
+      .where((item) => item.enabled && item.overrideState != 'excluded')
+      .toList(growable: false);
+  // Fully excluded beams keep the last valid automatic layout, exactly like the
+  // server does when it reports set_content_beam_dependency_not_applied.
+  if (active.isEmpty) return empty;
+
+  int? beamCount;
+  for (final item in active) {
+    final dependencyApplied =
+        item.sourceComponent['dependency_override_applied'] == true;
+    final baseline = item.calculatedQuantity;
+    if (!dependencyApplied &&
+        baseline != null &&
+        (item.quantity - baseline).abs() <= 0.000001) {
+      continue;
+    }
+    final splitCount = math.max(
+      1,
+      _setContentSourceNumber(item, 'split_count', 'splitCount', 1).round(),
+    ).toInt();
+    final cutGroupCount = math.max(
+      1,
+      _setContentSourceNumber(item, 'cut_group_count', 'cutGroupCount', 1)
+          .round(),
+    ).toInt();
+    beamCount = math.max(
+      0,
+      (cutGroupCount > 1 ? item.quantity : item.quantity / splitCount).round(),
+    ).toInt();
+    break;
+  }
+  if (beamCount != null && beamCount < 2) return empty;
+
+  final first = active.first;
+  final splitCount = math.max(
+    1,
+    _setContentSourceNumber(first, 'split_count', 'splitCount', 1).round(),
+  ).toInt();
+  final cutGroupCount = math.max(
+    1,
+    _setContentSourceNumber(first, 'cut_group_count', 'cutGroupCount', 1)
+        .round(),
+  ).toInt();
+  final installedLengthMm = cutGroupCount > 1
+      ? active.fold<double>(
+          0,
+          (sum, item) => sum + (item.lengthMm ?? 0).toDouble(),
+        )
+      : (first.lengthMm ?? 0).toDouble() * splitCount;
+  final calculatedInstalledLengthMm = first.installedLengthMm?.toDouble() ??
+      (cutGroupCount > 1
+          ? items.fold<double>(
+              0,
+              (sum, item) =>
+                  sum +
+                  (item.calculatedLengthMm ?? item.lengthMm ?? 0).toDouble(),
+            )
+          : (first.calculatedLengthMm ?? first.lengthMm ?? 0).toDouble() *
+              splitCount);
+  final beamLengthMm = installedLengthMm > 0 &&
+          (installedLengthMm - calculatedInstalledLengthMm).abs() > 0.0001
+      ? math.max(1, installedLengthMm.round()).toInt()
+      : null;
+
+  if (beamCount == null && beamLengthMm == null) return empty;
+  return _BeamModuleOverride(beamCount: beamCount, beamLengthMm: beamLengthMm);
+}
+
+List<int> _scaleSegmentLengthsToTotal(List<int> values, int totalMm) {
+  if (values.isEmpty || totalMm <= 0) return values;
+  final currentTotal = values.fold<int>(0, (sum, value) => sum + value);
+  if (currentTotal <= 0) return values;
+  var assigned = 0;
+  return [
+    for (var index = 0; index < values.length; index++)
+      () {
+        final next = index == values.length - 1
+            ? math.max(1, totalMm - assigned).toInt()
+            : math.max(1, (totalMm * values[index] / currentTotal).round())
+                .toInt();
+        assigned += next;
+        return next;
+      }(),
+  ];
 }
 
 int _calculateBeamCount(

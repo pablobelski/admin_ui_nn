@@ -375,6 +375,20 @@ class CalculatorTemplateOption {
     );
   }
 
+  bool get wallGutterBlendeLegacyRulesEnabledDefault {
+    final moduleParameters = _map(
+      parametersModuleData['tds_glass_params'] ??
+          parametersModuleData['tdsGlassParams'],
+    );
+    return _boolValue(
+      roofParameters['wallGutterBlendeLegacyRulesEnabledDefault'] ??
+          roofParameters['wall_gutter_blende_legacy_rules_enabled_default'] ??
+          moduleParameters['wallGutterBlendeLegacyRulesEnabledDefault'] ??
+          moduleParameters['wall_gutter_blende_legacy_rules_enabled_default'],
+      true,
+    );
+  }
+
   int? get defaultMaxGlassFieldWidthMm => _intOrNull(
         roofParameters['defaultMaxGlassFieldWidthMm'] ?? roofParameters['default_max_glass_field_width_mm'],
       );
@@ -861,6 +875,8 @@ class CalculatorSetContentTab {
   }
 
   String? geometryString(String key) => _nullableString(geometryKey[key]);
+  bool geometryBool(String key, bool fallback) =>
+      _boolValue(geometryKey[key], fallback);
 
   String get moduleRole => _nullableString(geometryKey['role']) ?? '';
   int? get moduleWidthMm => geometryInt('width_mm');
@@ -1102,6 +1118,11 @@ class CalculatorSetContentTab {
     return copyWith(geometryKey: nextGeometry);
   }
 
+  CalculatorSetContentTab withGeometryBool(String key, bool value) {
+    final nextGeometry = <String, dynamic>{...geometryKey, key: value};
+    return copyWith(geometryKey: nextGeometry);
+  }
+
   CalculatorSetContentTab withCoveringAllocations(
     List<CalculatorCoveringAllocation> allocations,
   ) {
@@ -1229,6 +1250,12 @@ class CalculatorSetContentItem {
   String get overrideState => _nullableString(sourceComponent['override_state'] ?? sourceComponent['overrideState']) ?? 'automatic';
   num? get calculatedQuantity => _numOrNull(sourceComponent['calculated_quantity'] ?? sourceComponent['calculatedQuantity']);
   num? get calculatedLengthMm => _numOrNull(sourceComponent['calculated_length_mm'] ?? sourceComponent['calculatedLengthMm']);
+  num? get installedLengthMm => _numOrNull(
+        sourceComponent['installed_length_mm'] ??
+            sourceComponent['installedLengthMm'] ??
+            sourceComponent['original_length_mm'] ??
+            sourceComponent['originalLengthMm'],
+      );
   bool get overrideApplied => sourceComponent['override_applied'] == true || sourceComponent['overrideApplied'] == true;
   int? get stockLengthMm => _intOrNull(sourceComponent['catalog_variant_length_mm'] ?? sourceComponent['catalogVariantLengthMm']);
   int? get glassFieldIndex => _intOrNull(sourceComponent['glass_field_index'] ?? sourceComponent['glassFieldIndex']);

@@ -582,7 +582,14 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
       final rawSetContents = result.raw['setContents'] ?? result.raw['set_contents'];
       if (rawSetContents is List &&
           (draft.setContents.isNotEmpty || result.setContents.isNotEmpty)) {
-        ref.read(calculatorDraftProvider.notifier).setSetContents(result.setContents);
+        ref.read(calculatorDraftProvider.notifier).setSetContents(
+              result.setContents,
+              // Only an actually populated accessory list is authoritative
+              // enough to prune overrides against.
+              knownDerivedAccessorySegmentIds: result.derivedAccessories.isEmpty
+                  ? null
+                  : _derivedAccessorySegmentIds(result.derivedAccessories),
+            );
       }
       final priceSignature = _priceSignature(ref.read(calculatorDraftProvider));
       if (mounted) {
@@ -3673,6 +3680,7 @@ class _StableNumberField extends StatefulWidget {
     required this.decoration,
     required this.onChanged,
     this.inputFormatters,
+    this.onFocusChanged,
   });
 
   final String value;
@@ -3681,6 +3689,7 @@ class _StableNumberField extends StatefulWidget {
   final InputDecoration decoration;
   final ValueChanged<String> onChanged;
   final List<TextInputFormatter>? inputFormatters;
+  final ValueChanged<bool>? onFocusChanged;
 
   @override
   State<_StableNumberField> createState() => _StableNumberFieldState();
@@ -3705,6 +3714,7 @@ class _StableNumberFieldState extends State<_StableNumberField> {
 
   void _handleFocusChanged() {
     if (!_focusNode.hasFocus) _syncValue();
+    widget.onFocusChanged?.call(_focusNode.hasFocus);
   }
 
   void _syncValue() {
@@ -7280,6 +7290,14 @@ class _SetContentsStep extends StatefulWidget {
 }
 
 class _SetContentsStepState extends State<_SetContentsStep> {
+  /// `AsyncValue.asData` is null while the preview reloads, which used to blank
+  /// the summary chips and collapse their row, so the component list below
+  /// jumped up and back on every refresh. Keeping the last values renders the
+  /// row at a constant height with stable content.
+  Map<String, dynamic> _lastSource = const <String, dynamic>{};
+  List<Map<String, dynamic>> _lastStandardBom = const <Map<String, dynamic>>[];
+  List<Map<String, dynamic>> _lastSetDeltaBom = const <Map<String, dynamic>>[];
+
   int _selectedModuleTabIndex = 0;
   final Map<int, int> _selectedGlassFieldByTab = <int, int>{};
 
@@ -7306,6 +7324,11 @@ class _SetContentsStepState extends State<_SetContentsStep> {
             preserveStructure: widget.isLoadedCalculation,
           );
         });
+      } else if (preview.tabs.isNotEmpty) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          widget.notifier.syncSetContentsFromPreview(preview.tabs);
+        });
       }
     });
 
@@ -7314,9 +7337,16 @@ class _SetContentsStepState extends State<_SetContentsStep> {
         ? widget.draft.setContents
         : preview?.tabs ?? const <CalculatorSetContentTab>[];
     final isLoading = widget.preview.isLoading && widget.draft.setContents.isEmpty;
-    final source = preview?.source ?? const <String, dynamic>{};
-    final standardBom = preview?.standardBom ?? const <Map<String, dynamic>>[];
-    final setDeltaBom = preview?.setDeltaBom ?? const <Map<String, dynamic>>[];
+    if (preview != null && preview.source.isNotEmpty) {
+      _lastSource = preview.source;
+      _lastStandardBom = preview.standardBom;
+      _lastSetDeltaBom = preview.setDeltaBom;
+    }
+    final source = preview?.source.isNotEmpty == true ? preview!.source : _lastSource;
+    final standardBom =
+        preview?.source.isNotEmpty == true ? preview!.standardBom : _lastStandardBom;
+    final setDeltaBom =
+        preview?.source.isNotEmpty == true ? preview!.setDeltaBom : _lastSetDeltaBom;
     final hasMissingSetPieceAbzug = setDeltaBom.any(
       _isMissingSetPieceAbzugCase,
     );
@@ -7334,39 +7364,45 @@ class _SetContentsStepState extends State<_SetContentsStep> {
           const LinearProgressIndicator(),
           const SizedBox(height: 8),
         ],
-        if (source.isNotEmpty) ...[
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _InfoChip(
-                label: 'Rule set',
-                value: '${source['rule_set_name'] ?? source['rule_set_id'] ?? '—'}',
-                onTap: '${source['rule_set_id'] ?? ''}'.trim().isEmpty
-                    ? null
-                    : () => widget.onOpenRuleSet('${source['rule_set_id']}'),
-              ),
-              _InfoChip(
-                label: 'Matrix',
-                value: '${source['matrix_name'] ?? source['matrix_code'] ?? '—'}',
-                onTap: '${source['rule_matrix_id'] ?? ''}'.trim().isEmpty
-                    ? null
-                    : () => widget.onOpenRuleMatrix(
-                          '${source['rule_matrix_id']}',
-                          '${source['rule_set_id'] ?? ''}'.trim().isEmpty
-                              ? null
-                              : '${source['rule_set_id']}',
-                        ),
-              ),
-              _InfoChip(label: 'Row', value: '${source['row_no'] ?? '—'}'),
-              _InfoChip(label: 'Standard lines', value: '${standardBom.length}'),
-              _InfoChip(label: 'Delta lines', value: '${setDeltaBom.length}'),
-              if (widget.weights.isNotEmpty)
-                _InfoChip(label: 'Set weight', value: _weightText(widget.weights, 'set_kg', 'set_complete')),
-            ],
-          ),
-          const SizedBox(height: 8),
-        ],
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            _InfoChip(
+              label: 'Rule set',
+              value: '${source['rule_set_name'] ?? source['rule_set_id'] ?? '—'}',
+              onTap: '${source['rule_set_id'] ?? ''}'.trim().isEmpty
+                  ? null
+                  : () => widget.onOpenRuleSet('${source['rule_set_id']}'),
+            ),
+            _InfoChip(
+              label: 'Matrix',
+              value: '${source['matrix_name'] ?? source['matrix_code'] ?? '—'}',
+              onTap: '${source['rule_matrix_id'] ?? ''}'.trim().isEmpty
+                  ? null
+                  : () => widget.onOpenRuleMatrix(
+                        '${source['rule_matrix_id']}',
+                        '${source['rule_set_id'] ?? ''}'.trim().isEmpty
+                            ? null
+                            : '${source['rule_set_id']}',
+                      ),
+            ),
+            _InfoChip(label: 'Row', value: '${source['row_no'] ?? '—'}'),
+            _InfoChip(
+              label: 'Standard lines',
+              value: source.isEmpty ? '—' : '${standardBom.length}',
+            ),
+            _InfoChip(
+              label: 'Delta lines',
+              value: source.isEmpty ? '—' : '${setDeltaBom.length}',
+            ),
+            _InfoChip(
+              label: 'Set weight',
+              value: _weightText(widget.weights, 'set_kg', 'set_complete'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
         widget.preview.maybeWhen(
           error: (error, _) => Padding(
             padding: const EdgeInsets.only(bottom: 8),
@@ -7568,10 +7604,33 @@ class _SetContentsStepState extends State<_SetContentsStep> {
                     diagnostics: _diagnosticsForTab(tabs, tabIndex),
                     onToggleItem: (itemIndex) => widget.notifier.toggleSetContentItemEnabled(tabIndex, itemIndex),
                     onDeleteManual: (itemIndex) => widget.notifier.removeManualSetContentItem(tabIndex, itemIndex),
-                    onQuantityChanged: (itemIndex, quantity) => widget.notifier.updateSetContentItemQuantity(tabIndex, itemIndex, quantity),
-                    onLengthChanged: (itemIndex, lengthMm) => widget.notifier.updateSetContentItemLength(tabIndex, itemIndex, lengthMm),
-                    onOverrideChanged: (itemIndex, enabled) => widget.notifier.setSetContentItemOverride(tabIndex, itemIndex, enabled),
+                    onCommitItemValues: (
+                      itemIndex, {
+                      num? quantity,
+                      num? lengthMm,
+                      bool updateLength = false,
+                    }) =>
+                        widget.notifier.updateSetContentItemValues(
+                      tabIndex,
+                      itemIndex,
+                      quantity: quantity,
+                      lengthMm: lengthMm,
+                      updateLength: updateLength,
+                    ),
                     onResetItem: (itemIndex) => widget.notifier.resetSetContentItemOverride(tabIndex, itemIndex),
+                    onEditModuleComponents: () => _showModuleComponentEditor(tabIndex),
+                    wallGutterBlendeRulesEnabled: tabs[tabIndex].geometryBool(
+                      'wall_gutter_blende_rules_enabled',
+                      widget.selectedTemplate
+                              ?.wallGutterBlendeLegacyRulesEnabledDefault ??
+                          true,
+                    ),
+                    onWallGutterBlendeRulesChanged: (enabled) => widget
+                        .notifier
+                        .setSetContentModuleWallGutterBlendeRules(
+                          tabIndex,
+                          enabled,
+                        ),
                     onAddManual: () => _showAddManualComponent(tabIndex),
                     selectedGlassFieldIndex: _selectedGlassFieldByTab[tabIndex] ?? 0,
                     onGlassFieldSelected: (fieldIndex) {
@@ -7586,6 +7645,78 @@ class _SetContentsStepState extends State<_SetContentsStep> {
         ],
       ),
     );
+  }
+
+  Future<void> _showModuleComponentEditor(int tabIndex) async {
+    if (tabIndex < 0 || tabIndex >= widget.draft.setContents.length) return;
+    final tab = widget.draft.setContents[tabIndex];
+    final rows = _moduleEditorRowsForTab(tab);
+    final changes = await showDialog<List<CalculatorSetContentArticleOverride>>(
+      context: context,
+      builder: (_) => _ModuleComponentEditorDialog(
+        moduleLabel: tab.label,
+        rows: rows,
+      ),
+    );
+    if (!mounted || changes == null || changes.isEmpty) return;
+    final confirmed = await _confirmModuleComponentChanges(rows, changes);
+    if (!mounted || !confirmed) return;
+    widget.notifier.applySetContentArticleOverrides(tabIndex, changes);
+  }
+
+  Future<bool> _confirmModuleComponentChanges(
+    List<_ModuleEditorRow> rows,
+    List<CalculatorSetContentArticleOverride> changes,
+  ) async {
+    final names = {for (final row in rows) row.articleNo: row.name};
+    String changeText(CalculatorSetContentArticleOverride change) {
+      final label = [change.articleNo, names[change.articleNo] ?? '']
+          .where((part) => part.trim().isNotEmpty)
+          .join(' · ');
+      if (change.resetToCalculated) return '$label → back to calculated values';
+      if (!change.enabled) return '$label → excluded from the construction';
+      return '$label → ${change.quantity} pcs · ${change.installedLengthMm} mm installed length';
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Apply construction change?'),
+        content: SizedBox(
+          width: 600,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'These articles drive the roof construction. Saving them recalculates the module geometry, the Covering glass fields (sheet count, width and length) and the dependent components 15184, 15189 and 16912 on the other calculator steps.',
+              ),
+              const SizedBox(height: 12),
+              for (final change in changes)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Text(changeText(change)),
+                ),
+              const SizedBox(height: 12),
+              const Text(
+                'The change is stored and recalculated in one step only after you confirm.',
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Apply and recalculate'),
+          ),
+        ],
+      ),
+    );
+    return confirmed ?? false;
   }
 
   Future<void> _showAddManualComponent(int tabIndex) async {
@@ -8526,6 +8657,374 @@ List<_SetContentVisibleRow> _visibleSetContentRows(CalculatorContext contextData
   return rows;
 }
 
+const _moduleEditorArticleNames = <String, String>{
+  '15698': 'Träger',
+  '15184': 'Glasleiste TD',
+  '15189': 'Seitenglasleiste TD',
+  '16912': 'Wand-/Rinnenblende TD',
+};
+
+class _ModuleEditorRow {
+  const _ModuleEditorRow({
+    required this.articleNo,
+    required this.name,
+    required this.available,
+    required this.enabled,
+    required this.quantity,
+    required this.installedLengthMm,
+    required this.calculatedQuantity,
+    required this.calculatedInstalledLengthMm,
+  });
+
+  final String articleNo;
+  final String name;
+  final bool available;
+  final bool enabled;
+  final int quantity;
+  final int installedLengthMm;
+  final int calculatedQuantity;
+  final int calculatedInstalledLengthMm;
+}
+
+/// Owns its own controllers so that they are disposed by the framework when the
+/// dialog route is really unmounted. Disposing them right after
+/// `await showDialog(...)` tore down controllers that the still-animating
+/// `EditableText`s were using, which surfaced as an
+/// `InheritedElement._dependents.isEmpty` assertion on the calculator page.
+/// The dialog itself never touches the draft; it only returns the requested
+/// changes through `Navigator.pop`.
+class _ModuleComponentEditorDialog extends StatefulWidget {
+  const _ModuleComponentEditorDialog({
+    required this.moduleLabel,
+    required this.rows,
+  });
+
+  final String moduleLabel;
+  final List<_ModuleEditorRow> rows;
+
+  @override
+  State<_ModuleComponentEditorDialog> createState() =>
+      _ModuleComponentEditorDialogState();
+}
+
+class _ModuleComponentEditorDialogState
+    extends State<_ModuleComponentEditorDialog> {
+  late final Map<String, TextEditingController> _quantityControllers;
+  late final Map<String, TextEditingController> _lengthControllers;
+  late final Map<String, bool> _included;
+  final _dirty = <String>{};
+  final _reset = <String>{};
+  String? _validationMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _quantityControllers = {
+      for (final row in widget.rows)
+        row.articleNo: TextEditingController(text: '${row.quantity}'),
+    };
+    _lengthControllers = {
+      for (final row in widget.rows)
+        row.articleNo: TextEditingController(text: '${row.installedLengthMm}'),
+    };
+    _included = {for (final row in widget.rows) row.articleNo: row.enabled};
+  }
+
+  @override
+  void dispose() {
+    for (final controller in _quantityControllers.values) {
+      controller.dispose();
+    }
+    for (final controller in _lengthControllers.values) {
+      controller.dispose();
+    }
+    super.dispose();
+  }
+
+  void _markDirty(String articleNo) {
+    _dirty.add(articleNo);
+    _reset.remove(articleNo);
+  }
+
+  void _submit() {
+    final result = <CalculatorSetContentArticleOverride>[];
+    for (final row in widget.rows) {
+      if (!_dirty.contains(row.articleNo)) continue;
+      if (_reset.contains(row.articleNo)) {
+        result.add(CalculatorSetContentArticleOverride.reset(row.articleNo));
+        continue;
+      }
+      final quantity =
+          int.tryParse(_quantityControllers[row.articleNo]!.text.trim());
+      final lengthMm =
+          int.tryParse(_lengthControllers[row.articleNo]!.text.trim());
+      final included = _included[row.articleNo] ?? false;
+      if (included &&
+          (quantity == null ||
+              quantity < 1 ||
+              lengthMm == null ||
+              lengthMm < 1)) {
+        setState(() {
+          _validationMessage =
+              'Enabled components require a positive integer quantity and installed length.';
+        });
+        return;
+      }
+      result.add(
+        CalculatorSetContentArticleOverride(
+          articleNo: row.articleNo,
+          quantity: quantity ?? row.quantity,
+          installedLengthMm: lengthMm ?? row.installedLengthMm,
+          enabled: included,
+        ),
+      );
+    }
+    Navigator.of(context).pop(result);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text('Ändern · ${widget.moduleLabel}'),
+      content: SizedBox(
+        width: 720,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 520),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text(
+                  'The same overrides are stored in Set Contents. Changes to 15698 recalculate dependent profiles, glass and Markise unless a dependent article has its own override.',
+                ),
+                const SizedBox(height: 12),
+                const Row(
+                  children: [
+                    SizedBox(width: 44),
+                    SizedBox(width: 88, child: Text('Article')),
+                    Expanded(child: Text('Component')),
+                    SizedBox(width: 96, child: Text('Qty')),
+                    SizedBox(width: 12),
+                    SizedBox(width: 132, child: Text('Installed length')),
+                    SizedBox(width: 48),
+                  ],
+                ),
+                const Divider(),
+                for (final row in widget.rows)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Row(
+                      children: [
+                        SizedBox(
+                          width: 44,
+                          child: Checkbox(
+                            value: _included[row.articleNo] ?? false,
+                            onChanged: !row.available
+                                ? null
+                                : (value) => setState(() {
+                                      _included[row.articleNo] = value ?? false;
+                                      _markDirty(row.articleNo);
+                                    }),
+                          ),
+                        ),
+                        SizedBox(width: 88, child: Text(row.articleNo)),
+                        Expanded(
+                          child: Text(
+                            row.available
+                                ? row.name
+                                : '${row.name} · not calculated',
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        SizedBox(
+                          width: 96,
+                          child: TextField(
+                            controller: _quantityControllers[row.articleNo],
+                            enabled: row.available &&
+                                (_included[row.articleNo] ?? false),
+                            keyboardType: TextInputType.number,
+                            decoration: const InputDecoration(isDense: true),
+                            onChanged: (_) => _markDirty(row.articleNo),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        SizedBox(
+                          width: 132,
+                          child: TextField(
+                            controller: _lengthControllers[row.articleNo],
+                            enabled: row.available &&
+                                (_included[row.articleNo] ?? false),
+                            keyboardType: TextInputType.number,
+                            decoration: const InputDecoration(
+                              isDense: true,
+                              suffixText: 'mm',
+                            ),
+                            onChanged: (_) => _markDirty(row.articleNo),
+                          ),
+                        ),
+                        SizedBox(
+                          width: 48,
+                          child: IconButton(
+                            tooltip: 'Reset to automatic values',
+                            onPressed: !row.available
+                                ? null
+                                : () => setState(() {
+                                      _quantityControllers[row.articleNo]!
+                                          .text = '${row.calculatedQuantity}';
+                                      _lengthControllers[row.articleNo]!.text =
+                                          '${row.calculatedInstalledLengthMm}';
+                                      _included[row.articleNo] = true;
+                                      _dirty.add(row.articleNo);
+                                      _reset.add(row.articleNo);
+                                    }),
+                            icon: const Icon(Icons.restart_alt, size: 20),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                if (_validationMessage != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    _validationMessage!,
+                    style:
+                        TextStyle(color: Theme.of(context).colorScheme.error),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _submit,
+          child: const Text('Apply'),
+        ),
+      ],
+    );
+  }
+}
+
+num _moduleEditorSourceNumber(
+  CalculatorSetContentItem item,
+  String snakeKey,
+  String camelKey,
+  num fallback,
+) {
+  final raw = item.sourceComponent[snakeKey] ?? item.sourceComponent[camelKey];
+  return raw is num ? raw : num.tryParse('$raw') ?? fallback;
+}
+
+bool _moduleEditorItemMatchesArticle(
+  CalculatorSetContentItem item,
+  String articleNo,
+) {
+  final wanted = _catalogCodeKeys(articleNo);
+  final actual = <String>{
+    ..._catalogCodeKeys(item.articleNo),
+    ..._catalogCodeKeys(item.profileNo),
+    ..._catalogCodeKeys(item.baseCode),
+  };
+  return wanted.intersection(actual).isNotEmpty;
+}
+
+List<_ModuleEditorRow> _moduleEditorRowsForTab(CalculatorSetContentTab tab) {
+  return [
+    for (final entry in _moduleEditorArticleNames.entries)
+      () {
+        final items = tab.items
+            .where(
+              (item) => item.isCalculated &&
+                  _moduleEditorItemMatchesArticle(item, entry.key),
+            )
+            .toList(growable: false);
+        if (items.isEmpty) {
+          return _ModuleEditorRow(
+            articleNo: entry.key,
+            name: entry.value,
+            available: false,
+            enabled: false,
+            quantity: 0,
+            installedLengthMm: 0,
+            calculatedQuantity: 0,
+            calculatedInstalledLengthMm: 0,
+          );
+        }
+        final first = items.first;
+        final splitCount = math.max(
+          1,
+          _moduleEditorSourceNumber(
+            first,
+            'split_count',
+            'splitCount',
+            1,
+          ).round(),
+        ).toInt();
+        final cutGroupCount = math.max(
+          1,
+          _moduleEditorSourceNumber(
+            first,
+            'cut_group_count',
+            'cutGroupCount',
+            1,
+          ).round(),
+        ).toInt();
+        final quantity = cutGroupCount > 1
+            ? first.quantity.round()
+            : (first.quantity / splitCount).round();
+        final calculatedQuantity = cutGroupCount > 1
+            ? (first.calculatedQuantity ?? first.quantity).round()
+            : ((first.calculatedQuantity ?? first.quantity) / splitCount)
+                .round();
+        final installedLength = cutGroupCount > 1
+            ? items.fold<int>(
+                0,
+                (sum, item) => sum + (item.lengthMm ?? 0).round(),
+              )
+            : ((first.lengthMm ?? first.installedLengthMm ?? 1) * splitCount)
+                .round();
+        final calculatedInstalledLength =
+            (first.installedLengthMm ??
+                    ((first.calculatedLengthMm ?? first.lengthMm ?? 1) *
+                        splitCount))
+                .round();
+        return _ModuleEditorRow(
+          articleNo: entry.key,
+          name: first.name ?? entry.value,
+          available: true,
+          enabled: items.any((item) => item.enabled),
+          quantity: math.max(1, quantity).toInt(),
+          installedLengthMm: math.max(1, installedLength).toInt(),
+          calculatedQuantity: math.max(1, calculatedQuantity).toInt(),
+          calculatedInstalledLengthMm:
+              math.max(1, calculatedInstalledLength).toInt(),
+        );
+      }(),
+  ];
+}
+
+/// Colour of the include/exclude check of a Set Contents or Accessory row:
+/// grey when the row is excluded from the calculation, red while entered values
+/// are not saved yet, yellow when a saved manual value is active.
+Color _rowStateIconColor(
+  BuildContext context, {
+  required bool enabled,
+  required bool hasManualValue,
+  bool hasPendingEdit = false,
+}) {
+  final colorScheme = Theme.of(context).colorScheme;
+  if (!enabled) return colorScheme.onSurfaceVariant;
+  if (hasPendingEdit) return colorScheme.error;
+  if (hasManualValue) return Colors.amber.shade700;
+  return colorScheme.primary;
+}
+
 class _SetContentTabTable extends StatefulWidget {
   const _SetContentTabTable({
     required this.contextData,
@@ -8534,12 +9033,13 @@ class _SetContentTabTable extends StatefulWidget {
     required this.tabIndex,
     required this.overrideArticleKeys,
     required this.diagnostics,
-    required this.onQuantityChanged,
-    required this.onLengthChanged,
+    required this.onCommitItemValues,
     required this.onToggleItem,
     required this.onDeleteManual,
-    required this.onOverrideChanged,
     required this.onResetItem,
+    required this.onEditModuleComponents,
+    required this.wallGutterBlendeRulesEnabled,
+    required this.onWallGutterBlendeRulesChanged,
     required this.onAddManual,
     required this.selectedGlassFieldIndex,
     required this.onGlassFieldSelected,
@@ -8560,12 +9060,18 @@ class _SetContentTabTable extends StatefulWidget {
   final int tabIndex;
   final Set<String> overrideArticleKeys;
   final List<Map<String, dynamic>> diagnostics;
-  final void Function(int itemIndex, num quantity) onQuantityChanged;
-  final void Function(int itemIndex, num? lengthMm) onLengthChanged;
+  final void Function(
+    int itemIndex, {
+    num? quantity,
+    num? lengthMm,
+    bool updateLength,
+  }) onCommitItemValues;
   final void Function(int itemIndex) onToggleItem;
   final void Function(int itemIndex) onDeleteManual;
-  final void Function(int itemIndex, bool enabled) onOverrideChanged;
   final void Function(int itemIndex) onResetItem;
+  final VoidCallback onEditModuleComponents;
+  final bool wallGutterBlendeRulesEnabled;
+  final ValueChanged<bool> onWallGutterBlendeRulesChanged;
   final VoidCallback onAddManual;
   final int selectedGlassFieldIndex;
   final ValueChanged<int?> onGlassFieldSelected;
@@ -8577,9 +9083,97 @@ class _SetContentTabTable extends StatefulWidget {
 class _SetContentTabTableState extends State<_SetContentTabTable> {
   final _scrollController = ScrollController();
 
+  /// Buffered field text per row, keyed by the row identity. Typing only fills
+  /// these maps, so neither the draft nor the server is touched until the row
+  /// is saved explicitly.
+  final _pendingQuantity = <String, String>{};
+  final _pendingLength = <String, String>{};
+
+  /// Rows switched into manual edit mode locally. Marking a row as overridden
+  /// in the draft used to cost a full server round trip without changing a
+  /// single value, so the edit mode is kept in the UI until a value is saved.
+  final _editingRows = <String>{};
+  String? _focusedRowIdentity;
+
+  bool _hasPendingEdit(String identity) =>
+      _pendingQuantity.containsKey(identity) ||
+      _pendingLength.containsKey(identity);
+
+  bool _isRowEditable(CalculatorSetContentItem item, String identity) =>
+      item.isManual || item.isOverridden || _editingRows.contains(identity);
+
+  void _setPendingValue(
+    Map<String, String> target,
+    String identity,
+    String value,
+  ) {
+    final hadPending = _hasPendingEdit(identity);
+    target[identity] = value;
+    // Only the presence of a buffered edit is rendered, so the list is rebuilt
+    // once per row instead of once per keystroke.
+    if (!hadPending) setState(() {});
+  }
+
+  void _setRowFocus(String identity, bool hasFocus) {
+    final next = hasFocus
+        ? identity
+        : (_focusedRowIdentity == identity ? null : _focusedRowIdentity);
+    if (next == _focusedRowIdentity) return;
+    setState(() => _focusedRowIdentity = next);
+  }
+
+  void _commitRow(int index, CalculatorSetContentItem item, String identity) {
+    final quantityText = _pendingQuantity.remove(identity);
+    final lengthText = _pendingLength.remove(identity);
+    _editingRows.remove(identity);
+    if (_focusedRowIdentity == identity) _focusedRowIdentity = null;
+
+    final quantity = quantityText == null
+        ? null
+        : num.tryParse(quantityText.trim().replaceAll(',', '.'));
+    final lengthMm = lengthText == null
+        ? null
+        : num.tryParse(lengthText.trim().replaceAll(',', '.'));
+    final nextQuantity = quantity ?? item.quantity;
+    final quantityChanged = quantityText != null && nextQuantity != item.quantity;
+    final lengthChanged = lengthText != null && lengthMm != item.lengthMm;
+
+    setState(() {});
+    // Saving values that are identical to the stored ones must not mark the row
+    // as overridden and must not trigger a recalculation.
+    if (!quantityChanged && !lengthChanged) return;
+    widget.onCommitItemValues(
+      index,
+      quantity: quantityChanged ? nextQuantity : null,
+      lengthMm: lengthChanged ? lengthMm : null,
+      updateLength: lengthChanged,
+    );
+  }
+
+  void _discardRowEdits(String identity) {
+    if (!_hasPendingEdit(identity) && !_editingRows.contains(identity)) return;
+    setState(() {
+      _pendingQuantity.remove(identity);
+      _pendingLength.remove(identity);
+      _editingRows.remove(identity);
+    });
+  }
+
   @override
   void didUpdateWidget(covariant _SetContentTabTable oldWidget) {
     super.didUpdateWidget(oldWidget);
+    // Incoming tab data re-syncs every unfocused field, so buffered text of
+    // rows the user is not typing in would otherwise become stale.
+    if (!identical(oldWidget.tab, widget.tab)) {
+      for (final identity in <String>{
+        ..._pendingQuantity.keys,
+        ..._pendingLength.keys,
+      }) {
+        if (identity == _focusedRowIdentity) continue;
+        _pendingQuantity.remove(identity);
+        _pendingLength.remove(identity);
+      }
+    }
     final fieldCount = _manufacturingSplitFieldCount(widget.tab);
     if (widget.selectedGlassFieldIndex > fieldCount) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -8646,6 +9240,28 @@ class _SetContentTabTableState extends State<_SetContentTabTable> {
                     ),
                   ),
                 ],
+                const SizedBox(width: 8),
+                Tooltip(
+                  message: widget.wallGutterBlendeRulesEnabled
+                      ? '16912 uses the legacy module and organization dependencies.'
+                      : '16912 uses the current glass-bay calculation.',
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Switch.adaptive(
+                        value: widget.wallGutterBlendeRulesEnabled,
+                        onChanged: widget.onWallGutterBlendeRulesChanged,
+                      ),
+                      const Text('16912 rules'),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton.filledTonal(
+                  onPressed: widget.onEditModuleComponents,
+                  tooltip: 'Ändern',
+                  icon: const Icon(Icons.edit_note, size: 18),
+                ),
                 const SizedBox(width: 8),
                 IconButton.filledTonal(
                   onPressed: widget.onAddManual,
@@ -8719,7 +9335,13 @@ class _SetContentTabTableState extends State<_SetContentTabTable> {
           item,
           widget.overrideArticleKeys,
         );
-    final editable = item.isManual || (item.isOverridden && canOverrideCalculated);
+    final itemIdentity = item.segmentId ??
+        '${item.catalogItemId}:${item.catalogVariantId ?? ''}:${item.articleNo ?? ''}:$index';
+    final editable = item.isManual ||
+        (canOverrideCalculated && _isRowEditable(item, itemIdentity));
+    final hasPendingEdit = _hasPendingEdit(itemIdentity);
+    final showSaveAction =
+        editable && (hasPendingEdit || _focusedRowIdentity == itemIdentity);
     final manualIndex = widget.tab.items.take(index).where((entry) => entry.enabled && entry.isManual).length;
     final diagnostic = item.isManual && manualIndex < widget.diagnostics.length ? widget.diagnostics[manualIndex] : null;
     final amount = _num(diagnostic?['amount']);
@@ -8736,8 +9358,6 @@ class _SetContentTabTableState extends State<_SetContentTabTable> {
     final productionLabel = manufacturingFieldIndex == null
         ? null
         : 'Manufacturing section $manufacturingFieldIndex/$manufacturingFieldCount';
-    final itemIdentity = item.segmentId ??
-        '${item.catalogItemId}:${item.catalogVariantId ?? ''}:${item.articleNo ?? ''}:$index';
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 140),
@@ -8781,7 +9401,10 @@ class _SetContentTabTableState extends State<_SetContentTabTable> {
               enabled: item.enabled && editable,
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
               decoration: const InputDecoration(isDense: true),
-              onChanged: (value) => widget.onQuantityChanged(index, num.tryParse(value.replaceAll(',', '.')) ?? item.quantity),
+              onChanged: (value) =>
+                  _setPendingValue(_pendingQuantity, itemIdentity, value),
+              onFocusChanged: (hasFocus) =>
+                  _setRowFocus(itemIdentity, hasFocus),
             ),
             _SetContentTabTable._qtyWidth,
           ),
@@ -8797,10 +9420,10 @@ class _SetContentTabTableState extends State<_SetContentTabTable> {
                     enabled: item.enabled && editable,
                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
                     decoration: const InputDecoration(isDense: true, suffixText: 'mm'),
-                    onChanged: (value) => widget.onLengthChanged(
-                      index,
-                      num.tryParse(value.trim().replaceAll(',', '.')),
-                    ),
+                    onChanged: (value) =>
+                        _setPendingValue(_pendingLength, itemIdentity, value),
+                    onFocusChanged: (hasFocus) =>
+                        _setRowFocus(itemIdentity, hasFocus),
                   )
                 : Text(_formatLengthMm(item.lengthMm) ?? '—'),
             _SetContentTabTable._lengthWidth,
@@ -8825,7 +9448,14 @@ class _SetContentTabTableState extends State<_SetContentTabTable> {
             width: _SetContentTabTable._actionsWidth,
             child: Row(
               children: [
-                if (item.isManual)
+                if (showSaveAction)
+                  IconButton(
+                    tooltip: 'Save the entered values and recalculate',
+                    onPressed: () => _commitRow(index, item, itemIdentity),
+                    icon: const Icon(Icons.save_outlined, size: 20),
+                    color: colorScheme.primary,
+                  )
+                else if (item.isManual)
                   IconButton(
                     tooltip: 'Delete manual component',
                     onPressed: () => widget.onDeleteManual(index),
@@ -8835,17 +9465,28 @@ class _SetContentTabTableState extends State<_SetContentTabTable> {
                   IconButton(
                     tooltip: item.isOverridden ? 'Reset to calculated values' : 'Override calculated values',
                     onPressed: item.isOverridden
-                        ? () => widget.onResetItem(index)
-                        : () => widget.onOverrideChanged(index, true),
+                        ? () {
+                            _discardRowEdits(itemIdentity);
+                            widget.onResetItem(index);
+                          }
+                        : () => setState(() => _editingRows.add(itemIdentity)),
                     icon: Icon(item.isOverridden ? Icons.restart_alt : Icons.edit_outlined, size: 20),
                   )
                 else
                   const SizedBox(width: 40),
                 IconButton(
                   tooltip: item.enabled ? 'Exclude segment' : 'Include segment',
-                  onPressed: () => widget.onToggleItem(index),
+                  onPressed: () {
+                    _discardRowEdits(itemIdentity);
+                    widget.onToggleItem(index);
+                  },
                   icon: Icon(item.enabled ? Icons.check_circle_outline : Icons.remove_circle_outline, size: 20),
-                  color: item.enabled ? colorScheme.primary : colorScheme.onSurfaceVariant,
+                  color: _rowStateIconColor(
+                    context,
+                    enabled: item.enabled && item.overrideState != 'excluded',
+                    hasManualValue: item.isOverridden || item.isManual,
+                    hasPendingEdit: hasPendingEdit,
+                  ),
                 ),
               ],
             ),
@@ -9003,6 +9644,7 @@ class _AccessoryStep extends StatelessWidget {
                         const SizedBox(width: 70, child: Text('Unit')),
                         const SizedBox(width: 100, child: Text('Price')),
                         const SizedBox(width: 40),
+                        const SizedBox(width: 40),
                       ],
                     ),
                   ),
@@ -9012,13 +9654,21 @@ class _AccessoryStep extends StatelessWidget {
                       itemCount: lines.length,
                       separatorBuilder: (_, __) => const Divider(height: 1),
                       itemBuilder: (context, index) => _AccessoryDisplayRow(
+                        key: ValueKey(
+                          'accessory-${lines[index].articleNo}-${lines[index].sourceText}',
+                        ),
                         contextData: contextData,
                         mediaRepository: mediaRepository,
                         line: lines[index],
                         onQuantityChanged: (quantity) {
                           final line = lines[index];
                           if (line.isDerived) {
-                            notifier.upsertDerivedAccessoryOverride(line.raw, quantity, line.enabled);
+                            notifier.upsertDerivedAccessoryOverride(
+                              line.raw,
+                              quantity,
+                              line.enabled,
+                              orderIndex: line.orderIndex,
+                            );
                           } else if (line.tabIndex != null && line.itemIndex != null) {
                             notifier.updateSetContentItemQuantity(line.tabIndex!, line.itemIndex!, quantity);
                           }
@@ -9026,7 +9676,12 @@ class _AccessoryStep extends StatelessWidget {
                         onToggle: () {
                           final line = lines[index];
                           if (line.isDerived) {
-                            notifier.upsertDerivedAccessoryOverride(line.raw, line.quantity, !line.enabled);
+                            notifier.upsertDerivedAccessoryOverride(
+                              line.raw,
+                              line.quantity,
+                              !line.enabled,
+                              orderIndex: line.orderIndex,
+                            );
                           } else if (line.tabIndex != null && line.itemIndex != null) {
                             notifier.toggleSetContentItemEnabled(line.tabIndex!, line.itemIndex!);
                           }
@@ -9056,6 +9711,8 @@ class _AccessoryDisplayLine {
     required this.enabled,
     required this.amount,
     required this.hasAmount,
+    required this.hasManualValue,
+    this.orderIndex,
     this.tabIndex,
     this.itemIndex,
   });
@@ -9070,8 +9727,73 @@ class _AccessoryDisplayLine {
   final bool enabled;
   final num amount;
   final bool hasAmount;
+  final bool hasManualValue;
+
+  /// Position of a derived accessory in the server list, recorded on the
+  /// override so an excluded row can be put back where it was.
+  final int? orderIndex;
   final int? tabIndex;
   final int? itemIndex;
+}
+
+Set<String> _derivedAccessorySegmentIds(List<Map<String, dynamic>> lines) {
+  final ids = <String>{};
+  for (final line in lines) {
+    final segments = line['segments'];
+    if (segments is! List) continue;
+    for (final segment in segments) {
+      if (segment is! Map) continue;
+      final id = '${segment['segment_id'] ?? ''}'.trim();
+      if (id.isNotEmpty) ids.add(id);
+    }
+  }
+  return ids;
+}
+
+/// Pricing diagnostics are produced from the accessory *delta* BOM
+/// (`buildSetDeltaBom(derivedAccessories, standardAccessoryBom)` filtered to
+/// positive lines and to `quantity > 0`), so their count and order do not match
+/// the displayed accessory list. Matching them positionally attached prices to
+/// the wrong articles and shifted every following price as soon as one row was
+/// excluded, so each row claims its own diagnostic by article identity instead.
+class _AccessoryDiagnosticIndex {
+  _AccessoryDiagnosticIndex(List<Map<String, dynamic>> diagnostics)
+      : _pending = [...diagnostics];
+
+  final List<Map<String, dynamic>> _pending;
+
+  Map<String, dynamic>? take({
+    String? catalogItemId,
+    String? catalogVariantId,
+    List<String?> codes = const [],
+  }) {
+    final wantedCodes = codes
+        .map((code) => (code ?? '').trim())
+        .where((code) => code.isNotEmpty && code != '—')
+        .toSet();
+    final wantedId = (catalogItemId ?? '').trim();
+    final wantedVariant = (catalogVariantId ?? '').trim();
+
+    var index = -1;
+    if (wantedId.isNotEmpty) {
+      index = _pending.indexWhere((entry) =>
+          '${entry['catalog_item_id'] ?? ''}'.trim() == wantedId &&
+          (wantedVariant.isEmpty ||
+              '${entry['catalog_variant_id'] ?? ''}'.trim() == wantedVariant));
+      if (index < 0) {
+        index = _pending.indexWhere(
+          (entry) => '${entry['catalog_item_id'] ?? ''}'.trim() == wantedId,
+        );
+      }
+    }
+    if (index < 0 && wantedCodes.isNotEmpty) {
+      index = _pending.indexWhere((entry) =>
+          wantedCodes.contains('${entry['article_no'] ?? ''}'.trim()) ||
+          wantedCodes.contains('${entry['profile_no'] ?? ''}'.trim()));
+    }
+    if (index < 0) return null;
+    return _pending.removeAt(index);
+  }
 }
 
 List<_AccessoryDisplayLine> _accessoryDisplayLines(
@@ -9083,7 +9805,8 @@ List<_AccessoryDisplayLine> _accessoryDisplayLines(
 ) {
   final overrideBySegment = <String, CalculatorSetContentItem>{};
   final manual = <_AccessoryDisplayLine>[];
-  var manualDiagnosticIndex = 0;
+  final manualIndex = _AccessoryDiagnosticIndex(manualDiagnostics);
+  final derivedIndex = _AccessoryDiagnosticIndex(derivedDiagnostics);
   for (var tabIndex = 0; tabIndex < draft.setContents.length; tabIndex++) {
     final tab = draft.setContents[tabIndex];
     for (var itemIndex = 0; itemIndex < tab.items.length; itemIndex++) {
@@ -9093,11 +9816,14 @@ List<_AccessoryDisplayLine> _accessoryDisplayLines(
         continue;
       }
       if (!item.isManual) continue;
-      final diagnostic = item.enabled && manualDiagnosticIndex < manualDiagnostics.length
-          ? manualDiagnostics[manualDiagnosticIndex]
-          : null;
-      if (item.enabled) manualDiagnosticIndex += 1;
       if (!_isAccessorySetContentItem(contextData, item)) continue;
+      final diagnostic = item.enabled
+          ? manualIndex.take(
+              catalogItemId: item.catalogItemId,
+              catalogVariantId: item.catalogVariantId,
+              codes: [item.articleNo, item.profileNo, item.baseCode],
+            )
+          : null;
       manual.add(_AccessoryDisplayLine(
         raw: item.raw,
         name: item.name ?? 'Manual accessory',
@@ -9109,6 +9835,7 @@ List<_AccessoryDisplayLine> _accessoryDisplayLines(
         enabled: item.enabled,
         amount: _num(diagnostic?['amount']),
         hasAmount: diagnostic != null && diagnostic.containsKey('amount'),
+        hasManualValue: true,
         tabIndex: tabIndex,
         itemIndex: itemIndex,
       ));
@@ -9116,6 +9843,7 @@ List<_AccessoryDisplayLine> _accessoryDisplayLines(
   }
 
   final result = <_AccessoryDisplayLine>[];
+  final renderedSegmentIds = <String>{};
   for (var i = 0; i < derived.length; i++) {
     final line = derived[i];
     final source = line['source'] is Map ? Map<String, dynamic>.from(line['source'] as Map) : const <String, dynamic>{};
@@ -9125,7 +9853,12 @@ List<_AccessoryDisplayLine> _accessoryDisplayLines(
         : const <String, dynamic>{};
     final segmentId = '${segment['segment_id'] ?? ''}';
     final override = overrideBySegment[segmentId];
-    final diagnostic = i < derivedDiagnostics.length ? derivedDiagnostics[i] : null;
+    if (segmentId.isNotEmpty) renderedSegmentIds.add(segmentId);
+    final diagnostic = derivedIndex.take(
+      catalogItemId: '${line['catalog_item_id'] ?? ''}',
+      catalogVariantId: '${line['catalog_variant_id'] ?? ''}',
+      codes: ['${line['article_no'] ?? ''}', '${line['profile_no'] ?? ''}'],
+    );
     final derivedFrom = source['derived_from'] is List
         ? (source['derived_from'] as List).map((entry) => '$entry').join(', ')
         : '${source['derived_from'] ?? 'calculated BOM'}';
@@ -9140,14 +9873,78 @@ List<_AccessoryDisplayLine> _accessoryDisplayLines(
       enabled: override?.enabled ?? true,
       amount: _num(diagnostic?['amount']),
       hasAmount: diagnostic != null && diagnostic.containsKey('amount'),
+      hasManualValue: override != null,
+      orderIndex: i,
     ));
   }
+
+  // An excluded accessory is dropped from the server accessory list, so its row
+  // has to be rebuilt from the stored override. This also covers the row right
+  // after it was included again: the server list still comes from the previous
+  // calculation and does not contain it yet, so without rebuilding it here the
+  // row would vanish until the next Calculate.
+  final restored = <MapEntry<int, _AccessoryDisplayLine>>[];
+  for (final entry in overrideBySegment.entries) {
+    final item = entry.value;
+    if (renderedSegmentIds.contains(entry.key)) continue;
+    final source = item.sourceComponent;
+    final articleNo = item.articleNo ??
+        item.profileNo ??
+        item.baseCode ??
+        '${source['article_no'] ?? source['profile_no'] ?? '—'}';
+    final unitCode =
+        item.salesUnitCode ?? item.unitCode ?? '${source['unit_code'] ?? 'piece'}';
+    final orderIndex =
+        _intFromFlexible(source['derived_order_index']) ?? result.length;
+    restored.add(MapEntry(
+      orderIndex,
+      _AccessoryDisplayLine(
+        raw: <String, dynamic>{
+          'catalog_item_id': item.catalogItemId,
+          if (item.catalogVariantId != null)
+            'catalog_variant_id': item.catalogVariantId,
+          'name': item.name ?? source['name'],
+          'article_no': articleNo,
+          'unit_code': unitCode,
+          'source': source,
+          'segments': [
+            {'segment_id': entry.key},
+          ],
+        },
+        name: item.name ?? '${source['name'] ?? 'Accessory'}',
+        articleNo: articleNo,
+        quantity: item.quantity,
+        unitCode: unitCode,
+        sourceText: item.enabled
+            ? 'Derived · included again, priced on the next calculation'
+            : 'Derived · excluded from the calculation',
+        isDerived: true,
+        enabled: item.enabled,
+        amount: 0,
+        hasAmount: false,
+        hasManualValue: true,
+        orderIndex: orderIndex,
+      ),
+    ));
+  }
+
+  // Reinserting in ascending order of the recorded position restores exactly
+  // the layout the list had before the rows were dropped by the server.
+  restored.sort((a, b) => a.key.compareTo(b.key));
+  for (final entry in restored) {
+    result.insert(
+      entry.key > result.length ? result.length : entry.key,
+      entry.value,
+    );
+  }
+
   result.addAll(manual);
   return result;
 }
 
-class _AccessoryDisplayRow extends StatelessWidget {
+class _AccessoryDisplayRow extends StatefulWidget {
   const _AccessoryDisplayRow({
+    super.key,
     required this.contextData,
     required this.mediaRepository,
     required this.line,
@@ -9162,8 +9959,66 @@ class _AccessoryDisplayRow extends StatelessWidget {
   final VoidCallback onToggle;
 
   @override
+  State<_AccessoryDisplayRow> createState() => _AccessoryDisplayRowState();
+}
+
+class _AccessoryDisplayRowState extends State<_AccessoryDisplayRow> {
+  /// Buffered field text. Typing only fills this, so the draft and the server
+  /// are touched once on save instead of once per keystroke.
+  String? _pendingQuantity;
+  bool _hasFocus = false;
+
+  @override
+  void didUpdateWidget(covariant _AccessoryDisplayRow oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // An unfocused field is re-synced to the incoming value, so a buffer left
+    // over from an earlier edit would become stale.
+    if (!_hasFocus &&
+        _pendingQuantity != null &&
+        oldWidget.line.quantity != widget.line.quantity) {
+      _pendingQuantity = null;
+    }
+  }
+
+  void _setPendingQuantity(String value) {
+    // Only the presence of a buffered edit is rendered, so the row is rebuilt
+    // once per edit instead of once per keystroke.
+    if (_pendingQuantity == null) {
+      setState(() => _pendingQuantity = value);
+      return;
+    }
+    _pendingQuantity = value;
+  }
+
+  void _setFocus(bool hasFocus) {
+    if (_hasFocus == hasFocus) return;
+    setState(() => _hasFocus = hasFocus);
+  }
+
+  void _discardPending() {
+    if (_pendingQuantity == null) return;
+    setState(() => _pendingQuantity = null);
+  }
+
+  void _commit() {
+    final text = _pendingQuantity;
+    setState(() {
+      _pendingQuantity = null;
+      _hasFocus = false;
+    });
+    if (text == null) return;
+    final quantity = num.tryParse(text.trim().replaceAll(',', '.'));
+    // Saving the value that is already stored must not trigger a recalculation.
+    if (quantity == null || quantity == widget.line.quantity) return;
+    widget.onQuantityChanged(quantity);
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final line = widget.line;
     final colorScheme = Theme.of(context).colorScheme;
+    final hasPendingEdit = _pendingQuantity != null;
+    final showSaveAction = line.enabled && (hasPendingEdit || _hasFocus);
     return AnimatedOpacity(
       opacity: line.enabled ? 1 : 0.48,
       duration: const Duration(milliseconds: 140),
@@ -9174,8 +10029,8 @@ class _AccessoryDisplayRow extends StatelessWidget {
             SizedBox(
               width: 48,
               child: _CatalogNomenclatureMedia(
-                item: _catalogItemForBomLine(contextData, line.raw),
-                repository: mediaRepository,
+                item: _catalogItemForBomLine(widget.contextData, line.raw),
+                repository: widget.mediaRepository,
               ),
             ),
             const SizedBox(width: 10),
@@ -9197,17 +10052,37 @@ class _AccessoryDisplayRow extends StatelessWidget {
                 enabled: line.enabled,
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
                 decoration: const InputDecoration(isDense: true),
-                onChanged: (value) => onQuantityChanged(num.tryParse(value.replaceAll(',', '.')) ?? line.quantity),
+                onChanged: _setPendingQuantity,
+                onFocusChanged: _setFocus,
               ),
             ),
             const SizedBox(width: 12),
             SizedBox(width: 70, child: Text(_formatUnitLabel(line.unitCode))),
             SizedBox(width: 100, child: Text(line.hasAmount ? _moneyFormat.format(line.amount) : '—')),
+            SizedBox(
+              width: 40,
+              child: showSaveAction
+                  ? IconButton(
+                      tooltip: 'Save the entered quantity and recalculate',
+                      onPressed: _commit,
+                      icon: const Icon(Icons.save_outlined, size: 20),
+                      color: colorScheme.primary,
+                    )
+                  : null,
+            ),
             IconButton(
               tooltip: line.enabled ? 'Exclude accessory' : 'Include accessory',
-              onPressed: onToggle,
+              onPressed: () {
+                _discardPending();
+                widget.onToggle();
+              },
               icon: Icon(line.enabled ? Icons.check_circle_outline : Icons.remove_circle_outline),
-              color: line.enabled ? colorScheme.primary : colorScheme.onSurfaceVariant,
+              color: _rowStateIconColor(
+                context,
+                enabled: line.enabled,
+                hasManualValue: line.hasManualValue,
+                hasPendingEdit: hasPendingEdit,
+              ),
             ),
           ],
         ),
@@ -11965,6 +12840,23 @@ Map<String, List<String>> _calculatorAttentionMessagesByStep({
   return grouped;
 }
 
+/// Article numbers of the geometry-driving components that carry a manual
+/// override or exclusion in the current draft.
+List<String> _manualGeometryOverrideArticles(CalculatorDraft draft) {
+  final articles = <String>{};
+  for (final tab in draft.setContents) {
+    for (final item in tab.items) {
+      if (!item.isCalculated || !item.isOverridden) continue;
+      for (final articleNo in _moduleEditorArticleNames.keys) {
+        if (_moduleEditorItemMatchesArticle(item, articleNo)) {
+          articles.add(articleNo);
+        }
+      }
+    }
+  }
+  return articles.toList()..sort();
+}
+
 void _addWarningMessage(
   Map<String, List<String>> grouped,
   String stepKey,
@@ -12112,6 +13004,17 @@ Map<String, List<String>> _calculatorWarningMessagesByStep({
 
   for (final message in _moduleDimensionWarningMessages(draft)) {
     _addWarningMessage(grouped, 'dimensions', message);
+  }
+
+  final manualGeometryArticles = _manualGeometryOverrideArticles(draft);
+  if (manualGeometryArticles.isNotEmpty) {
+    final manualGeometryMessage =
+        'Roof geometry was recalculated from manual Set contents values for '
+        '${manualGeometryArticles.join(', ')}. Glass fields and the dependent '
+        'components follow these values instead of the automatic layout.';
+    for (final stepKey in const ['set_contents', 'dimensions', 'covering']) {
+      _addWarningMessage(grouped, stepKey, manualGeometryMessage);
+    }
   }
 
   final selectedColor = _normalizeRalCode(draft.colorCode);
