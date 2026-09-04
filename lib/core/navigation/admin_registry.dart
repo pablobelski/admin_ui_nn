@@ -499,6 +499,7 @@ const adminNavGroups = <AdminNavGroup>[
           AdminColumn(key: 'storage_key', label: 'Storage key', flex: 3),
         ],
         listFilters: [
+          AdminResourceFilter(key: 'quote_id', label: 'Quote', lookup: quoteLookup),
           AdminResourceFilter(key: 'purpose', label: 'Purpose', options: mediaPurposeOptions),
           AdminResourceFilter(key: 'bucket_name', label: 'Bucket'),
           AdminResourceFilter(key: 'mime_type', label: 'MIME type'),
@@ -773,6 +774,13 @@ const adminNavGroups = <AdminNavGroup>[
             filterKey: 'quote_id',
             sourceValueKey: 'id',
             icon: Icons.picture_as_pdf_outlined,
+          ),
+          AdminDetailAction(
+            label: 'Show media files',
+            targetResourceKey: 'asset_files',
+            filterKey: 'quote_id',
+            sourceValueKey: 'id',
+            icon: Icons.perm_media_outlined,
           ),
           AdminDetailAction(
             label: 'Show integration jobs',

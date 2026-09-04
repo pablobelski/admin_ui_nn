@@ -282,9 +282,12 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
       });
       if (!mounted) return;
       final filename = '${result['filename'] ?? 'GLB'}'.trim();
+      final generated = result['generated'] != false;
       showTopNotification(
         context,
-        '$filename generated and saved to Media Library.',
+        generated
+            ? '$filename generated and saved to Media Library.'
+            : '$filename is already available in Media Library.',
         type: TopNotificationType.success,
       );
     } catch (error) {
@@ -325,7 +328,7 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
                 IconButton(
                   tooltip: widget.onGenerateGlb == null
                       ? 'Save the current calculation to generate GLB'
-                      : 'Generate GLB and open 3D viewer',
+                      : 'Open existing GLB or generate it',
                   onPressed: widget.onGenerateGlb != null && !_isGeneratingGlb
                       ? _generateGlb
                       : null,
@@ -468,7 +471,7 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
                       IconButton(
                         tooltip: widget.onGenerateGlb == null
                             ? 'Save the current calculation to generate GLB'
-                            : 'Generate GLB and open 3D viewer',
+                            : 'Open existing GLB or generate it',
                         onPressed: widget.onGenerateGlb != null && !_isGeneratingGlb
                             ? _generateGlb
                             : null,

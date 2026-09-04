@@ -1751,6 +1751,7 @@ class _ResourceDetailsContent extends StatelessWidget {
                   _SavedQuoteGeometryPreviewTab(
                     data: data,
                     repository: repository,
+                    quoteRepository: quoteRepository,
                     calculatorContext: quotePreviewContext,
                     roofModelLabelsByCode: roofModelLabelsByCode,
                   ),
@@ -2739,12 +2740,14 @@ class _SavedQuoteGeometryPreviewTab extends StatelessWidget {
   const _SavedQuoteGeometryPreviewTab({
     required this.data,
     required this.repository,
+    required this.quoteRepository,
     required this.calculatorContext,
     required this.roofModelLabelsByCode,
   });
 
   final Map<String, dynamic> data;
   final AdminResourceRepository repository;
+  final CalculatorRepository quoteRepository;
   final AsyncValue<CalculatorContext>? calculatorContext;
   final Map<String, String> roofModelLabelsByCode;
 
@@ -2788,6 +2791,7 @@ class _SavedQuoteGeometryPreviewTab extends StatelessWidget {
         ?? draft.coveringCode
         ?? _savedQuoteModuleCoveringCode(draft);
     final slope = _savedQuoteSlopePreviewData(data, draft);
+    final quoteId = data['id']?.toString().trim() ?? '';
     final quoteNo = _quoteTextField(data, 'quote_no', 'quoteNo');
     final externalNotes = _quoteTextField(data, 'external_notes', 'externalNotes');
     final moduleRoles = roofCalculation?.modules.isNotEmpty == true
@@ -2808,6 +2812,9 @@ class _SavedQuoteGeometryPreviewTab extends StatelessWidget {
             modelCode: modelCode,
             modelLabel: modelLabel,
             mediaRepository: repository,
+            onGenerateGlb: quoteId.isEmpty
+                ? null
+                : () => quoteRepository.generateGlb(quoteId),
             widthMm: draft.widthMm,
             depthMm: draft.depthMm,
             heightMm: draft.heightMm,
