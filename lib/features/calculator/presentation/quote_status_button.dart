@@ -212,7 +212,7 @@ class _QuoteStatusButtonState extends State<QuoteStatusButton> {
       );
     } else if (widget.prominent) {
       button = SizedBox(
-        width: 128,
+        width: 136,
         height: 36,
         child: OutlinedButton(
           onPressed: canPress ? _open : null,

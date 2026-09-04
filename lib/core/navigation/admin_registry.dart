@@ -5,6 +5,7 @@ import '../models/admin_resource.dart';
 const organizationLookup = AdminLookup(
   endpoint: '/api/admin/organizations',
   labelKeys: ['display_name', 'customer_number', 'legal_name', 'organization_type'],
+  limit: 2000,
 );
 
 const userLookup = AdminLookup(
@@ -313,6 +314,7 @@ const systemOptionPriceListPurposeOptions = <AdminSelectOption>[
 
 const mediaPurposeOptions = <AdminSelectOption>[
   AdminSelectOption(value: 'generated-documents/quotes', label: 'Generated quote documents'),
+  AdminSelectOption(value: 'generated-models/quotes', label: 'Generated quote GLB models'),
   AdminSelectOption(value: 'catalog_media', label: 'Catalog media'),
   AdminSelectOption(value: 'roof_model_media', label: 'Roof model media'),
   AdminSelectOption(value: 'document_template', label: 'Document templates'),

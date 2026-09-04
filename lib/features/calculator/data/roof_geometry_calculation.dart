@@ -36,7 +36,7 @@ const Map<String, Map<String, int>> _fallbackBeamCountOffsetsByModel = {
   'LRTR': {'main': -1, 'small': -1},
   'LRTL': {'main': -1, 'small': -1},
   'LWTR': {'main': -1, 'small': -1},
-  'LWTL': {'main': -1, 'small': -1},
+  'LWTL': {'main': -1, 'small': 0},
   'UWTM': {'left': -1, 'right': -1, 'middle': -1},
   'TWTM': {'middle': -1, 'left': -1, 'right': -1},
   'SWL': {'main': -1},
@@ -848,6 +848,7 @@ num _setContentSourceNumber(
 
 _BeamModuleOverride _beamOverrideForTab(CalculatorSetContentTab tab) {
   const empty = _BeamModuleOverride();
+  const minimumDependentBeamLengthMm = 100;
   final items = tab.items
       .where((item) =>
           item.isCalculated &&
@@ -860,6 +861,24 @@ _BeamModuleOverride _beamOverrideForTab(CalculatorSetContentTab tab) {
   // Fully excluded beams keep the last valid automatic layout, exactly like the
   // server does when it reports set_content_beam_dependency_not_applied.
   if (active.isEmpty) return empty;
+  final expectedCutGroupCount = items.fold<int>(1, (current, item) {
+    final count = math.max(
+      1,
+      _setContentSourceNumber(item, 'cut_group_count', 'cutGroupCount', 1)
+          .round(),
+    ).toInt();
+    return math.max(current, count).toInt();
+  });
+  final activeCutGroups = active
+      .map((item) => _setContentSourceNumber(
+            item,
+            'cut_group_index',
+            'cutGroupIndex',
+            1,
+          ).round())
+      .toSet();
+  final hasCompleteCutGroup = expectedCutGroupCount <= 1 ||
+      activeCutGroups.length == expectedCutGroupCount;
 
   int? beamCount;
   for (final item in active) {
@@ -914,9 +933,10 @@ _BeamModuleOverride _beamOverrideForTab(CalculatorSetContentTab tab) {
             )
           : (first.calculatedLengthMm ?? first.lengthMm ?? 0).toDouble() *
               splitCount);
-  final beamLengthMm = installedLengthMm > 0 &&
+  final beamLengthMm = hasCompleteCutGroup &&
+          installedLengthMm >= minimumDependentBeamLengthMm &&
           (installedLengthMm - calculatedInstalledLengthMm).abs() > 0.0001
-      ? math.max(1, installedLengthMm.round()).toInt()
+      ? installedLengthMm.round()
       : null;
 
   if (beamCount == null && beamLengthMm == null) return empty;

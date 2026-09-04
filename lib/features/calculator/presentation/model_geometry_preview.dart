@@ -163,6 +163,7 @@ class ModelGeometryPreview extends ConsumerStatefulWidget {
     this.colorSwatchColor,
     this.isSpecialColor = false,
     this.coveringName,
+    this.coveringSummary,
     this.markiseSegments = const [],
     this.staticBeam,
     this.wallMounted = false,
@@ -171,10 +172,12 @@ class ModelGeometryPreview extends ConsumerStatefulWidget {
     this.warnings = const [],
     this.highlightedModuleIndex,
     this.highlightedGlassFieldIndex,
+    this.highlightedManufacturingFieldKind,
     this.roofAngleDeg,
     this.rearHeightMm,
     this.frontHeightMm,
     this.showRoofType = true,
+    this.onGenerateGlb,
   });
 
   final String? modelCode;
@@ -200,6 +203,7 @@ class ModelGeometryPreview extends ConsumerStatefulWidget {
   final Color? colorSwatchColor;
   final bool isSpecialColor;
   final String? coveringName;
+  final String? coveringSummary;
   final List<GeometryPreviewMarkiseSegment> markiseSegments;
   final RoofStaticBeamCalculation? staticBeam;
   final bool wallMounted;
@@ -208,10 +212,12 @@ class ModelGeometryPreview extends ConsumerStatefulWidget {
   final List<String> warnings;
   final int? highlightedModuleIndex;
   final int? highlightedGlassFieldIndex;
+  final String? highlightedManufacturingFieldKind;
   final int? roofAngleDeg;
   final int? rearHeightMm;
   final int? frontHeightMm;
   final bool showRoofType;
+  final Future<Map<String, dynamic>> Function()? onGenerateGlb;
 
   @override
   ConsumerState<ModelGeometryPreview> createState() => _ModelGeometryPreviewState();
@@ -220,6 +226,7 @@ class ModelGeometryPreview extends ConsumerStatefulWidget {
 class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
   late Future<ui.Image?> _humanImageFuture;
   late Future<Uint8List?> _staticBeamInstructionImageFuture;
+  bool _isGeneratingGlb = false;
 
   @override
   void initState() {
@@ -260,6 +267,38 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
     });
   }
 
+  Future<void> _generateGlb() async {
+    final generate = widget.onGenerateGlb;
+    if (generate == null || _isGeneratingGlb) return;
+
+    setState(() => _isGeneratingGlb = true);
+    Map<String, dynamic> result = const {};
+    try {
+      await openMediaUrlFromFuture(() async {
+        result = await generate();
+        final shouldOpen = result['open_viewer'] != false;
+        final viewerUrl = '${result['viewer_url'] ?? ''}'.trim();
+        return shouldOpen && viewerUrl.isNotEmpty ? viewerUrl : null;
+      });
+      if (!mounted) return;
+      final filename = '${result['filename'] ?? 'GLB'}'.trim();
+      showTopNotification(
+        context,
+        '$filename generated and saved to Media Library.',
+        type: TopNotificationType.success,
+      );
+    } catch (error) {
+      if (!mounted) return;
+      showTopNotification(
+        context,
+        'GLB generation failed: $error',
+        type: TopNotificationType.error,
+      );
+    } finally {
+      if (mounted) setState(() => _isGeneratingGlb = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -283,6 +322,24 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
                 const SizedBox(width: 8),
                 Text('Geometry preview', style: theme.textTheme.titleSmall),
                 const Spacer(),
+                IconButton(
+                  tooltip: widget.onGenerateGlb == null
+                      ? 'Save the current calculation to generate GLB'
+                      : 'Generate GLB and open 3D viewer',
+                  onPressed: widget.onGenerateGlb != null && !_isGeneratingGlb
+                      ? _generateGlb
+                      : null,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints.tightFor(width: 28, height: 28),
+                  icon: _isGeneratingGlb
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.view_in_ar_outlined, size: 18),
+                ),
+                const SizedBox(width: 4),
                 IconButton(
                   tooltip: 'Open enlarged geometry preview',
                   onPressed: hasSelection ? () => _showExpandedPreview(context, currentUser) : null,
@@ -315,7 +372,7 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
             ],
             const SizedBox(height: 12),
             SizedBox(
-              height: 250,
+              height: 318,
               width: double.infinity,
               child: _buildGeometryCanvas(colorScheme),
             ),
@@ -361,6 +418,7 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
             surfaceColor: colorScheme.surface,
             highlightedModuleIndex: clearHighlight ? null : widget.highlightedModuleIndex,
             highlightedGlassFieldIndex: clearHighlight ? null : widget.highlightedGlassFieldIndex,
+            highlightedManufacturingFieldKind: clearHighlight ? null : widget.highlightedManufacturingFieldKind,
             roofAngleDeg: widget.roofAngleDeg,
             rearHeightMm: widget.rearHeightMm,
             frontHeightMm: widget.frontHeightMm,
@@ -406,6 +464,21 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
                           style: Theme.of(dialogContext).textTheme.titleLarge,
                           overflow: TextOverflow.ellipsis,
                         ),
+                      ),
+                      IconButton(
+                        tooltip: widget.onGenerateGlb == null
+                            ? 'Save the current calculation to generate GLB'
+                            : 'Generate GLB and open 3D viewer',
+                        onPressed: widget.onGenerateGlb != null && !_isGeneratingGlb
+                            ? _generateGlb
+                            : null,
+                        icon: _isGeneratingGlb
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.view_in_ar_outlined),
                       ),
                       IconButton(
                         tooltip: 'Download PNG',
@@ -455,6 +528,7 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
                                   colorCode: widget.colorCode,
                                   isSpecialColor: widget.isSpecialColor,
                                   coveringName: widget.coveringName,
+                                  coveringSummary: widget.coveringSummary,
                                   markiseSegments: widget.markiseSegments,
                                   staticBeam: widget.staticBeam,
                                   wallMounted: widget.wallMounted,
@@ -815,6 +889,7 @@ class _ExpandedPreviewInfo extends StatelessWidget {
     required this.colorCode,
     required this.isSpecialColor,
     required this.coveringName,
+    required this.coveringSummary,
     required this.markiseSegments,
     required this.staticBeam,
     required this.wallMounted,
@@ -840,6 +915,7 @@ class _ExpandedPreviewInfo extends StatelessWidget {
   final String? colorCode;
   final bool isSpecialColor;
   final String? coveringName;
+  final String? coveringSummary;
   final List<GeometryPreviewMarkiseSegment> markiseSegments;
   final RoofStaticBeamCalculation? staticBeam;
   final bool wallMounted;
@@ -883,6 +959,7 @@ class _ExpandedPreviewInfo extends StatelessWidget {
       (sum, segment) => sum + segment.quantity,
     );
     final glassName = coveringName?.trim() ?? '';
+    final glassSummary = coveringSummary?.trim() ?? '';
 
     return Container(
       padding: const EdgeInsets.all(18),
@@ -916,11 +993,13 @@ class _ExpandedPreviewInfo extends StatelessWidget {
                 label: isSpecialColor ? 'Color (Sonderfarbe)' : 'Color',
                 value: colorCode!.trim(),
               ),
-            if (glassName.isNotEmpty || totalGlassCount > 0 || totalMarkiseCount > 0)
+            if (glassSummary.isNotEmpty || glassName.isNotEmpty || totalGlassCount > 0 || totalMarkiseCount > 0)
               _PreviewMetadataRow(
                 label: 'Covering',
                 value: [
-                  if (glassName.isNotEmpty || totalGlassCount > 0)
+                  if (glassSummary.isNotEmpty)
+                    'Glas:\n$glassSummary'
+                  else if (glassName.isNotEmpty || totalGlassCount > 0)
                     'Glas: ${glassName.isEmpty ? '—' : glassName} · $totalGlassCount stk.',
                   if (totalMarkiseCount > 0) 'Markise: $totalMarkiseCount stk.',
                 ].join('\n'),
@@ -1340,6 +1419,7 @@ Future<Uint8List> renderGeometryOnlyPreviewPng({
     surfaceColor: Colors.white,
     highlightedModuleIndex: null,
     highlightedGlassFieldIndex: null,
+    highlightedManufacturingFieldKind: null,
     roofAngleDeg: roofAngleDeg,
     rearHeightMm: rearHeightMm,
     frontHeightMm: frontHeightMm,
@@ -1465,6 +1545,7 @@ Future<Uint8List> renderExpandedGeometryPreviewPng({
   required Color? colorSwatchColor,
   required bool isSpecialColor,
   required String? coveringName,
+  required String? coveringSummary,
   required List<GeometryPreviewMarkiseSegment> markiseSegments,
   required RoofStaticBeamCalculation? staticBeam,
   required bool wallMounted,
@@ -1535,6 +1616,7 @@ Future<Uint8List> renderExpandedGeometryPreviewPng({
     (sum, segment) => sum + segment.quantity,
   );
   final glassName = coveringName?.trim() ?? '';
+  final glassSummary = coveringSummary?.trim() ?? '';
   final buyerNameValue = buyerName?.trim();
   final contactDetails = [buyerContactName, buyerEmail, buyerPhone]
       .map((value) => value?.trim() ?? '')
@@ -1577,11 +1659,13 @@ Future<Uint8List> renderExpandedGeometryPreviewPng({
   if (colorCode?.trim().isNotEmpty == true) {
     info(isSpecialColor ? 'Color (Sonderfarbe)' : 'Color', colorCode!.trim());
   }
-  if (glassName.isNotEmpty || totalGlassCount > 0 || totalMarkiseCount > 0) {
+  if (glassSummary.isNotEmpty || glassName.isNotEmpty || totalGlassCount > 0 || totalMarkiseCount > 0) {
     info(
       'Covering',
       [
-        if (glassName.isNotEmpty || totalGlassCount > 0)
+        if (glassSummary.isNotEmpty)
+          'Glas:\n$glassSummary'
+        else if (glassName.isNotEmpty || totalGlassCount > 0)
           'Glas: ${glassName.isEmpty ? '—' : glassName} · $totalGlassCount stk.',
         if (totalMarkiseCount > 0) 'Markise: $totalMarkiseCount stk.',
       ].join('\n'),
@@ -1662,6 +1746,7 @@ Future<Uint8List> renderExpandedGeometryPreviewPng({
     surfaceColor: Colors.white,
     highlightedModuleIndex: null,
     highlightedGlassFieldIndex: null,
+    highlightedManufacturingFieldKind: null,
     roofAngleDeg: roofAngleDeg,
     rearHeightMm: rearHeightMm,
     frontHeightMm: frontHeightMm,
@@ -1834,6 +1919,7 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     required this.surfaceColor,
     required this.highlightedModuleIndex,
     required this.highlightedGlassFieldIndex,
+    required this.highlightedManufacturingFieldKind,
     required this.roofAngleDeg,
     required this.rearHeightMm,
     required this.frontHeightMm,
@@ -1864,6 +1950,7 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
   final Color surfaceColor;
   final int? highlightedModuleIndex;
   final int? highlightedGlassFieldIndex;
+  final String? highlightedManufacturingFieldKind;
   final int? roofAngleDeg;
   final int? rearHeightMm;
   final int? frontHeightMm;
@@ -1951,10 +2038,12 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     final humanX = profile.mirrorView ? layout.widthMm : 0.0;
     final humanY = _yAt(layout.front, humanX);
     final humanPlan = projectPlan(humanX, humanY);
-    final humanDisplayHeightMm = _humanDisplayHeightMm(
-      layout,
-      Offset(humanX, humanY),
-    );
+    // Every post is drawn from the roof plane down to `layout.heightMm`, so the
+    // figure is simply 1800 mm in the same millimetre space as the roof. It
+    // used to be rescaled against the configured front/rear post height, which
+    // the main view never draws, and that made it far too tall whenever the
+    // front posts were lower than the roof height.
+    const humanDisplayHeightMm = _humanMm;
     final leftReserveMm = geometryOnly
         ? 0.0
         : humanGapMm + humanDisplayHeightMm * 0.55;
@@ -2625,7 +2714,14 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     var corners = area.corners;
     final fieldIndex = highlightedGlassFieldIndex;
     final calculation = _calculatedModuleFor(index);
-    final fieldCount = calculation?.glassDepthFieldCount ?? 1;
+    final fieldKind = highlightedManufacturingFieldKind ?? 'glass';
+    final profileField = fieldKind == 'profiles';
+    final fieldLengths = profileField
+        ? (calculation?.beamSegmentLengthsMm ?? const <int>[])
+        : (calculation?.glassDepthSegmentLengthsMm ?? const <int>[]);
+    final fieldCount = profileField
+        ? math.max(1, fieldLengths.length).toInt()
+        : (calculation?.glassDepthFieldCount ?? 1);
     if (fieldIndex != null &&
         fieldCount > 1 &&
         fieldIndex >= 1 &&
@@ -2635,7 +2731,7 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
         area.corners,
         fieldIndex,
         fieldCount,
-        calculation?.glassDepthSegmentLengthsMm ?? const [],
+        fieldLengths,
       );
     }
 
@@ -3626,33 +3722,6 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     canvas.drawPath(body, silhouette);
   }
 
-  double _humanDisplayHeightMm(
-    _RoofLayout layout,
-    Offset humanPoint,
-  ) {
-    final posts = _effectivePostPoints(layout);
-    if (posts.isEmpty) return _humanMm;
-
-    var nearest = posts.first;
-    var nearestDistance = (nearest - humanPoint).distance;
-    for (final post in posts.skip(1)) {
-      final distance = (post - humanPoint).distance;
-      if (distance < nearestDistance) {
-        nearest = post;
-        nearestDistance = distance;
-      }
-    }
-
-    final configuredPostHeight = _pointOnEdge(nearest, layout.front)
-        ? frontHeightMm
-        : rearHeightMm;
-    if (configuredPostHeight == null || configuredPostHeight < _humanMm) {
-      return _humanMm;
-    }
-    return _humanMm * layout.heightMm / configuredPostHeight;
-  }
-
-
   bool get _usesSharedModuleBeams => const {
         'LWTR',
         'LWTL',
@@ -3841,9 +3910,9 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     }
 
     // First reserve explicitly added/overridden Pfosten in the module where
-    // the user configured them. Inside that module, module intersections and
-    // manufacturing-cut endpoints are preferred before generic perimeter
-    // positions.
+    // the user configured them. Inside that module, eligible module
+    // intersections and profile-cut endpoints are preferred before generic
+    // perimeter positions.
     for (final moduleIndex in preferredModules) {
       if (points.length >= postCount) break;
       final candidate = _preferredPostPointForModule(
@@ -3855,19 +3924,24 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     }
 
     // Structural points are stronger than the old front-edge preference:
-    // module-area intersections first, then the endpoints of glass/profile
-    // cuts. This is what moves posts to the meaningful red-line positions on
+    // eligible module-area intersections first, then profile-cut endpoints.
+    // This is what moves posts to the meaningful red-line positions on
     // complex L/U/T roofs instead of accumulating them along one gutter edge.
     append(
       _orderPostCandidatesBySpacing(structuralPriority, points),
       postCount,
     );
 
-    // Keep the original layout's canonical corner/junction supports ahead of
-    // generic side-edge midpoints. A dashed recommended support therefore gets
-    // occupied before a less useful position is introduced elsewhere.
+    // Keep external roof corners ahead of internal corners. A dashed external
+    // support therefore gets occupied before an internal corner, while profile
+    // cut endpoints keep their structural priority above both groups.
+    final canonicalCorners = _canonicalPostCornerGroups(layout);
     append(
-      _orderPostCandidatesBySpacing(_canonicalPostPoints(layout), points),
+      _orderPostCandidatesBySpacing(canonicalCorners.external, points),
+      postCount,
+    );
+    append(
+      _orderPostCandidatesBySpacing(canonicalCorners.internal, points),
       postCount,
     );
 
@@ -3957,14 +4031,20 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
       return _orderPostCandidatesBySpacing(structural, occupied).first;
     }
 
-    final canonical = _canonicalPostPoints(layout)
-        .where((point) => _pointInsideModuleArea(point, area))
-        .where(
-          (point) => !occupied.any((entry) => (entry - point).distance < 1),
-        )
-        .toList(growable: false);
-    if (canonical.isNotEmpty) {
-      return _orderPostCandidatesBySpacing(canonical, occupied).first;
+    final canonicalCorners = _canonicalPostCornerGroups(layout);
+    for (final candidates in [
+      canonicalCorners.external,
+      canonicalCorners.internal,
+    ]) {
+      final canonical = candidates
+          .where((point) => _pointInsideModuleArea(point, area))
+          .where(
+            (point) => !occupied.any((entry) => (entry - point).distance < 1),
+          )
+          .toList(growable: false);
+      if (canonical.isNotEmpty) {
+        return _orderPostCandidatesBySpacing(canonical, occupied).first;
+      }
     }
 
     final perimeter = _perimeterPostCandidates(layout)
@@ -4001,11 +4081,7 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
       if (area.corners.length != 4) continue;
       final calculation = _calculatedModuleFor(area.index);
       if (calculation == null || calculation.depthMm <= 0) continue;
-      final cuts = <int>{
-        ...calculation.glassCutPositionsMm,
-        ...calculation.profileCutPositionsMm,
-      }.toList()
-        ..sort();
+      final cuts = calculation.profileCutPositionsMm.toSet().toList()..sort();
       for (final cutMm in cuts) {
         if (cutMm <= 0 || cutMm >= calculation.depthMm) continue;
         final t = (1 - cutMm / calculation.depthMm).clamp(0.0, 1.0);
@@ -4014,7 +4090,14 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
       }
     }
 
-    final points = _mergeNearbyPostPoints([...moduleJoints, ...cutEndpoints]);
+    final internalCorners = _canonicalPostCornerGroups(layout).internal;
+    final points = _mergeNearbyPostPoints([...moduleJoints, ...cutEndpoints])
+        .where(
+          (point) => !internalCorners.any(
+            (corner) => (corner - point).distance < 1,
+          ),
+        )
+        .toList(growable: false);
     if (!wallMounted) return points;
     return points
         .where((point) => !_pointOnEdge(point, layout.back))
@@ -4223,6 +4306,21 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     return _canonicalPostPoints(layout)
         .where((point) => !actual.any((post) => (post - point).distance < 1))
         .toList();
+  }
+
+  _PostCornerGroups _canonicalPostCornerGroups(_RoofLayout layout) {
+    final front = _edgePostCorners(layout.front, isFront: true);
+    final external = <Offset>[...front.external];
+    final internal = <Offset>[...front.internal];
+    if (!wallMounted) {
+      final back = _edgePostCorners(layout.back, isFront: false);
+      external.addAll(back.external);
+      internal.addAll(back.internal);
+    }
+    return _PostCornerGroups(
+      external: _uniquePoints(external),
+      internal: _uniquePoints(internal),
+    );
   }
 
   List<Offset> _canonicalPostPoints(_RoofLayout layout) {
@@ -4557,6 +4655,7 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
         oldDelegate.surfaceColor != surfaceColor ||
         oldDelegate.highlightedModuleIndex != highlightedModuleIndex ||
         oldDelegate.highlightedGlassFieldIndex != highlightedGlassFieldIndex ||
+        oldDelegate.highlightedManufacturingFieldKind != highlightedManufacturingFieldKind ||
         oldDelegate.roofAngleDeg != roofAngleDeg ||
         oldDelegate.rearHeightMm != rearHeightMm ||
         oldDelegate.frontHeightMm != frontHeightMm ||

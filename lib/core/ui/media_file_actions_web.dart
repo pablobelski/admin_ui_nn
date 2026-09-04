@@ -19,6 +19,29 @@ void openMediaUrl(
   }
 }
 
+Future<void> openMediaUrlFromFuture(
+  Future<String?> Function() resolveUrl, {
+  String target = '_blank',
+}) async {
+  final openedWindow = web.window.open('about:blank', target);
+  try {
+    final url = (await resolveUrl())?.trim() ?? '';
+    if (url.isEmpty) {
+      openedWindow?.close();
+      return;
+    }
+    if (openedWindow != null) {
+      openedWindow.location.href = url;
+      openedWindow.focus();
+    } else {
+      web.window.open(url, target)?.focus();
+    }
+  } catch (_) {
+    openedWindow?.close();
+    rethrow;
+  }
+}
+
 void downloadMediaUrl(String url, {String? filename}) {
   if (url.trim().isEmpty) return;
   final anchor = web.document.createElement('a') as web.HTMLAnchorElement

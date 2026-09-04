@@ -208,6 +208,13 @@ class CalculatorRepository {
     return QuoteIntegrationResult.fromJson(response);
   }
 
+  Future<Map<String, dynamic>> generateGlb(String quoteId) {
+    return _client.postJson(
+      '/api/internal/calculator/glb',
+      body: {'quote_id': quoteId},
+    );
+  }
+
   Future<Map<String, dynamic>> fetchMediaFileUrl(String fileId) async {
     final data = await _client.getJson('/api/admin/media-files/$fileId/url');
     for (final key in ['url', 'download_url']) {

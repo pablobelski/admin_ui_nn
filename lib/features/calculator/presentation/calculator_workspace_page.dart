@@ -76,6 +76,7 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
   String? _calculatedPriceSignature;
   int? _highlightedModuleIndex;
   int? _highlightedGlassFieldIndex;
+  String? _highlightedManufacturingFieldKind;
 
   @override
   Widget build(BuildContext context) {
@@ -203,8 +204,16 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
                             onModuleFocusChanged: (value) => setState(() {
                               _highlightedModuleIndex = value;
                               _highlightedGlassFieldIndex = null;
+                              _highlightedManufacturingFieldKind = null;
                             }),
-                            onGlassFieldFocusChanged: (value) => setState(() => _highlightedGlassFieldIndex = value),
+                            onGlassFieldFocusChanged: (value) => setState(() {
+                              _highlightedGlassFieldIndex = value;
+                              _highlightedManufacturingFieldKind = value == null ? null : 'glass';
+                            }),
+                            onManufacturingFieldFocusChanged: (kind, fieldIndex) => setState(() {
+                              _highlightedGlassFieldIndex = fieldIndex;
+                              _highlightedManufacturingFieldKind = fieldIndex == null ? null : kind;
+                            }),
                           ),
                         ),
                         const SizedBox(width: 16),
@@ -218,6 +227,7 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
                             selectedStep: effectiveSelectedStep,
                             highlightedModuleIndex: _highlightedModuleIndex,
                             highlightedGlassFieldIndex: _highlightedGlassFieldIndex,
+                            highlightedManufacturingFieldKind: _highlightedManufacturingFieldKind,
                             mediaRepository: ref.read(resourceRepositoryProvider),
                             loadedQuote: loadedQuote,
                             savedQuote: _savedQuote,
@@ -272,8 +282,16 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
                             onModuleFocusChanged: (value) => setState(() {
                               _highlightedModuleIndex = value;
                               _highlightedGlassFieldIndex = null;
+                              _highlightedManufacturingFieldKind = null;
                             }),
-                            onGlassFieldFocusChanged: (value) => setState(() => _highlightedGlassFieldIndex = value),
+                            onGlassFieldFocusChanged: (value) => setState(() {
+                              _highlightedGlassFieldIndex = value;
+                              _highlightedManufacturingFieldKind = value == null ? null : 'glass';
+                            }),
+                            onManufacturingFieldFocusChanged: (kind, fieldIndex) => setState(() {
+                              _highlightedGlassFieldIndex = fieldIndex;
+                              _highlightedManufacturingFieldKind = fieldIndex == null ? null : kind;
+                            }),
                           ),
                         ),
                         const SizedBox(height: 12),
@@ -287,6 +305,7 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
                             selectedStep: effectiveSelectedStep,
                             highlightedModuleIndex: _highlightedModuleIndex,
                             highlightedGlassFieldIndex: _highlightedGlassFieldIndex,
+                            highlightedManufacturingFieldKind: _highlightedManufacturingFieldKind,
                             mediaRepository: ref.read(resourceRepositoryProvider),
                             loadedQuote: loadedQuote,
                             savedQuote: _savedQuote,
@@ -782,6 +801,7 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
         colorSwatchColor: colorPreview?.color,
         isSpecialColor: colorPreview != null && !colorPreview.isStandard,
         coveringName: previewData.coveringName,
+        coveringSummary: previewData.coveringSummary,
         markiseSegments: markiseSegments,
         staticBeam: previewData.roofCalculation.staticBeam,
         wallMounted: draft.wallMounted,
@@ -1338,6 +1358,7 @@ class _StepCard extends ConsumerWidget {
     required this.isLoadedCalculation,
     required this.onModuleFocusChanged,
     required this.onGlassFieldFocusChanged,
+    required this.onManufacturingFieldFocusChanged,
   });
 
   final int selectedStep;
@@ -1356,6 +1377,7 @@ class _StepCard extends ConsumerWidget {
   final bool isLoadedCalculation;
   final ValueChanged<int?> onModuleFocusChanged;
   final ValueChanged<int?> onGlassFieldFocusChanged;
+  final void Function(String? kind, int? fieldIndex) onManufacturingFieldFocusChanged;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -1604,7 +1626,7 @@ class _StepCard extends ConsumerWidget {
           mediaRepository: ref.read(resourceRepositoryProvider),
           weights: result?.weights ?? const {},
           onModuleFocusChanged: onModuleFocusChanged,
-          onGlassFieldFocusChanged: onGlassFieldFocusChanged,
+          onManufacturingFieldFocusChanged: onManufacturingFieldFocusChanged,
           onUpdateFromDefaults: () => _confirmAndReloadSetContents(context),
           onOpenRuleSet: (id) => ref
               .read(selectedResourceProvider.notifier)
@@ -3398,13 +3420,25 @@ class _ManufacturingSplitsEditorState
         : calculatedLengths.map((value) => '$value mm').join(' / ');
     return LayoutBuilder(
       builder: (context, constraints) {
+        Widget typeLabel() => SizedBox(
+              width: 104,
+              child: Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: Text(
+                  label,
+                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+              ),
+            );
         Widget modeField() => SizedBox(
               width: 210,
               child: DropdownButtonFormField<String>(
                 initialValue: mode,
                 isExpanded: true,
-                decoration: InputDecoration(
-                  labelText: label,
+                decoration: const InputDecoration(
+                  labelText: 'Mode',
                   isDense: true,
                 ),
                 items: modeItems,
@@ -3443,10 +3477,12 @@ class _ManufacturingSplitsEditorState
               label: mode == 'auto' ? 'Auto pieces' : 'Calculated pieces',
               value: piecesText,
             );
-        if (constraints.maxWidth >= 690) {
+        if (constraints.maxWidth >= 800) {
           return Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              typeLabel(),
+              const SizedBox(width: 10),
               modeField(),
               const SizedBox(width: 10),
               cutsField(),
@@ -3458,6 +3494,13 @@ class _ManufacturingSplitsEditorState
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            Text(
+              label,
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+            ),
+            const SizedBox(height: 6),
             modeField(),
             const SizedBox(height: 8),
             cutsField(),
@@ -3506,34 +3549,42 @@ class _ManufacturingSplitsEditorState
           SizedBox(
             width: 112,
             child: Padding(
-              padding: const EdgeInsets.only(top: 14),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (hasManualSplit) ...[
-                    Icon(
-                      Icons.error_outline,
-                      size: 19,
-                      color: warningColor,
+              padding: const EdgeInsets.only(top: 8),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade50,
+                  border: Border.all(color: Colors.orange.shade300),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (hasManualSplit) ...[
+                      Icon(
+                        Icons.error_outline,
+                        size: 18,
+                        color: warningColor,
+                      ),
+                      const SizedBox(width: 4),
+                    ],
+                    Flexible(
+                      child: Text(
+                        hasManualSplit
+                            ? 'Manual split'
+                            : hasLinkedSplit
+                                ? 'Linked split'
+                                : 'Auto split',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                              fontWeight: FontWeight.w800,
+                              color: Colors.orange.shade900,
+                            ),
+                      ),
                     ),
-                    const SizedBox(width: 4),
                   ],
-                  Flexible(
-                    child: Text(
-                      hasManualSplit
-                          ? 'Manual split'
-                          : hasLinkedSplit
-                              ? 'Linked split'
-                              : 'Auto',
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                            fontWeight: FontWeight.w800,
-                            color: colorScheme.onSurface,
-                          ),
-                    ),
-                  ),
-                ],
+                ),
               ),
             ),
           ),
@@ -3569,7 +3620,7 @@ class _ManufacturingSplitsEditorState
                 _splitRow(
                   context,
                   kind: 'profiles',
-                  label: 'Beam / profile split',
+                  label: 'Profile split',
                   controller: _profileCuts,
                   focusNode: _profileCutsFocus,
                   calculatedLengths:
@@ -7264,7 +7315,7 @@ class _SetContentsStep extends StatefulWidget {
     required this.mediaRepository,
     required this.weights,
     required this.onModuleFocusChanged,
-    required this.onGlassFieldFocusChanged,
+    required this.onManufacturingFieldFocusChanged,
     required this.onUpdateFromDefaults,
     required this.onOpenRuleSet,
     required this.onOpenRuleMatrix,
@@ -7280,13 +7331,118 @@ class _SetContentsStep extends StatefulWidget {
   final AdminResourceRepository mediaRepository;
   final Map<String, dynamic> weights;
   final ValueChanged<int?> onModuleFocusChanged;
-  final ValueChanged<int?> onGlassFieldFocusChanged;
+  final void Function(String? kind, int? fieldIndex) onManufacturingFieldFocusChanged;
   final Future<void> Function() onUpdateFromDefaults;
   final ValueChanged<String> onOpenRuleSet;
   final void Function(String matrixId, String? ruleSetId) onOpenRuleMatrix;
 
   @override
   State<_SetContentsStep> createState() => _SetContentsStepState();
+}
+
+class _SetContentsCalculationParamsCard extends StatelessWidget {
+  const _SetContentsCalculationParamsCard({
+    required this.addWallSealPressurePlate,
+    required this.wallGutterBlendeLongLength,
+    required this.missingSetPieceAbzugArticleNos,
+    required this.includedMissingSetPieceAbzugArticleNos,
+    required this.onAddWallSealPressurePlateChanged,
+    required this.onWallGutterBlendeLongLengthChanged,
+    required this.onSetMissingSetPieceAbzugForArticles,
+  });
+
+  final bool addWallSealPressurePlate;
+  final bool wallGutterBlendeLongLength;
+  final Set<String> missingSetPieceAbzugArticleNos;
+  final Set<String> includedMissingSetPieceAbzugArticleNos;
+  final ValueChanged<bool> onAddWallSealPressurePlateChanged;
+  final ValueChanged<bool> onWallGutterBlendeLongLengthChanged;
+  final void Function(Iterable<String> articleNos, bool included)
+      onSetMissingSetPieceAbzugForArticles;
+
+  @override
+  Widget build(BuildContext context) {
+    final allMissingSetPieceAbzugIncluded =
+        missingSetPieceAbzugArticleNos.isNotEmpty &&
+        missingSetPieceAbzugArticleNos.every(
+          includedMissingSetPieceAbzugArticleNos.contains,
+        );
+
+    Widget toggle({
+      required String label,
+      required String tooltip,
+      required bool value,
+      required ValueChanged<bool> onChanged,
+    }) {
+      return Tooltip(
+        message: tooltip,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Transform.scale(
+              scale: 0.82,
+              alignment: Alignment.centerLeft,
+              child: Switch(value: value, onChanged: onChanged),
+            ),
+            const SizedBox(width: 2),
+            Text(label, style: Theme.of(context).textTheme.bodySmall),
+          ],
+        ),
+      );
+    }
+
+    return SizedBox(
+      width: double.infinity,
+      child: Card(
+        margin: EdgeInsets.zero,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Calculation parameters',
+                style: Theme.of(context).textTheme.labelLarge,
+              ),
+              const SizedBox(height: 4),
+              Wrap(
+                spacing: 18,
+                runSpacing: 2,
+                children: [
+                  toggle(
+                    label: 'Anpressplatte für Wanddichtung',
+                    tooltip:
+                        'Adds article 6179 with the calculated Träger piece count.',
+                    value: addWallSealPressurePlate,
+                    onChanged: onAddWallSealPressurePlateChanged,
+                  ),
+                  toggle(
+                    label: '16912 als Langmaß',
+                    tooltip:
+                        'Uses the legacy long-length rule for 16912. From 14000 mm verify the length manually.',
+                    value: wallGutterBlendeLongLength,
+                    onChanged: onWallGutterBlendeLongLengthChanged,
+                  ),
+                  if (missingSetPieceAbzugArticleNos.isNotEmpty)
+                    toggle(
+                      label: 'Include all set shortage Abzug',
+                      tooltip:
+                          'Include or exclude all Abzug positions where the calculated set contains fewer pieces than the matched standard set.',
+                      value: allMissingSetPieceAbzugIncluded,
+                      onChanged: (value) =>
+                          onSetMissingSetPieceAbzugForArticles(
+                        missingSetPieceAbzugArticleNos,
+                        value,
+                      ),
+                    ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _SetContentsStepState extends State<_SetContentsStep> {
@@ -7299,7 +7455,7 @@ class _SetContentsStepState extends State<_SetContentsStep> {
   List<Map<String, dynamic>> _lastSetDeltaBom = const <Map<String, dynamic>>[];
 
   int _selectedModuleTabIndex = 0;
-  final Map<int, int> _selectedGlassFieldByTab = <int, int>{};
+  final Map<int, String> _selectedManufacturingFieldByTab = <int, String>{};
 
   @override
   void initState() {
@@ -7347,19 +7503,35 @@ class _SetContentsStepState extends State<_SetContentsStep> {
         preview?.source.isNotEmpty == true ? preview!.standardBom : _lastStandardBom;
     final setDeltaBom =
         preview?.source.isNotEmpty == true ? preview!.setDeltaBom : _lastSetDeltaBom;
-    final hasMissingSetPieceAbzug = setDeltaBom.any(
-      _isMissingSetPieceAbzugCase,
-    );
+    final missingSetPieceAbzugArticleNos = setDeltaBom
+        .where(_isMissingSetPieceAbzugCase)
+        .map(_bomArticleNo)
+        .where((article) => article.isNotEmpty)
+        .toSet();
+    final hasMissingSetPieceAbzug = missingSetPieceAbzugArticleNos.isNotEmpty;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Text('Set contents / Calculated segments', style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 8),
+        _SetContentsCalculationParamsCard(
+          addWallSealPressurePlate: widget.draft.addWallSealPressurePlate,
+          wallGutterBlendeLongLength: widget.draft.wallGutterBlendeLongLength,
+          missingSetPieceAbzugArticleNos: missingSetPieceAbzugArticleNos,
+          includedMissingSetPieceAbzugArticleNos:
+              widget.draft.missingSetPieceAbzugArticleNos.toSet(),
+          onAddWallSealPressurePlateChanged:
+              widget.notifier.setAddWallSealPressurePlate,
+          onWallGutterBlendeLongLengthChanged:
+              widget.notifier.setWallGutterBlendeLongLength,
+          onSetMissingSetPieceAbzugForArticles:
+              widget.notifier.setMissingSetPieceAbzugForArticles,
+        ),
+        const SizedBox(height: 10),
         //const Text(
         //  'The module structure is fixed by the selected roof model. Calculated profile segments describe the physical construction and are not added to the price as ordinary options. Use Override only for a deliberate production correction; add separate manual components when required.',
         //),
-        const SizedBox(height: 10),
         if (isLoading) ...[
           const LinearProgressIndicator(),
           const SizedBox(height: 8),
@@ -7429,12 +7601,16 @@ class _SetContentsStepState extends State<_SetContentsStep> {
                         tabAlignment: TabAlignment.start,
                         onTap: (index) {
                           if (index == 0) {
-                            final fieldIndex = _selectedGlassFieldByTab[_selectedModuleTabIndex] ?? 0;
+                            final selectionKey =
+                                _selectedManufacturingFieldByTab[_selectedModuleTabIndex] ?? 'all';
                             widget.onModuleFocusChanged(_selectedModuleTabIndex + 1);
-                            widget.onGlassFieldFocusChanged(fieldIndex == 0 ? null : fieldIndex);
+                            widget.onManufacturingFieldFocusChanged(
+                              _manufacturingFieldKindFromKey(selectionKey),
+                              _manufacturingFieldIndexFromKey(selectionKey),
+                            );
                           } else {
                             widget.onModuleFocusChanged(null);
-                            widget.onGlassFieldFocusChanged(null);
+                            widget.onManufacturingFieldFocusChanged(null, null);
                           }
                         },
                         tabs: const [
@@ -7487,8 +7663,6 @@ class _SetContentsStepState extends State<_SetContentsStep> {
                         includedMissingSetPieceAbzugArticleNos: widget
                             .draft.missingSetPieceAbzugArticleNos
                             .toSet(),
-                        onSetMissingSetPieceAbzugForArticles: widget.notifier
-                            .setMissingSetPieceAbzugForArticles,
                         onSetMissingSetPieceAbzugForArticle: widget.notifier
                             .setMissingSetPieceAbzugForArticle,
                       ),
@@ -7524,10 +7698,11 @@ class _SetContentsStepState extends State<_SetContentsStep> {
                   onTap: (index) {
                     setState(() => _selectedModuleTabIndex = index);
                     widget.onModuleFocusChanged(index + 1);
-                    final fieldIndex =
-                        _selectedGlassFieldByTab[index] ?? 0;
-                    widget.onGlassFieldFocusChanged(
-                      fieldIndex == 0 ? null : fieldIndex,
+                    final selectionKey =
+                        _selectedManufacturingFieldByTab[index] ?? 'all';
+                    widget.onManufacturingFieldFocusChanged(
+                      _manufacturingFieldKindFromKey(selectionKey),
+                      _manufacturingFieldIndexFromKey(selectionKey),
                     );
                   },
                   tabs: [for (final tab in tabs) Tab(text: tab.label)],
@@ -7623,7 +7798,7 @@ class _SetContentsStepState extends State<_SetContentsStep> {
                       'wall_gutter_blende_rules_enabled',
                       widget.selectedTemplate
                               ?.wallGutterBlendeLegacyRulesEnabledDefault ??
-                          true,
+                          false,
                     ),
                     onWallGutterBlendeRulesChanged: (enabled) => widget
                         .notifier
@@ -7632,11 +7807,16 @@ class _SetContentsStepState extends State<_SetContentsStep> {
                           enabled,
                         ),
                     onAddManual: () => _showAddManualComponent(tabIndex),
-                    selectedGlassFieldIndex: _selectedGlassFieldByTab[tabIndex] ?? 0,
-                    onGlassFieldSelected: (fieldIndex) {
-                      setState(() => _selectedGlassFieldByTab[tabIndex] = fieldIndex ?? 0);
+                    selectedManufacturingFieldKey:
+                        _selectedManufacturingFieldByTab[tabIndex] ?? 'all',
+                    onManufacturingFieldSelected: (selectionKey) {
+                      final key = selectionKey ?? 'all';
+                      setState(() => _selectedManufacturingFieldByTab[tabIndex] = key);
                       widget.onModuleFocusChanged(tabIndex + 1);
-                      widget.onGlassFieldFocusChanged(fieldIndex);
+                      widget.onManufacturingFieldFocusChanged(
+                        _manufacturingFieldKindFromKey(key),
+                        _manufacturingFieldIndexFromKey(key),
+                      );
                     },
                   ),
               ],
@@ -7753,9 +7933,15 @@ class _SetContentsStepState extends State<_SetContentsStep> {
       ),
     );
     if (selection == null) return;
-    final selectedFieldIndex = _selectedGlassFieldByTab[tabIndex] ?? 0;
-    final fieldCount =
-        _manufacturingSplitFieldCount(widget.draft.setContents[tabIndex]);
+    final selectionKey = _selectedManufacturingFieldByTab[tabIndex] ?? 'all';
+    final fieldKind = _manufacturingFieldKindFromKey(selectionKey);
+    final fieldIndex = _manufacturingFieldIndexFromKey(selectionKey);
+    final fieldCount = fieldKind == null
+        ? null
+        : _manufacturingFieldCountForKind(
+            widget.draft.setContents[tabIndex],
+            fieldKind,
+          );
     widget.notifier.addManualSetContentItem(
       tabIndex,
       selection.item,
@@ -7763,10 +7949,9 @@ class _SetContentsStepState extends State<_SetContentsStep> {
       quantity: selection.quantity,
       salesUnitCode: selection.salesUnitCode,
       lengthMm: selection.lengthMm,
-      manufacturingFieldIndex:
-          selectedFieldIndex > 0 ? selectedFieldIndex : null,
-      manufacturingFieldCount:
-          selectedFieldIndex > 0 ? fieldCount : null,
+      manufacturingFieldKind: fieldKind,
+      manufacturingFieldIndex: fieldIndex,
+      manufacturingFieldCount: fieldCount,
     );
   }
 
@@ -8076,7 +8261,6 @@ class _BomSummaryList extends StatefulWidget {
     required this.lines,
     this.showDeltaDirection = false,
     this.includedMissingSetPieceAbzugArticleNos = const {},
-    this.onSetMissingSetPieceAbzugForArticles,
     this.onSetMissingSetPieceAbzugForArticle,
   });
 
@@ -8088,8 +8272,6 @@ class _BomSummaryList extends StatefulWidget {
   final List<Map<String, dynamic>> lines;
   final bool showDeltaDirection;
   final Set<String> includedMissingSetPieceAbzugArticleNos;
-  final void Function(Iterable<String> articleNos, bool included)?
-      onSetMissingSetPieceAbzugForArticles;
   final void Function(String articleNo, bool included)?
       onSetMissingSetPieceAbzugForArticle;
 
@@ -8108,18 +8290,11 @@ class _BomSummaryListState extends State<_BomSummaryList> {
 
   @override
   Widget build(BuildContext context) {
-    final missingSetPieceCases = widget.lines
+    final missingSetPieceArticles = widget.lines
         .where(_isMissingSetPieceAbzugCase)
-        .toList(growable: false);
-    final missingSetPieceArticles = missingSetPieceCases
         .map(_bomArticleNo)
         .where((article) => article.isNotEmpty)
         .toSet();
-    final allMissingSetPieceAbzugIncluded =
-        missingSetPieceArticles.isNotEmpty &&
-        missingSetPieceArticles.every(
-          widget.includedMissingSetPieceAbzugArticleNos.contains,
-        );
 
     return Card(
       margin: EdgeInsets.zero,
@@ -8131,41 +8306,9 @@ class _BomSummaryListState extends State<_BomSummaryList> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        widget.title,
-                        style: Theme.of(context).textTheme.titleSmall,
-                      ),
-                    ),
-                    if (missingSetPieceArticles.isNotEmpty &&
-                        widget.onSetMissingSetPieceAbzugForArticles != null)
-                      Tooltip(
-                        message:
-                            'Include or exclude all Abzug positions where the calculated set contains fewer pieces than the matched standard set.',
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              'Include all set shortage Abzug',
-                              style: Theme.of(context).textTheme.labelSmall,
-                            ),
-                            const SizedBox(width: 4),
-                            Switch.adaptive(
-                              value: allMissingSetPieceAbzugIncluded,
-                              onChanged: (value) => widget
-                                  .onSetMissingSetPieceAbzugForArticles!(
-                                missingSetPieceArticles,
-                                value,
-                              ),
-                              materialTapTargetSize:
-                                  MaterialTapTargetSize.shrinkWrap,
-                            ),
-                          ],
-                        ),
-                      ),
-                  ],
+                Text(
+                  widget.title,
+                  style: Theme.of(context).textTheme.titleSmall,
                 ),
                 const SizedBox(height: 3),
                 Text(widget.subtitle, style: Theme.of(context).textTheme.bodySmall),
@@ -8549,42 +8692,76 @@ bool _isManufacturingDepthSplitItem(CalculatorSetContentItem item) {
   return const {'beam', 'glass_list', 'side_glass_list'}.contains(role);
 }
 
+const _manufacturingFieldAllKey = 'all';
+
+String _manufacturingFieldKey(String kind, int fieldIndex) =>
+    '$kind:$fieldIndex';
+
+String? _manufacturingFieldKindFromKey(String key) {
+  if (key == _manufacturingFieldAllKey) return null;
+  final separator = key.indexOf(':');
+  if (separator <= 0) return null;
+  final kind = key.substring(0, separator);
+  return const {'glass', 'profiles'}.contains(kind) ? kind : null;
+}
+
+int? _manufacturingFieldIndexFromKey(String key) {
+  final separator = key.indexOf(':');
+  if (separator <= 0 || separator >= key.length - 1) return null;
+  final value = int.tryParse(key.substring(separator + 1));
+  return value != null && value > 0 ? value : null;
+}
+
+String? _manufacturingFieldKindForItem(CalculatorSetContentItem item) {
+  final source = item.sourceComponent;
+  final value =
+      '${source['manufacturing_field_kind'] ?? source['manufacturingFieldKind'] ?? ''}'
+          .trim()
+          .toLowerCase();
+  return const {'glass', 'profiles'}.contains(value) ? value : null;
+}
+
 int? _manufacturingFieldIndexForItem(CalculatorSetContentItem item) {
   final source = item.sourceComponent;
   final explicit = _intFromFlexible(
     source['manufacturing_field_index'] ?? source['manufacturingFieldIndex'],
   );
-  if (explicit != null && explicit > 0) return explicit;
-  final glassField = item.glassFieldIndex;
-  if (glassField != null && glassField > 0) return glassField;
-  if (_isManufacturingDepthSplitItem(item)) {
-    final cutGroup = item.cutGroupIndex;
-    if (cutGroup != null && cutGroup > 0) return cutGroup;
-  }
-  return null;
+  return explicit != null && explicit > 0 ? explicit : null;
 }
 
-int _manufacturingSplitFieldCount(CalculatorSetContentTab tab) {
-  var count = math.max(
-    1,
-    math.max(
+int _manufacturingFieldCountForKind(
+  CalculatorSetContentTab tab,
+  String kind,
+) {
+  var count = 1;
+  if (kind == 'glass') {
+    count = math.max(
       tab.geometryIntList('glass_depth_segment_lengths_mm').length,
+      tab.geometryInt('glass_depth_field_count') ?? 1,
+    ).toInt();
+  } else if (kind == 'profiles') {
+    final cuts = tab.geometryIntList('profile_cut_positions_mm');
+    count = math.max(
       tab.geometryIntList('beam_segment_lengths_mm').length,
-    ),
-  ).toInt();
-  count = math.max(
-    count,
-    tab.geometryInt('glass_depth_field_count') ?? 1,
-  ).toInt();
+      cuts.isEmpty ? 1 : cuts.length + 1,
+    ).toInt();
+  }
+
   for (final item in tab.items) {
     final source = item.sourceComponent;
-    final explicitCount = _intFromFlexible(
+    final assignedKind = _manufacturingFieldKindForItem(item);
+    final assignedCount = _intFromFlexible(
       source['manufacturing_field_count'] ?? source['manufacturingFieldCount'],
     );
-    if (explicitCount != null && explicitCount > count) count = explicitCount;
-    final glassCount = item.glassFieldCount;
-    if (glassCount != null && glassCount > count) count = glassCount;
-    if (_isManufacturingDepthSplitItem(item)) {
+    if ((assignedKind == null || assignedKind == kind) &&
+        assignedCount != null &&
+        assignedCount > count) {
+      count = assignedCount;
+    }
+    if (kind == 'glass') {
+      final glassCount = item.glassFieldCount;
+      if (glassCount != null && glassCount > count) count = glassCount;
+    } else if (kind == 'profiles' && _isManufacturingDepthSplitItem(item)) {
       final cutCount = item.cutGroupCount;
       if (cutCount != null && cutCount > count) count = cutCount;
       final splitCount = _intFromFlexible(
@@ -8593,25 +8770,160 @@ int _manufacturingSplitFieldCount(CalculatorSetContentTab tab) {
       if (splitCount != null && splitCount > count) count = splitCount;
     }
   }
-  return count;
+  return math.max(1, count).toInt();
+}
+
+List<String> _manufacturingFieldSelectionKeys(CalculatorSetContentTab tab) {
+  final result = <String>[];
+  for (final kind in const ['glass', 'profiles']) {
+    final count = _manufacturingFieldCountForKind(tab, kind);
+    if (count <= 1) continue;
+    for (var index = 1; index <= count; index++) {
+      result.add(_manufacturingFieldKey(kind, index));
+    }
+  }
+  return result;
+}
+
+List<int> _manufacturingFieldLengths(
+  CalculatorSetContentTab tab,
+  String kind,
+) {
+  final count = _manufacturingFieldCountForKind(tab, kind);
+  final values = tab.geometryIntList(
+    kind == 'glass'
+        ? 'glass_depth_segment_lengths_mm'
+        : 'beam_segment_lengths_mm',
+  );
+  if (values.length == count && values.every((value) => value > 0)) {
+    return values;
+  }
+  return List<int>.filled(count, 1, growable: false);
+}
+
+List<double>? _manufacturingFieldRange(
+  CalculatorSetContentTab tab,
+  String kind,
+  int fieldIndex,
+) {
+  final lengths = _manufacturingFieldLengths(tab, kind);
+  if (fieldIndex <= 0 || fieldIndex > lengths.length) return null;
+  final total = lengths.fold<int>(0, (sum, value) => sum + value);
+  if (total <= 0) return null;
+  final before = lengths
+      .take(fieldIndex - 1)
+      .fold<int>(0, (sum, value) => sum + value);
+  return [before / total, (before + lengths[fieldIndex - 1]) / total];
+}
+
+bool _manufacturingRangesOverlap(List<double>? left, List<double>? right) {
+  if (left == null || right == null) return false;
+  return math.min(left[1], right[1]) - math.max(left[0], right[0]) > 0.0001;
 }
 
 bool _itemBelongsToManufacturingField(
+  CalculatorSetContentTab tab,
   CalculatorSetContentItem item,
+  String kind,
   int fieldIndex,
 ) {
-  final explicit = _manufacturingFieldIndexForItem(item);
-  if (explicit != null) return explicit == fieldIndex;
-  if (!_isManufacturingDepthSplitItem(item)) return false;
+  final assignedIndex = _manufacturingFieldIndexForItem(item);
+  final assignedKind = _manufacturingFieldKindForItem(item);
+  if (assignedIndex != null) {
+    // Old saved manual rows have no kind because the previous UI used one
+    // shared section index. Keep them visible for either compatible selector.
+    return assignedIndex == fieldIndex &&
+        (assignedKind == null || assignedKind == kind);
+  }
 
-  // Automatic equal profile splits are represented by one aggregate row with
-  // split_count instead of separate cut_group_index rows. Such an article
-  // belongs to every generated manufacturing field.
-  final source = item.sourceComponent;
-  final splitCount = _intFromFlexible(
-    source['split_count'] ?? source['splitCount'],
-  );
-  return splitCount != null && splitCount > 1 && fieldIndex <= splitCount;
+  if (kind == 'glass') {
+    final glassFieldIndex = item.glassFieldIndex;
+    if (glassFieldIndex != null && glassFieldIndex > 0) {
+      return glassFieldIndex == fieldIndex;
+    }
+    final glassFieldCount = item.glassFieldCount;
+    if (glassFieldCount != null && glassFieldCount > 1) {
+      // Components such as the glass-joint profile are calculated for the
+      // complete set of glass depth fields and are shared by those fields.
+      return fieldIndex <= glassFieldCount;
+    }
+    if (_isManufacturingDepthSplitItem(item)) {
+      final profileFieldIndex = item.cutGroupIndex;
+      final profileRange = profileFieldIndex != null && profileFieldIndex > 0
+          ? _manufacturingFieldRange(tab, 'profiles', profileFieldIndex)
+          : const <double>[0, 1];
+      return _manufacturingRangesOverlap(
+        _manufacturingFieldRange(tab, 'glass', fieldIndex),
+        profileRange,
+      );
+    }
+    return false;
+  }
+
+  if (kind == 'profiles') {
+    if (_isManufacturingDepthSplitItem(item)) {
+      final cutGroupIndex = item.cutGroupIndex;
+      if (cutGroupIndex != null && cutGroupIndex > 0) {
+        return cutGroupIndex == fieldIndex;
+      }
+      // Automatic equal splits are intentionally one aggregate BOM row. The
+      // row therefore represents every generated profile field.
+      return fieldIndex <= _manufacturingFieldCountForKind(tab, 'profiles');
+    }
+    final glassFieldIndex = item.glassFieldIndex;
+    if (glassFieldIndex != null && glassFieldIndex > 0) {
+      return _manufacturingRangesOverlap(
+        _manufacturingFieldRange(tab, 'profiles', fieldIndex),
+        _manufacturingFieldRange(tab, 'glass', glassFieldIndex),
+      );
+    }
+    final glassFieldCount = item.glassFieldCount;
+    if (glassFieldCount != null && glassFieldCount > 1) {
+      return true;
+    }
+  }
+  return false;
+}
+
+String? _manufacturingFieldLabelForItem(
+  CalculatorSetContentTab tab,
+  CalculatorSetContentItem item,
+) {
+  final assignedIndex = _manufacturingFieldIndexForItem(item);
+  final assignedKind = _manufacturingFieldKindForItem(item);
+  if (assignedIndex != null) {
+    final count = _intFromFlexible(
+          item.sourceComponent['manufacturing_field_count'] ??
+              item.sourceComponent['manufacturingFieldCount'],
+        ) ??
+        (assignedKind == null
+            ? 1
+            : _manufacturingFieldCountForKind(tab, assignedKind));
+    final label = assignedKind == 'profiles' ? 'Profile field' : 'Glass field';
+    return '$label $assignedIndex/$count';
+  }
+  final glassFieldIndex = item.glassFieldIndex;
+  if (glassFieldIndex != null && glassFieldIndex > 0) {
+    return 'Glass field $glassFieldIndex/${item.glassFieldCount ?? _manufacturingFieldCountForKind(tab, 'glass')}';
+  }
+  if (_isManufacturingDepthSplitItem(item)) {
+    final profileFieldIndex = item.cutGroupIndex;
+    final profileCount = _manufacturingFieldCountForKind(tab, 'profiles');
+    if (profileFieldIndex != null && profileFieldIndex > 0 && profileCount > 1) {
+      return 'Profile field $profileFieldIndex/$profileCount';
+    }
+    final splitCount = _intFromFlexible(
+      item.sourceComponent['split_count'] ?? item.sourceComponent['splitCount'],
+    );
+    if (splitCount != null && splitCount > 1) {
+      return 'Profiles · $splitCount pieces';
+    }
+  }
+  final glassFieldCount = item.glassFieldCount;
+  if (glassFieldCount != null && glassFieldCount > 1) {
+    return 'Shared across $glassFieldCount glass fields';
+  }
+  return null;
 }
 
 bool _metadataFlagEnabled(Object? value) {
@@ -9041,8 +9353,8 @@ class _SetContentTabTable extends StatefulWidget {
     required this.wallGutterBlendeRulesEnabled,
     required this.onWallGutterBlendeRulesChanged,
     required this.onAddManual,
-    required this.selectedGlassFieldIndex,
-    required this.onGlassFieldSelected,
+    required this.selectedManufacturingFieldKey,
+    required this.onManufacturingFieldSelected,
   });
 
   static const _mediaWidth = 48.0;
@@ -9073,8 +9385,8 @@ class _SetContentTabTable extends StatefulWidget {
   final bool wallGutterBlendeRulesEnabled;
   final ValueChanged<bool> onWallGutterBlendeRulesChanged;
   final VoidCallback onAddManual;
-  final int selectedGlassFieldIndex;
-  final ValueChanged<int?> onGlassFieldSelected;
+  final String selectedManufacturingFieldKey;
+  final ValueChanged<String?> onManufacturingFieldSelected;
 
   @override
   State<_SetContentTabTable> createState() => _SetContentTabTableState();
@@ -9174,10 +9486,11 @@ class _SetContentTabTableState extends State<_SetContentTabTable> {
         _pendingLength.remove(identity);
       }
     }
-    final fieldCount = _manufacturingSplitFieldCount(widget.tab);
-    if (widget.selectedGlassFieldIndex > fieldCount) {
+    final selectionKeys = _manufacturingFieldSelectionKeys(widget.tab);
+    if (widget.selectedManufacturingFieldKey != _manufacturingFieldAllKey &&
+        !selectionKeys.contains(widget.selectedManufacturingFieldKey)) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) widget.onGlassFieldSelected(null);
+        if (mounted) widget.onManufacturingFieldSelected(_manufacturingFieldAllKey);
       });
     }
   }
@@ -9191,17 +9504,22 @@ class _SetContentTabTableState extends State<_SetContentTabTable> {
   @override
   Widget build(BuildContext context) {
     final allRows = _visibleSetContentRows(widget.contextData, widget.tab);
-    final fieldCount = _manufacturingSplitFieldCount(widget.tab);
-    final selectedGlassFieldIndex = widget.selectedGlassFieldIndex <= fieldCount
-        ? widget.selectedGlassFieldIndex
-        : 0;
-    final rows = selectedGlassFieldIndex == 0
+    final selectionKeys = _manufacturingFieldSelectionKeys(widget.tab);
+    final selectedKey = widget.selectedManufacturingFieldKey == _manufacturingFieldAllKey ||
+            selectionKeys.contains(widget.selectedManufacturingFieldKey)
+        ? widget.selectedManufacturingFieldKey
+        : _manufacturingFieldAllKey;
+    final selectedKind = _manufacturingFieldKindFromKey(selectedKey);
+    final selectedFieldIndex = _manufacturingFieldIndexFromKey(selectedKey);
+    final rows = selectedKind == null || selectedFieldIndex == null
         ? allRows
         : allRows
             .where(
               (row) => _itemBelongsToManufacturingField(
+                widget.tab,
                 row.item,
-                selectedGlassFieldIndex,
+                selectedKind,
+                selectedFieldIndex,
               ),
             )
             .toList(growable: false);
@@ -9220,23 +9538,22 @@ class _SetContentTabTableState extends State<_SetContentTabTable> {
                     style: Theme.of(context).textTheme.titleSmall,
                   ),
                 ),
-                if (fieldCount > 1) ...[
+                if (selectionKeys.isNotEmpty) ...[
                   const SizedBox(width: 12),
                   SizedBox(
                     width: 390,
-                    child: DropdownButtonFormField<int>(
-                      key: ValueKey('glass-field-filter-${widget.tabIndex}-$fieldCount-$selectedGlassFieldIndex'),
-                      initialValue: selectedGlassFieldIndex,
+                    child: DropdownButtonFormField<String>(
+                      key: ValueKey(
+                        'manufacturing-field-filter-${widget.tabIndex}-${selectionKeys.join('-')}-$selectedKey',
+                      ),
+                      initialValue: selectedKey,
                       isExpanded: true,
                       decoration: const InputDecoration(
                         labelText: 'Manufacturing split fields',
                         isDense: true,
                       ),
-                      items: _manufacturingFieldOptions(fieldCount),
-                      onChanged: (value) {
-                        final next = value ?? 0;
-                        widget.onGlassFieldSelected(next == 0 ? null : next);
-                      },
+                      items: _manufacturingFieldOptions(allRows),
+                      onChanged: widget.onManufacturingFieldSelected,
                     ),
                   ),
                 ],
@@ -9278,9 +9595,9 @@ class _SetContentTabTableState extends State<_SetContentTabTable> {
             Expanded(
               child: Center(
                 child: Text(
-                  selectedGlassFieldIndex == 0
+                  selectedKind == null || selectedFieldIndex == null
                       ? 'No calculated or manual profile segments in this module.'
-                      : 'No articles are assigned to manufacturing section $selectedGlassFieldIndex/$fieldCount.',
+                      : 'No components intersect the selected ${selectedKind == 'glass' ? 'glass' : 'profile'} field $selectedFieldIndex.',
                 ),
               ),
             )
@@ -9353,11 +9670,7 @@ class _SetContentTabTableState extends State<_SetContentTabTable> {
                 ? 'Calculated · overridden'
                 : 'Calculated · automatic')
         : 'Manual component';
-    final manufacturingFieldIndex = _manufacturingFieldIndexForItem(item);
-    final manufacturingFieldCount = _manufacturingSplitFieldCount(widget.tab);
-    final productionLabel = manufacturingFieldIndex == null
-        ? null
-        : 'Manufacturing section $manufacturingFieldIndex/$manufacturingFieldCount';
+    final productionLabel = _manufacturingFieldLabelForItem(widget.tab, item);
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 140),
@@ -9498,38 +9811,58 @@ class _SetContentTabTableState extends State<_SetContentTabTable> {
 
   Widget _gap() => const SizedBox(width: _SetContentTabTable._columnGap);
 
-  List<DropdownMenuItem<int>> _manufacturingFieldOptions(int fieldCount) {
-    final glassSegments = widget.tab.geometryIntList(
-      'glass_depth_segment_lengths_mm',
-    );
-    final profileSegments = widget.tab.geometryIntList(
-      'beam_segment_lengths_mm',
-    );
-
-    String segmentLength(List<int> values, int fieldIndex) {
-      if (fieldIndex <= 0 || fieldIndex > values.length) return '—';
-      return '${values[fieldIndex - 1]} mm';
+  List<DropdownMenuItem<String>> _manufacturingFieldOptions(
+    List<_SetContentVisibleRow> allRows,
+  ) {
+    String fieldLabel(String kind, int fieldIndex) {
+      final count = _manufacturingFieldCountForKind(widget.tab, kind);
+      final values = widget.tab.geometryIntList(
+        kind == 'glass'
+            ? 'glass_depth_segment_lengths_mm'
+            : 'beam_segment_lengths_mm',
+      );
+      final length = fieldIndex > 0 && fieldIndex <= values.length
+          ? '${values[fieldIndex - 1]} mm'
+          : 'length —';
+      final componentCount = allRows
+          .where(
+            (row) => _itemBelongsToManufacturingField(
+              widget.tab,
+              row.item,
+              kind,
+              fieldIndex,
+            ),
+          )
+          .length;
+      final title = kind == 'glass' ? 'Glass field' : 'Profile field';
+      return '$title $fieldIndex/$count · $length · $componentCount component${componentCount == 1 ? '' : 's'}';
     }
 
-    return [
-      DropdownMenuItem<int>(
-        value: 0,
+    final items = <DropdownMenuItem<String>>[
+      DropdownMenuItem<String>(
+        value: _manufacturingFieldAllKey,
         child: Text(
-          'All manufacturing fields · $fieldCount section${fieldCount == 1 ? '' : 's'}',
+          'All manufacturing fields · ${allRows.length} components',
           overflow: TextOverflow.ellipsis,
         ),
       ),
-      for (var fieldIndex = 1; fieldIndex <= fieldCount; fieldIndex++)
-        DropdownMenuItem<int>(
-          value: fieldIndex,
-          child: Text(
-            'Section $fieldIndex/$fieldCount · '
-            'Glass ${segmentLength(glassSegments, fieldIndex)} · '
-            'Profiles ${segmentLength(profileSegments, fieldIndex)}',
-            overflow: TextOverflow.ellipsis,
-          ),
-        ),
     ];
+    for (final kind in const ['glass', 'profiles']) {
+      final count = _manufacturingFieldCountForKind(widget.tab, kind);
+      if (count <= 1) continue;
+      for (var fieldIndex = 1; fieldIndex <= count; fieldIndex++) {
+        items.add(
+          DropdownMenuItem<String>(
+            value: _manufacturingFieldKey(kind, fieldIndex),
+            child: Text(
+              fieldLabel(kind, fieldIndex),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        );
+      }
+    }
+    return items;
   }
 
   Widget _fixed(BuildContext context, Widget child, double width, [bool header = false]) => SizedBox(
@@ -11548,7 +11881,13 @@ class _SelectedOptionPriceCell extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(priceText),
+          Flexible(
+            child: Text(
+              priceText,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
           const SizedBox(width: 4),
           Icon(Icons.warning_amber_outlined, color: Theme.of(context).colorScheme.error, size: 16),
         ],
@@ -11637,6 +11976,7 @@ class _ResultPanel extends StatelessWidget {
     required this.selectedStep,
     required this.highlightedModuleIndex,
     required this.highlightedGlassFieldIndex,
+    required this.highlightedManufacturingFieldKind,
     required this.mediaRepository,
     required this.onSaveQuote,
     required this.documentsRepository,
@@ -11657,6 +11997,7 @@ class _ResultPanel extends StatelessWidget {
   final int selectedStep;
   final int? highlightedModuleIndex;
   final int? highlightedGlassFieldIndex;
+  final String? highlightedManufacturingFieldKind;
   final AdminResourceRepository mediaRepository;
   final LoadedQuote? loadedQuote;
   final VoidCallback onSaveQuote;
@@ -11674,6 +12015,14 @@ class _ResultPanel extends StatelessWidget {
     final modelIndex = _steps.indexWhere((step) => step.key == 'model');
     return loadedQuote != null ||
         (roofModelState.required && modelIndex >= 0 && selectedStep >= modelIndex);
+  }
+
+  Future<Map<String, dynamic>> Function()? get _generateGlb {
+    final quoteId = loadedQuote?.id ?? savedQuote?.id;
+    if ((quoteId ?? '').isEmpty || !isCalculationSaved || needsRecalculation) {
+      return null;
+    }
+    return () => documentsRepository.generateGlb(quoteId!);
   }
 
   @override
@@ -11739,11 +12088,13 @@ class _ResultPanel extends StatelessWidget {
                                   calculatorContext: calculatorContext,
                                   roofModelState: roofModelState,
                                   mediaRepository: mediaRepository,
+                                  onGenerateGlb: _generateGlb,
                                   savedInput: loadedQuote?.input,
                                   calculationNumber: calculationNumber,
                                   calculationSavedAt: savedQuote?.createdAt ?? loadedQuote?.createdAt,
                                   highlightedModuleIndex: highlightedModuleIndex,
                                   highlightedGlassFieldIndex: highlightedGlassFieldIndex,
+                                  highlightedManufacturingFieldKind: highlightedManufacturingFieldKind,
                                 ),
                                 _noCalculationTab(),
                               ],
@@ -11830,12 +12181,14 @@ class _ResultPanel extends StatelessWidget {
                                   calculatorContext: calculatorContext,
                                   roofModelState: roofModelState,
                                   mediaRepository: mediaRepository,
+                                  onGenerateGlb: _generateGlb,
                                   result: result,
                                   savedInput: loadedQuote?.input,
                                   calculationNumber: calculationNumber,
                                   calculationSavedAt: savedQuote?.createdAt ?? loadedQuote?.createdAt,
                                   highlightedModuleIndex: highlightedModuleIndex,
                                   highlightedGlassFieldIndex: highlightedGlassFieldIndex,
+                                  highlightedManufacturingFieldKind: highlightedManufacturingFieldKind,
                                 ),
                               _LinesTab(result: result),
                               _BomTab(result: result),
@@ -11927,10 +12280,12 @@ class _ResultPanel extends StatelessWidget {
                             calculatorContext: calculatorContext,
                             roofModelState: roofModelState,
                             mediaRepository: mediaRepository,
+                            onGenerateGlb: _generateGlb,
                             calculationNumber: calculationNumber,
                             calculationSavedAt: savedQuote?.createdAt ?? loadedQuote?.createdAt,
                             highlightedModuleIndex: highlightedModuleIndex,
                             highlightedGlassFieldIndex: highlightedGlassFieldIndex,
+                            highlightedManufacturingFieldKind: highlightedManufacturingFieldKind,
                           ),
                         const Center(child: Text('No price lines were generated because calculation failed.')),
                         const Center(child: Text('No BOM lines were generated because calculation failed.')),
@@ -12046,12 +12401,32 @@ class _GeometryPreviewRenderData {
     required this.roofCalculation,
     required this.postCount,
     required this.coveringName,
+    required this.coveringSummary,
   });
 
   final CalculatorOption? selectedModel;
   final RoofGeometryCalculation roofCalculation;
   final int postCount;
   final String? coveringName;
+  final String? coveringSummary;
+}
+
+String? _geometryPreviewCoveringSummary(CalculatorResult? result) {
+  final quantities = <String, int>{};
+  for (final line in result?.glassLines ?? const <Map<String, dynamic>>[]) {
+    final label = _firstString(
+      line['catalog_name'],
+      line['catalogName'],
+      line['glass_type_code'] ?? line['glassTypeCode'],
+    );
+    final quantity = _intFromFlexible(line['quantity']) ?? 0;
+    if (label == null || quantity <= 0) continue;
+    quantities[label] = (quantities[label] ?? 0) + quantity;
+  }
+  if (quantities.isEmpty) return null;
+  return quantities.entries
+      .map((entry) => '${entry.key} · ${entry.value} stk.')
+      .join('\n');
 }
 
 _GeometryPreviewRenderData _geometryPreviewRenderDataFor({
@@ -12097,12 +12472,14 @@ _GeometryPreviewRenderData _geometryPreviewRenderDataFor({
         calculatorContext.references['tds_glass_covering'] ?? const [],
         draft.coveringCode,
       );
+  final coveringSummary = _geometryPreviewCoveringSummary(result);
 
   return _GeometryPreviewRenderData(
     selectedModel: selectedModel,
     roofCalculation: roofCalculation,
     postCount: postCount,
     coveringName: coveringName,
+    coveringSummary: coveringSummary,
   );
 }
 
@@ -12113,11 +12490,13 @@ class _GeometryPreviewTab extends StatelessWidget {
     required this.roofModelState,
     required this.mediaRepository,
     this.result,
+    this.onGenerateGlb,
     this.savedInput,
     this.calculationNumber,
     this.calculationSavedAt,
     this.highlightedModuleIndex,
     this.highlightedGlassFieldIndex,
+    this.highlightedManufacturingFieldKind,
   });
 
   final CalculatorDraft draft;
@@ -12125,11 +12504,13 @@ class _GeometryPreviewTab extends StatelessWidget {
   final _RoofModelStepState roofModelState;
   final AdminResourceRepository mediaRepository;
   final CalculatorResult? result;
+  final Future<Map<String, dynamic>> Function()? onGenerateGlb;
   final Map<String, dynamic>? savedInput;
   final String? calculationNumber;
   final String? calculationSavedAt;
   final int? highlightedModuleIndex;
   final int? highlightedGlassFieldIndex;
+  final String? highlightedManufacturingFieldKind;
 
   @override
   Widget build(BuildContext context) {
@@ -12182,6 +12563,7 @@ class _GeometryPreviewTab extends StatelessWidget {
               modelCode: draft.modelCode,
               modelLabel: previewData.selectedModel?.label,
               mediaRepository: mediaRepository,
+              onGenerateGlb: onGenerateGlb,
               widthMm: draft.widthMm,
               depthMm: draft.depthMm,
               heightMm: draft.heightMm,
@@ -12202,6 +12584,7 @@ class _GeometryPreviewTab extends StatelessWidget {
               colorSwatchColor: colorPreview?.color,
               isSpecialColor: colorPreview != null && !colorPreview.isStandard,
               coveringName: previewData.coveringName,
+              coveringSummary: previewData.coveringSummary,
               markiseSegments: markiseSegments,
               staticBeam: previewData.roofCalculation.staticBeam,
               wallMounted: draft.wallMounted,
@@ -12217,6 +12600,7 @@ class _GeometryPreviewTab extends StatelessWidget {
                     ),
               highlightedModuleIndex: highlightedModuleIndex,
               highlightedGlassFieldIndex: highlightedGlassFieldIndex,
+              highlightedManufacturingFieldKind: highlightedManufacturingFieldKind,
               roofAngleDeg: draft.roofAngleDeg,
               rearHeightMm: draft.roofRearHeightMm ?? draft.heightMm,
               frontHeightMm: draft.roofFrontHeightMm,
@@ -12635,6 +13019,37 @@ Map<String, List<String>> _calculatorAttentionMessagesByStep({
 }) {
   final grouped = <String, List<String>>{};
 
+  if (draft.addWallSealPressurePlate) {
+    _addAttentionMessage(
+      grouped,
+      const ['set_contents'],
+      'Anpressplatte für Wanddichtung (6179) is enabled.',
+    );
+  }
+  if (draft.wallGutterBlendeLongLength) {
+    _addAttentionMessage(
+      grouped,
+      const ['set_contents'],
+      '16912 Langmaß is enabled; from 14000 mm verify manually.',
+    );
+  }
+  if (draft.additionalDiscountEnabled) {
+    final discountPct = draft.additionalDiscountPct.toDouble();
+    final discountReasonCode = draft.additionalDiscountReasonCode;
+    final discountReason = (calculatorContext?.references['discount_types'] ?? const [])
+        .where((option) => option.code == discountReasonCode)
+        .map((option) => option.label)
+        .firstOrNull;
+    final pctLabel = discountPct.toStringAsFixed(
+      discountPct == discountPct.roundToDouble() ? 0 : 1,
+    );
+    _addAttentionMessage(
+      grouped,
+      const ['summary'],
+      'Additional discount: $pctLabel%${discountReason == null ? '' : ' · $discountReason'}.',
+    );
+  }
+
   if (draft.addStaticBeamAssembly) {
     const assemblySteps = ['model', 'set_contents', 'accessory'];
     final positionLabel = _staticBeamPositionLabel(
@@ -13002,6 +13417,15 @@ Map<String, List<String>> _calculatorWarningMessagesByStep({
     ...resultWarnings,
   ];
 
+  bool isManufacturingSplitWarning(Map<String, dynamic> warning) =>
+      '${warning['code'] ?? ''}'.trim().toLowerCase() ==
+      'manufacturing_split_reinforcement_required';
+  final manufacturingSplitMessages = allWarningRecords
+      .where(isManufacturingSplitWarning)
+      .map((warning) => '${warning['message'] ?? ''}'.trim())
+      .where((message) => message.isNotEmpty)
+      .toSet();
+
   for (final message in _moduleDimensionWarningMessages(draft)) {
     _addWarningMessage(grouped, 'dimensions', message);
   }
@@ -13034,7 +13458,10 @@ Map<String, List<String>> _calculatorWarningMessagesByStep({
   }
 
   for (final warning in catalogWarnings) {
-    if (_isAbzugWarningRecord(warning)) continue;
+    if (_isAbzugWarningRecord(warning) ||
+        isManufacturingSplitWarning(warning)) {
+      continue;
+    }
     _addWarningMessage(
       grouped,
       _warningStepKey(warning),
@@ -13043,11 +13470,24 @@ Map<String, List<String>> _calculatorWarningMessagesByStep({
   }
 
   for (final warning in previewWarnings) {
-    if (_isAbzugWarningRecord(warning)) continue;
+    if (_isAbzugWarningRecord(warning) ||
+        isManufacturingSplitWarning(warning)) {
+      continue;
+    }
     _addWarningMessage(
       grouped,
       _warningStepKey(warning),
       warning['message'] ?? warning['code'],
+    );
+  }
+
+  if (manufacturingSplitMessages.isNotEmpty) {
+    _addWarningMessage(
+      grouped,
+      'set_contents',
+      manufacturingSplitMessages.length == 1
+          ? manufacturingSplitMessages.first
+          : 'Manufacturing split is configured for multiple roof segments. Manually add the required reinforcement/support components at the segment joints in Set Contents (for example Statikträger, cover or posts as required by the construction).',
     );
   }
 
@@ -13067,7 +13507,9 @@ Map<String, List<String>> _calculatorWarningMessagesByStep({
     final code = '${warning['code'] ?? ''}'.trim().toLowerCase();
     // Option warnings are routed more accurately through their existing
     // per-section diagnostics below.
-    if (code.startsWith('option_') || _isAbzugWarningRecord(warning)) {
+    if (code.startsWith('option_') ||
+        _isAbzugWarningRecord(warning) ||
+        isManufacturingSplitWarning(warning)) {
       continue;
     }
     _addWarningMessage(
@@ -13165,7 +13607,7 @@ List<String> _flattenWarningMessages(
   return messages;
 }
 
-class _PriceHeader extends StatelessWidget {
+class _PriceHeader extends ConsumerWidget {
   const _PriceHeader({
     required this.result,
     required this.draft,
@@ -13233,7 +13675,7 @@ class _PriceHeader extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final net = _num(result.price['net']);
     final gross = _num(result.price['gross']);
     final margin = result.internalPrice['margin'];
@@ -13258,6 +13700,16 @@ class _PriceHeader extends StatelessWidget {
     final attentionMessages = _flattenWarningMessages(attentionMessagesByStep);
     final warningGroups = _calculatorMessageGroupsByStep(warningMessagesByStep);
     final attentionGroups = _calculatorMessageGroupsByStep(attentionMessagesByStep);
+    final notifier = ref.read(calculatorDraftProvider.notifier);
+    final discountTypes = calculatorContext.references['discount_types'] ?? const [];
+    final selectedDiscountReason = discountTypes
+            .any((option) => option.code == draft.additionalDiscountReasonCode)
+        ? draft.additionalDiscountReasonCode
+        : null;
+    final additionalDiscountPct = draft.additionalDiscountPct.toDouble();
+    final additionalDiscountPctText = additionalDiscountPct.toStringAsFixed(
+      additionalDiscountPct == additionalDiscountPct.roundToDouble() ? 0 : 1,
+    );
 
     return Stack(
       clipBehavior: Clip.none,
@@ -13340,18 +13792,78 @@ class _PriceHeader extends StatelessWidget {
                   _AttentionDropdown(
                     messages: attentionMessages,
                     groups: attentionGroups,
-                    width: 128,
+                    width: 136,
                   ),
                 if (warningMessages.isNotEmpty)
                   _WarningsDropdown(
                     messages: warningMessages,
                     groups: warningGroups,
-                    width: 120,
+                    width: 136,
                   ),
               ],
             ),
           ),
         ],
+        const SizedBox(height: 10),
+        Wrap(
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 10,
+          runSpacing: 8,
+          children: [
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Transform.scale(
+                  scale: 0.82,
+                  alignment: Alignment.centerLeft,
+                  child: Switch(
+                    value: draft.additionalDiscountEnabled,
+                    onChanged: notifier.setAdditionalDiscountEnabled,
+                  ),
+                ),
+                const SizedBox(width: 2),
+                Text(
+                  'Additional discount',
+                  style: Theme.of(context).textTheme.labelMedium,
+                ),
+              ],
+            ),
+            if (draft.additionalDiscountEnabled) ...[
+              SizedBox(
+                width: 92,
+                child: TextFormField(
+                  initialValue: additionalDiscountPctText,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(
+                    labelText: 'Discount',
+                    suffixText: '%',
+                    isDense: true,
+                  ),
+                  onChanged: notifier.setAdditionalDiscountPct,
+                ),
+              ),
+              SizedBox(
+                width: 230,
+                child: DropdownButtonFormField<String>(
+                  initialValue: selectedDiscountReason,
+                  isExpanded: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Reason',
+                    isDense: true,
+                  ),
+                  items: [
+                    for (final option in discountTypes)
+                      DropdownMenuItem<String>(
+                        value: option.code,
+                        child: Text(option.label),
+                      ),
+                  ],
+                  onChanged: notifier.setAdditionalDiscountReasonCode,
+                ),
+              ),
+            ],
+          ],
+        ),
       ],
     ),
         if ((quoteId ?? '').isNotEmpty)

@@ -354,6 +354,7 @@ class _IntegrationJobCard extends StatelessWidget {
         'create_reserve' => 'Create Reserve',
         'create_kommission' => 'Create Kommission',
         'send_sevdesk' => 'Send to Sevdesk',
+        'generate_glb' => 'Generate GLB',
         'quote_submit' => 'Send to customer',
         'quote_resend' => 'Resend customer email',
         _ => job.operationCode,

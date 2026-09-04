@@ -379,6 +379,17 @@ class _NavigationTree extends StatelessWidget {
           onTap: () => onSelect(dashboardResource.key),
           onOpenInNewTab: () => onOpenInNewTab(dashboardResource.key),
         ),
+        const SizedBox(height: 4),
+        if (canRoleAccessAdminResource(roleCode, calculatorWorkspaceResource))
+          _NavTile(
+            resourceKey: calculatorWorkspaceResource.key,
+            title: calculatorWorkspaceResource.title,
+            icon: calculatorWorkspaceResource.icon,
+            selected: selectedKey == calculatorWorkspaceResource.key,
+            compact: collapsed,
+            onTap: () => onSelect(calculatorWorkspaceResource.key),
+            onOpenInNewTab: () => onOpenInNewTab(calculatorWorkspaceResource.key),
+          ),
         const SizedBox(height: 8),
         for (final group in _navigationGroupsForUi())
           ..._buildGroup(group),
@@ -510,7 +521,7 @@ List<AdminNavGroup> _navigationGroupsForUi() {
   ];
 
   return [
-    for (final group in adminNavGroups)
+    for (final group in adminNavGroups.where((group) => group.key != 'calculator'))
       if (group.key == 'system_settings')
         AdminNavGroup(
           key: group.key,

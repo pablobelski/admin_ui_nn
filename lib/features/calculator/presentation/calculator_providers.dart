@@ -95,6 +95,8 @@ String _setContentsRequestSignature(CalculatorDraft draft) {
     'roof_front_height_mm': draft.roofFrontHeightMm,
     'force_odd_beams': draft.forceOddBeams,
     'wall_mounted': draft.wallMounted,
+    'add_wall_seal_pressure_plate': draft.addWallSealPressurePlate,
+    'wall_gutter_blende_long_length': draft.wallGutterBlendeLongLength,
     'add_static_beam_assembly': draft.addStaticBeamAssembly,
     'static_beam_position_code': draft.staticBeamPositionCode,
     'static_beam_length_calculation_method':
@@ -295,6 +297,12 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
             ? 'front_overhang'
             : state.staticBeamPositionCode,
       );
+
+  void setAddWallSealPressurePlate(bool value) =>
+      state = state.copyWith(addWallSealPressurePlate: value);
+
+  void setWallGutterBlendeLongLength(bool value) =>
+      state = state.copyWith(wallGutterBlendeLongLength: value);
 
   void setCoveringEnabled(bool value) {
     if (value) {
@@ -706,6 +714,25 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
         deliveryLatestCode: value,
         clearDeliveryLatest: value == null || value.isEmpty,
       );
+
+  void setAdditionalDiscountEnabled(bool value) =>
+      state = state.copyWith(additionalDiscountEnabled: value);
+
+  void setAdditionalDiscountPct(String value) {
+    final parsed = num.tryParse(value.trim().replaceAll(',', '.'));
+    state = state.copyWith(
+      additionalDiscountPct: (parsed ?? 0).clamp(0, 100),
+    );
+  }
+
+  void setAdditionalDiscountReasonCode(String? value) {
+    final normalized = value?.trim();
+    state = state.copyWith(
+      additionalDiscountReasonCode: normalized,
+      clearAdditionalDiscountReasonCode:
+          normalized == null || normalized.isEmpty,
+    );
+  }
 
   void setQuoteNoExternal(String value) => state = state.copyWith(
         quoteNoExternal: value.trim(),
@@ -1456,6 +1483,18 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
     final items = [...tab.items];
     final safeQuantity = math.max(1, quantity).toInt();
     final safeInstalledLength = math.max(1, installedLengthMm).toInt();
+    final currentCutTotal = matchingIndexes.fold<double>(0, (sum, index) {
+      final item = items[index];
+      final cutGroupCount = _setContentSourceNumber(
+        item,
+        'cut_group_count',
+        'cutGroupCount',
+        1,
+      );
+      if (cutGroupCount <= 1) return sum;
+      return sum + (item.lengthMm ?? 0).toDouble();
+    });
+    final useCurrentCutWeights = currentCutTotal >= 100;
     final calculatedCutTotal = matchingIndexes.fold<double>(0, (sum, index) {
       final item = items[index];
       final cutGroupCount = _setContentSourceNumber(
@@ -1465,7 +1504,10 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
         1,
       );
       if (cutGroupCount <= 1) return sum;
-      return sum + (item.calculatedLengthMm ?? item.lengthMm ?? 0).toDouble();
+      final weight = useCurrentCutWeights
+          ? item.lengthMm
+          : item.calculatedLengthMm;
+      return sum + (weight ?? 0).toDouble();
     });
     var assignedLength = 0;
 
@@ -1495,6 +1537,10 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
       final itemQuantity = cutGroupCount > 1
           ? safeQuantity
           : safeQuantity * splitCount;
+      final cutWeight = ((useCurrentCutWeights
+              ? item.lengthMm
+              : item.calculatedLengthMm) ?? 0)
+          .toDouble();
       int itemLength;
       if (cutGroupCount > 1 && calculatedCutTotal > 0) {
         final isLast = position == matchingIndexes.length - 1;
@@ -1502,10 +1548,7 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
             ? math.max(1, safeInstalledLength - assignedLength).toInt()
             : math.max(
                 1,
-                (safeInstalledLength *
-                        (item.calculatedLengthMm ?? item.lengthMm ?? 0) /
-                        calculatedCutTotal)
-                    .round(),
+                (safeInstalledLength * cutWeight / calculatedCutTotal).round(),
               ).toInt();
         assignedLength += itemLength;
       } else {
@@ -1569,6 +1612,7 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
     num quantity = 1,
     String? salesUnitCode,
     int? lengthMm,
+    String? manufacturingFieldKind,
     int? manufacturingFieldIndex,
     int? manufacturingFieldCount,
   }) {
@@ -1608,6 +1652,8 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
             'profile_no': variant?.profileNo ?? catalogItem.profileNo,
           'article_no': articleNo,
           'unit_code': unit,
+          if ((manufacturingFieldKind ?? '').isNotEmpty)
+            'manufacturing_field_kind': manufacturingFieldKind,
           if (manufacturingFieldIndex != null && manufacturingFieldIndex > 0)
             'manufacturing_field_index': manufacturingFieldIndex,
           if (manufacturingFieldCount != null && manufacturingFieldCount > 0)

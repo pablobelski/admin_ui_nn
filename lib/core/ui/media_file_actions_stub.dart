@@ -6,6 +6,13 @@ void openMediaUrl(
   bool keepCurrentFocus = false,
 }) {}
 
+Future<void> openMediaUrlFromFuture(
+  Future<String?> Function() resolveUrl, {
+  String target = '_blank',
+}) async {
+  await resolveUrl();
+}
+
 void downloadMediaUrl(String url, {String? filename}) {}
 
 void openMediaBytes(Uint8List bytes, {String? filename, String? contentType}) {}

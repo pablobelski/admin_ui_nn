@@ -385,7 +385,7 @@ class CalculatorTemplateOption {
           roofParameters['wall_gutter_blende_legacy_rules_enabled_default'] ??
           moduleParameters['wallGutterBlendeLegacyRulesEnabledDefault'] ??
           moduleParameters['wall_gutter_blende_legacy_rules_enabled_default'],
-      true,
+      false,
     );
   }
 
@@ -1387,6 +1387,8 @@ class CalculatorDraft {
     this.forceOddBeams = false,
     this.wallMounted = true,
     this.coveringEnabled = true,
+    this.addWallSealPressurePlate = false,
+    this.wallGutterBlendeLongLength = false,
     this.markiseEnabled = false,
     this.markiseExcludeFromPrice = false,
     this.markiseSelections = const [],
@@ -1407,6 +1409,9 @@ class CalculatorDraft {
     this.options = const [],
     this.setContents = const [],
     this.missingSetPieceAbzugArticleNos = const [],
+    this.additionalDiscountEnabled = false,
+    this.additionalDiscountPct = 0,
+    this.additionalDiscountReasonCode,
   });
 
   factory CalculatorDraft.fromCalculationJson(
@@ -1417,6 +1422,9 @@ class CalculatorDraft {
     final dimensions = _map(json['dimensions']);
     final roof = _map(json['roof']);
     final markise = _map(json['markise']);
+    final additionalDiscount = _map(
+      json['additional_discount'] ?? json['additionalDiscount'],
+    );
     final options = json['options'] is List
         ? (json['options'] as List)
             .whereType<Map>()
@@ -1510,6 +1518,14 @@ class CalculatorDraft {
       forceOddBeams: roof['force_odd_beams'] is bool ? roof['force_odd_beams'] as bool : false,
       wallMounted: wallMounted,
       coveringEnabled: coveringEnabled,
+      addWallSealPressurePlate:
+          (roof['add_wall_seal_pressure_plate'] ?? roof['addWallSealPressurePlate']) is bool
+              ? (roof['add_wall_seal_pressure_plate'] ?? roof['addWallSealPressurePlate']) as bool
+              : false,
+      wallGutterBlendeLongLength:
+          (roof['wall_gutter_blende_long_length'] ?? roof['wallGutterBlendeLongLength']) is bool
+              ? (roof['wall_gutter_blende_long_length'] ?? roof['wallGutterBlendeLongLength']) as bool
+              : false,
       markiseEnabled: markise['enabled'] is bool ? markise['enabled'] as bool : false,
       markiseExcludeFromPrice: markise['exclude_from_price'] is bool
           ? markise['exclude_from_price'] as bool
@@ -1551,6 +1567,14 @@ class CalculatorDraft {
         json['missing_set_piece_abzug_article_nos'] ??
             json['missingSetPieceAbzugArticleNos'],
       ),
+      additionalDiscountEnabled: additionalDiscount['enabled'] is bool
+          ? additionalDiscount['enabled'] as bool
+          : false,
+      additionalDiscountPct:
+          _numOrNull(additionalDiscount['discount_pct'] ?? additionalDiscount['discountPct']) ?? 0,
+      additionalDiscountReasonCode: _nullableString(
+        additionalDiscount['reason_code'] ?? additionalDiscount['reasonCode'],
+      ),
     );
   }
 
@@ -1568,6 +1592,8 @@ class CalculatorDraft {
   final bool forceOddBeams;
   final bool wallMounted;
   final bool coveringEnabled;
+  final bool addWallSealPressurePlate;
+  final bool wallGutterBlendeLongLength;
   final bool markiseEnabled;
   final bool markiseExcludeFromPrice;
   final List<CalculatorMarkiseSelection> markiseSelections;
@@ -1588,6 +1614,9 @@ class CalculatorDraft {
   final List<CalculatorSelectedOption> options;
   final List<CalculatorSetContentTab> setContents;
   final List<String> missingSetPieceAbzugArticleNos;
+  final bool additionalDiscountEnabled;
+  final num additionalDiscountPct;
+  final String? additionalDiscountReasonCode;
 
   CalculatorDraft copyWith({
     String? organizationId,
@@ -1614,6 +1643,8 @@ class CalculatorDraft {
     bool? forceOddBeams,
     bool? wallMounted,
     bool? coveringEnabled,
+    bool? addWallSealPressurePlate,
+    bool? wallGutterBlendeLongLength,
     bool? markiseEnabled,
     bool? markiseExcludeFromPrice,
     List<CalculatorMarkiseSelection>? markiseSelections,
@@ -1645,6 +1676,10 @@ class CalculatorDraft {
     List<CalculatorSelectedOption>? options,
     List<CalculatorSetContentTab>? setContents,
     List<String>? missingSetPieceAbzugArticleNos,
+    bool? additionalDiscountEnabled,
+    num? additionalDiscountPct,
+    String? additionalDiscountReasonCode,
+    bool clearAdditionalDiscountReasonCode = false,
   }) {
     return CalculatorDraft(
       organizationId: clearOrganization ? null : organizationId ?? this.organizationId,
@@ -1661,6 +1696,10 @@ class CalculatorDraft {
       forceOddBeams: forceOddBeams ?? this.forceOddBeams,
       wallMounted: wallMounted ?? this.wallMounted,
       coveringEnabled: coveringEnabled ?? this.coveringEnabled,
+      addWallSealPressurePlate:
+          addWallSealPressurePlate ?? this.addWallSealPressurePlate,
+      wallGutterBlendeLongLength:
+          wallGutterBlendeLongLength ?? this.wallGutterBlendeLongLength,
       markiseEnabled: markiseEnabled ?? this.markiseEnabled,
       markiseExcludeFromPrice:
           markiseExcludeFromPrice ?? this.markiseExcludeFromPrice,
@@ -1688,6 +1727,13 @@ class CalculatorDraft {
       setContents: setContents ?? this.setContents,
       missingSetPieceAbzugArticleNos:
           missingSetPieceAbzugArticleNos ?? this.missingSetPieceAbzugArticleNos,
+      additionalDiscountEnabled:
+          additionalDiscountEnabled ?? this.additionalDiscountEnabled,
+      additionalDiscountPct:
+          additionalDiscountPct ?? this.additionalDiscountPct,
+      additionalDiscountReasonCode: clearAdditionalDiscountReasonCode
+          ? null
+          : additionalDiscountReasonCode ?? this.additionalDiscountReasonCode,
     );
   }
 
@@ -1769,6 +1815,8 @@ class CalculatorDraft {
       'force_odd_beams': forceOddBeams,
       'wall_mounted': wallMounted,
       'add_covering': coveringEnabled,
+      'add_wall_seal_pressure_plate': addWallSealPressurePlate,
+      'wall_gutter_blende_long_length': wallGutterBlendeLongLength,
       'add_static_beam_assembly': addStaticBeamAssembly,
       'static_beam_position_code': staticBeamPositionCode,
       'static_beam_length_calculation_method':
@@ -1811,6 +1859,12 @@ class CalculatorDraft {
       'options': options.map((entry) => entry.toJson()).toList(),
       'set_contents': setContentsJson,
       'missing_set_piece_abzug_article_nos': missingSetPieceAbzugArticleNos,
+      'additional_discount': {
+        'enabled': additionalDiscountEnabled,
+        'discount_pct': additionalDiscountPct,
+        if ((additionalDiscountReasonCode ?? '').trim().isNotEmpty)
+          'reason_code': additionalDiscountReasonCode!.trim(),
+      },
       'language_code': 'de',
     };
   }
