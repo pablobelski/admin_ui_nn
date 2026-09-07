@@ -10,6 +10,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../../core/auth/auth_session.dart';
 import '../../../core/http/admin_resource_repository.dart';
+import '../../../core/ui/glb_viewer.dart';
 import '../../../core/ui/media_file_actions.dart';
 import '../../../core/ui/top_notification.dart';
 import '../data/calculator_models.dart';
@@ -68,9 +69,20 @@ int geometryPreviewPostCount({
       final source = sourceRaw is Map
           ? Map<String, dynamic>.from(sourceRaw)
           : const <String, dynamic>{};
-      final article = '${line['article_no'] ?? line['articleNo'] ?? source['article_no'] ?? source['articleNo'] ?? ''}'
-          .trim();
-      if (article != '15190') continue;
+      final candidates = <String>[
+        '${line['article_no'] ?? line['articleNo'] ?? ''}',
+        '${line['profile_no'] ?? line['profileNo'] ?? ''}',
+        '${source['article_no'] ?? source['articleNo'] ?? ''}',
+        '${source['profile_no'] ?? source['profileNo'] ?? ''}',
+      ];
+      final isPost = candidates.any((raw) {
+        final value = raw.trim();
+        return value == '15190' ||
+            value.endsWith(':15190') ||
+            value.contains(':15190:') ||
+            value.startsWith('15190:');
+      });
+      if (!isPost) continue;
       final rawQuantity = line['quantity'] ?? source['quantity'];
       final quantity = rawQuantity is num
           ? rawQuantity.toDouble()
@@ -272,15 +284,15 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
     if (generate == null || _isGeneratingGlb) return;
 
     setState(() => _isGeneratingGlb = true);
-    Map<String, dynamic> result = const {};
     try {
-      await openMediaUrlFromFuture(() async {
-        result = await generate();
-        final shouldOpen = result['open_viewer'] != false;
-        final viewerUrl = '${result['viewer_url'] ?? ''}'.trim();
-        return shouldOpen && viewerUrl.isNotEmpty ? viewerUrl : null;
-      });
+      final result = await generate();
+      final fileId = '${result['file_id'] ?? ''}'.trim();
+      if (fileId.isEmpty) {
+        throw StateError('GLB generation returned no Media Library file id.');
+      }
+      final response = await widget.mediaRepository.viewMediaFile(fileId);
       if (!mounted) return;
+
       final filename = '${result['filename'] ?? 'GLB'}'.trim();
       final generated = result['generated'] != false;
       showTopNotification(
@@ -290,6 +302,8 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
             : '$filename is already available in Media Library.',
         type: TopNotificationType.success,
       );
+      setState(() => _isGeneratingGlb = false);
+      await _showGlbPreview(context, result, response.bytes);
     } catch (error) {
       if (!mounted) return;
       showTopNotification(
@@ -298,8 +312,88 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
         type: TopNotificationType.error,
       );
     } finally {
-      if (mounted) setState(() => _isGeneratingGlb = false);
+      if (mounted && _isGeneratingGlb) {
+        setState(() => _isGeneratingGlb = false);
+      }
     }
+  }
+
+  Future<void> _showGlbPreview(
+    BuildContext context,
+    Map<String, dynamic> result,
+    Uint8List bytes,
+  ) async {
+    final colorScheme = Theme.of(context).colorScheme;
+    final filename = '${result['filename'] ?? 'GLB'}'.trim();
+    final viewerUrl = '${result['viewer_url'] ?? ''}'.trim();
+    final iframeHtml = '${result['viewer_iframe_html'] ?? ''}'.trim();
+    final localPath = '${result['viewer_local_path'] ?? 'glb-viewer.html'}'.trim();
+    final embedMode = '${result['viewer_embed_mode'] ?? 'local'}'.trim();
+    final allowExternal = result['open_viewer'] != false && viewerUrl.isNotEmpty;
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return Dialog(
+          insetPadding: const EdgeInsets.all(28),
+          clipBehavior: Clip.antiAlias,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 1280, maxHeight: 860),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 14, 12, 12),
+                  child: Row(
+                    children: [
+                      Icon(Icons.view_in_ar_outlined, color: colorScheme.primary),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          '3D preview · $_modelDisplayLabel',
+                          style: Theme.of(dialogContext).textTheme.titleLarge,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      if (allowExternal)
+                        IconButton(
+                          tooltip: 'Open 3D viewer in a new tab',
+                          onPressed: () => openMediaUrl(viewerUrl),
+                          icon: const Icon(Icons.open_in_new),
+                        ),
+                      IconButton(
+                        tooltip: 'Download $filename',
+                        onPressed: () => downloadMediaBytes(
+                          bytes,
+                          filename: filename,
+                          contentType: 'model/gltf-binary',
+                        ),
+                        icon: const Icon(Icons.download_outlined),
+                      ),
+                      IconButton(
+                        tooltip: 'Close',
+                        onPressed: () => Navigator.of(dialogContext).pop(),
+                        icon: const Icon(Icons.close),
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1),
+                Expanded(
+                  child: GlbViewerFrame(
+                    bytes: bytes,
+                    embedMode: embedMode,
+                    localPath: localPath,
+                    externalUrl: viewerUrl.isEmpty ? null : viewerUrl,
+                    iframeHtml: iframeHtml.isEmpty ? null : iframeHtml,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   @override
@@ -328,7 +422,7 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
                 IconButton(
                   tooltip: widget.onGenerateGlb == null
                       ? 'Save the current calculation to generate GLB'
-                      : 'Open existing GLB or generate it',
+                      : 'Open 3D preview (generate GLB if needed)',
                   onPressed: widget.onGenerateGlb != null && !_isGeneratingGlb
                       ? _generateGlb
                       : null,
@@ -348,7 +442,7 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
                   onPressed: hasSelection ? () => _showExpandedPreview(context, currentUser) : null,
                   padding: EdgeInsets.zero,
                   constraints: const BoxConstraints.tightFor(width: 28, height: 28),
-                  icon: const Icon(Icons.open_in_full, size: 18),
+                  icon: const Icon(Icons.zoom_in, size: 18),
                 ),
               ],
             ),
@@ -397,6 +491,7 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
     bool clearHighlight = false,
     double sideInfoBottomReserve = 0.0,
     bool alignRoofTop = false,
+    bool showRoofTypeInSideInfo = false,
   }) {
     return FutureBuilder<ui.Image?>(
       future: _humanImageFuture,
@@ -433,6 +528,7 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
             ),
             sideInfoBottomReserve: sideInfoBottomReserve,
             alignRoofTop: alignRoofTop,
+            showRoofTypeInSideInfo: showRoofTypeInSideInfo,
           ),
         );
       },
@@ -471,9 +567,12 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
                       IconButton(
                         tooltip: widget.onGenerateGlb == null
                             ? 'Save the current calculation to generate GLB'
-                            : 'Open existing GLB or generate it',
+                            : 'Open 3D preview (generate GLB if needed)',
                         onPressed: widget.onGenerateGlb != null && !_isGeneratingGlb
-                            ? _generateGlb
+                            ? () async {
+                                Navigator.of(dialogContext).pop();
+                                await _generateGlb();
+                              }
                             : null,
                         icon: _isGeneratingGlb
                             ? const SizedBox(
@@ -515,8 +614,6 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
                               SizedBox(
                                 width: 320,
                                 child: _ExpandedPreviewInfo(
-                                  modelLabel: _modelDisplayLabel,
-                                  modelCode: widget.modelCode,
                                   buyerName: widget.buyerName,
                                   buyerContactName: widget.buyerContactName,
                                   buyerEmail: widget.buyerEmail,
@@ -538,7 +635,6 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
                                   calculatedModules: widget.calculatedModules,
                                   postCount: widget.postCount,
                                   currentUser: currentUser,
-                                  showRoofType: widget.showRoofType,
                                 ),
                               ),
                               const SizedBox(width: 20),
@@ -601,6 +697,8 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
                                                 sideInfoBottomReserve:
                                                     sideBottomReserve,
                                                 alignRoofTop: true,
+                                                showRoofTypeInSideInfo:
+                                                    widget.showRoofType,
                                               ),
                                               Positioned(
                                                 left: 8,
@@ -876,8 +974,6 @@ class _ExpandedPreviewTextBlock extends StatelessWidget {
 
 class _ExpandedPreviewInfo extends StatelessWidget {
   const _ExpandedPreviewInfo({
-    required this.modelLabel,
-    required this.modelCode,
     required this.buyerName,
     required this.buyerContactName,
     required this.buyerEmail,
@@ -899,11 +995,8 @@ class _ExpandedPreviewInfo extends StatelessWidget {
     required this.calculatedModules,
     required this.postCount,
     required this.currentUser,
-    required this.showRoofType,
   });
 
-  final String modelLabel;
-  final String? modelCode;
   final String? buyerName;
   final String? buyerContactName;
   final String? buyerEmail;
@@ -925,13 +1018,11 @@ class _ExpandedPreviewInfo extends StatelessWidget {
   final List<RoofModuleCalculation> calculatedModules;
   final int postCount;
   final String currentUser;
-  final bool showRoofType;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    final modelCodeValue = modelCode?.trim();
     final buyerNameValue = buyerName?.trim();
     final contactDetails = [buyerContactName, buyerEmail, buyerPhone]
         .map((value) => value?.trim() ?? '')
@@ -984,13 +1075,6 @@ class _ExpandedPreviewInfo extends StatelessWidget {
             ),
             if (contactDetails.isNotEmpty)
               _PreviewMetadataRow(label: 'Configurator contact', value: contactDetails),
-            if (showRoofType)
-              _PreviewMetadataRow(
-                label: 'Roof type',
-                value: modelCodeValue == null || modelCodeValue.isEmpty
-                    ? modelLabel
-                    : '$modelLabel ($modelCodeValue)',
-              ),
             if (colorCode?.trim().isNotEmpty == true)
               _PreviewMetadataRow(
                 label: isSpecialColor ? 'Color (Sonderfarbe)' : 'Color',
@@ -1625,11 +1709,6 @@ Future<Uint8List> renderExpandedGeometryPreviewPng({
       .map((value) => value?.trim() ?? '')
       .where((value) => value.isNotEmpty)
       .join(' · ');
-  final modelCodeValue = modelCode?.trim();
-  final displayModelLabel = (modelLabel?.trim().isNotEmpty ?? false)
-      ? modelLabel!.trim()
-      : ((modelCodeValue?.isNotEmpty ?? false) ? modelCodeValue! : '—');
-
   var infoY = outer + 18;
   const infoX = outer + 18;
   const infoWidth = leftWidth - 36;
@@ -1650,14 +1729,6 @@ Future<Uint8List> renderExpandedGeometryPreviewPng({
   );
   if (contactDetails.isNotEmpty) {
     info('Configurator contact', contactDetails);
-  }
-  if (showRoofType) {
-    info(
-      'Roof type',
-      modelCodeValue == null || modelCodeValue.isEmpty
-          ? displayModelLabel
-          : '$displayModelLabel ($modelCodeValue)',
-    );
   }
   if (colorCode?.trim().isNotEmpty == true) {
     info(isSpecialColor ? 'Color (Sonderfarbe)' : 'Color', colorCode!.trim());
@@ -1759,6 +1830,7 @@ Future<Uint8List> renderExpandedGeometryPreviewPng({
     hasMarkise: markiseSegments.any((segment) => segment.quantity > 0),
     sideInfoBottomReserve: 0,
     alignRoofTop: true,
+    showRoofTypeInSideInfo: showRoofType,
   );
   geometryPainter.paint(canvas, geometrySize);
   canvas.restore();
@@ -1932,6 +2004,7 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     required this.hasMarkise,
     required this.sideInfoBottomReserve,
     required this.alignRoofTop,
+    this.showRoofTypeInSideInfo = false,
     this.geometryOnly = false,
   });
 
@@ -1963,6 +2036,7 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
   final bool hasMarkise;
   final double sideInfoBottomReserve;
   final bool alignRoofTop;
+  final bool showRoofTypeInSideInfo;
   final bool geometryOnly;
 
   static const double _ddx = 0.52;
@@ -3293,6 +3367,9 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     const heightBlockHeight = 28.0;
     const countsBlockHeight = 28.0;
     final markiseBlockHeight = hasMarkise ? 26.0 : 0.0;
+    final roofTypeCode = modelCode?.trim() ?? '';
+    final roofTypeBlockHeight =
+        showRoofTypeInSideInfo && roofTypeCode.isNotEmpty ? 18.0 : 0.0;
     final colorBlockHeight = hasColor ? 30.0 + (isSpecialColor ? 24.0 : 0.0) : 0.0;
     final infoHeight = _min(
       240.0,
@@ -3305,13 +3382,15 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     final blockCount = 3 +
         (hasColor ? 1 : 0) +
         (hasSlope ? 1 : 0) +
-        (hasMarkise ? 1 : 0);
+        (hasMarkise ? 1 : 0) +
+        (roofTypeBlockHeight > 0 ? 1 : 0);
     final gapCount = blockCount - 1;
     const minimumGap = 3.0;
     final fixedBlockHeight = heightBlockHeight +
         colorBlockHeight +
         countsBlockHeight +
-        markiseBlockHeight;
+        markiseBlockHeight +
+        roofTypeBlockHeight;
     final availableFlexibleHeight = _max(
       0.0,
       infoHeight - fixedBlockHeight - gapCount * minimumGap,
@@ -3437,7 +3516,10 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     );
     blockTop += countsBlockHeight + blockGap;
     if (hasMarkise) {
-      _drawMarkiseInset(canvas, rect, blockTop);
+      blockTop = _drawMarkiseInset(canvas, rect, blockTop) + blockGap;
+    }
+    if (roofTypeBlockHeight > 0) {
+      _drawRoofTypeInset(canvas, rect, blockTop, roofTypeCode);
     }
   }
 
@@ -3617,6 +3699,23 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
       canvas,
       'Träger: $totalBeamCount stk.',
       Offset(blockRect.center.dx, blockRect.top + 21),
+      lineColor,
+      _sideInfoFontSize,
+      isBold: true,
+      hAlign: 0.5,
+    );
+  }
+
+  void _drawRoofTypeInset(
+    Canvas canvas,
+    Rect planRect,
+    double top,
+    String roofTypeCode,
+  ) {
+    _drawText(
+      canvas,
+      roofTypeCode,
+      Offset(planRect.center.dx, top + 7),
       lineColor,
       _sideInfoFontSize,
       isBold: true,
@@ -4668,6 +4767,7 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
         oldDelegate.hasMarkise != hasMarkise ||
         oldDelegate.sideInfoBottomReserve != sideInfoBottomReserve ||
         oldDelegate.alignRoofTop != alignRoofTop ||
+        oldDelegate.showRoofTypeInSideInfo != showRoofTypeInSideInfo ||
         oldDelegate.geometryOnly != geometryOnly;
   }
 }
