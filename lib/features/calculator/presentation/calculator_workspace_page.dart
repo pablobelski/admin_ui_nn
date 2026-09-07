@@ -43,6 +43,7 @@ const _steps = <_StepDefinition>[
 
 final _moneyFormat = NumberFormat.currency(locale: 'de_DE', symbol: '€');
 const _customRalOptionCode = '__custom_ral__';
+const _uncoatedProfileColorCode = 'BLANK';
 const _staticBeamPositionOptions = <CalculatorOption>[
   CalculatorOption(id: 'rear_wall', code: 'rear_wall', label: 'Hinten+Wand'),
   CalculatorOption(id: 'under_gutter', code: 'under_gutter', label: 'Unter Rinne'),
@@ -2486,6 +2487,7 @@ String _templateConstantDescription(String path) {
     'singleGlassFieldMaxBeamLengthMm': 'Maximum sloped beam length covered by one glass field along the roof depth, in millimetres.',
     'coatingMinOrderValue': 'Legacy special-color minimum-order value retained for compatibility. The current roof engine does not consume it directly.',
     'coatingExtraPct': 'Legacy special-color overhead percentage retained for compatibility. The current roof engine does not consume it directly.',
+    'specialColorSourceProfileColorDefaultCode': 'Default stock/source profile color selected for Sonderfarbe. Use one of the standard color codes or BLANK for uncoated aluminium.',
     'postLengthMm': 'Fallback standard post length used when a more specific set or catalog length is unavailable, in millimetres.',
     'pvcPipeLengthMm': 'Calculated length of one PVC downpipe piece, in millimetres.',
     'wallSealExtraM': 'Extra allowance added to the calculated wall-profile length when the wall-seal quantity is derived, in metres.',
@@ -6926,6 +6928,7 @@ class _ColorStepState extends State<_ColorStep> {
       text: _productionColorCodeText(),
     );
     _syncStandardProductionColorCode();
+    _syncSourceProfileColorCode();
   }
 
   @override
@@ -6952,6 +6955,7 @@ class _ColorStepState extends State<_ColorStep> {
       _productionColorCodeText(),
     );
     _syncStandardProductionColorCode();
+    _syncSourceProfileColorCode();
   }
 
   @override
@@ -6963,6 +6967,30 @@ class _ColorStepState extends State<_ColorStep> {
 
   List<CalculatorOption> get _standardColorOptions => widget.contextData.references['colors'] ?? const [];
   List<CalculatorOption> get _ralColorOptions => widget.contextData.references['ral_colors'] ?? const [];
+
+  CalculatorTemplateOption? get _selectedTemplate {
+    final templateId = widget.draft.templateId?.trim();
+    if (templateId == null || templateId.isEmpty) return null;
+    for (final template in widget.contextData.templates) {
+      if (template.id == templateId) return template;
+    }
+    return null;
+  }
+
+  bool get _sourceProfileColorEnabled =>
+      _selectedTemplate?.code.trim().toLowerCase() == 'tds_glas';
+
+  List<CalculatorOption> get _sourceProfileColorOptions {
+    final options = [..._standardColorOptions];
+    if (!options.any((option) => _normalizeRalCode(option.code) == _uncoatedProfileColorCode)) {
+      options.add(const CalculatorOption(
+        id: _uncoatedProfileColorCode,
+        code: _uncoatedProfileColorCode,
+        label: 'Uncoated / blank aluminium',
+      ));
+    }
+    return options;
+  }
 
   Set<String> get _standardColorCodes => _standardColorOptions
       .map((entry) => _normalizeRalCode(entry.code))
@@ -7015,6 +7043,39 @@ class _ColorStepState extends State<_ColorStep> {
     return widget.draft.productionColorCode ?? '';
   }
 
+  String? get _sourceProfileColorDefaultCode {
+    final moduleData = _selectedTemplate?.parametersModuleData ?? const <String, dynamic>{};
+    final nested = moduleData['tds_glass_params'] ?? moduleData['tdsGlassParams'];
+    final params = nested is Map
+        ? Map<String, dynamic>.from(nested)
+        : moduleData;
+    final configured = _normalizeRalCode(
+      _stringFromRaw(
+        params['specialColorSourceProfileColorDefaultCode'] ??
+            params['special_color_source_profile_color_default_code'],
+      ),
+    );
+    final allowed = _sourceProfileColorOptions
+        .map((option) => _normalizeRalCode(option.code))
+        .whereType<String>()
+        .toSet();
+    if (configured != null && allowed.contains(configured)) return configured;
+    if (allowed.contains('9010')) return '9010';
+    return _sourceProfileColorOptions.isEmpty
+        ? null
+        : _normalizeRalCode(_sourceProfileColorOptions.first.code);
+  }
+
+  String? get _sourceProfileColorValue {
+    final current = _normalizeRalCode(widget.draft.sourceProfileColorCode);
+    final allowed = _sourceProfileColorOptions
+        .map((option) => _normalizeRalCode(option.code))
+        .whereType<String>()
+        .toSet();
+    if (current != null && allowed.contains(current)) return current;
+    return _sourceProfileColorDefaultCode;
+  }
+
   void _setControllerText(
     TextEditingController controller,
     String value,
@@ -7042,6 +7103,27 @@ class _ColorStepState extends State<_ColorStep> {
     });
   }
 
+  void _syncSourceProfileColorCode() {
+    final selectedCode = _normalizeRalCode(widget.draft.colorCode);
+    final customSelected = _sourceProfileColorEnabled &&
+        selectedCode != null &&
+        !_standardColorCodes.contains(selectedCode);
+    final expected = customSelected ? _sourceProfileColorValue : null;
+    final current = _normalizeRalCode(widget.draft.sourceProfileColorCode);
+    if (current == expected) return;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final currentSelectedCode = _normalizeRalCode(widget.draft.colorCode);
+      final stillCustom = _sourceProfileColorEnabled &&
+          currentSelectedCode != null &&
+          !_standardColorCodes.contains(currentSelectedCode);
+      widget.notifier.setSourceProfileColorCode(
+        stillCustom ? _sourceProfileColorValue : null,
+      );
+    });
+  }
+
   void _setProductionColorCode(String? value) {
     final normalized = _stringFromRaw(value);
     _setControllerText(_productionColorCodeController, normalized ?? '');
@@ -7053,6 +7135,10 @@ class _ColorStepState extends State<_ColorStep> {
     widget.notifier.setColor(colorValue);
     if (!custom) {
       _setProductionColorCode(_standardProductionColorCode(colorValue));
+      widget.notifier.setSourceProfileColorCode(null);
+    } else if (_sourceProfileColorEnabled &&
+        (widget.draft.sourceProfileColorCode ?? '').trim().isEmpty) {
+      widget.notifier.setSourceProfileColorCode(_sourceProfileColorDefaultCode);
     }
   }
 
@@ -7063,7 +7149,12 @@ class _ColorStepState extends State<_ColorStep> {
     setState(() {
       _customRalMode = true;
     });
-    if (!wasCustom) _setProductionColorCode(null);
+    if (!wasCustom) {
+      _setProductionColorCode(null);
+      if (_sourceProfileColorEnabled) {
+        widget.notifier.setSourceProfileColorCode(_sourceProfileColorDefaultCode);
+      }
+    }
 
     final existing = _customRalController.text;
     final normalizedExisting = _normalizeRalCode(existing);
@@ -7214,6 +7305,22 @@ class _ColorStepState extends State<_ColorStep> {
               _setColor(value, custom: true);
             },
           ),
+          if (_sourceProfileColorEnabled) ...[
+            const SizedBox(height: 12),
+            _DropdownField(
+              label: 'Source profile color',
+              value: _sourceProfileColorValue,
+              options: _sourceProfileColorOptions,
+              idSelector: (option) => option.code,
+              onChanged: widget.notifier.setSourceProfileColorCode,
+              emptyLabel: '— Source profile color not selected —',
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'This color selects the actual stock profile / SKU that will be coated to the Sonderfarbe and reserved from the warehouse.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
           const SizedBox(height: 8),
           Text(
             'The special-color surcharge is calculated separately and is not affected by the organization discount.',

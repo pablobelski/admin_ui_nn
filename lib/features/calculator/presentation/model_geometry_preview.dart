@@ -350,7 +350,7 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
-                          '3D preview · $_modelDisplayLabel',
+                          '3D preview · $_previewHeaderReference',
                           style: Theme.of(dialogContext).textTheme.titleLarge,
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -486,6 +486,14 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
     return code != null && code.isNotEmpty ? code : 'No model selected';
   }
 
+  String get _previewHeaderReference {
+    final calculationNumber = widget.calculationNumber?.trim();
+    if (calculationNumber != null && calculationNumber.isNotEmpty) {
+      return calculationNumber;
+    }
+    return _modelDisplayLabel;
+  }
+
   Widget _buildGeometryCanvas(
     ColorScheme colorScheme, {
     bool clearHighlight = false,
@@ -559,7 +567,7 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
-                          'Geometry preview · $_modelDisplayLabel',
+                          'Geometry preview · $_previewHeaderReference',
                           style: Theme.of(dialogContext).textTheme.titleLarge,
                           overflow: TextOverflow.ellipsis,
                         ),

@@ -1399,6 +1399,7 @@ class CalculatorDraft {
     this.coveringCode,
     this.colorCode,
     this.productionColorCode,
+    this.sourceProfileColorCode,
     this.handoverTypeCode,
     this.completionWeek,
     this.deliveryLatestCode,
@@ -1552,6 +1553,9 @@ class CalculatorDraft {
       productionColorCode: _nullableString(
         json['production_color_code'] ?? json['productionColorCode'],
       ),
+      sourceProfileColorCode: _nullableString(
+        json['source_profile_color_code'] ?? json['sourceProfileColorCode'],
+      ),
       handoverTypeCode: _nullableString(json['handover_type_code']),
       completionWeek: _intOrNull(json['completion_week'] ?? json['completionWeek']),
       deliveryLatestCode: _nullableString(
@@ -1604,6 +1608,7 @@ class CalculatorDraft {
   final String? coveringCode;
   final String? colorCode;
   final String? productionColorCode;
+  final String? sourceProfileColorCode;
   final String? handoverTypeCode;
   final int? completionWeek;
   final String? deliveryLatestCode;
@@ -1659,6 +1664,8 @@ class CalculatorDraft {
     bool clearColor = false,
     String? productionColorCode,
     bool clearProductionColorCode = false,
+    String? sourceProfileColorCode,
+    bool clearSourceProfileColorCode = false,
     String? handoverTypeCode,
     bool clearHandover = false,
     int? completionWeek,
@@ -1715,6 +1722,9 @@ class CalculatorDraft {
       colorCode: clearColor ? null : colorCode ?? this.colorCode,
       productionColorCode:
           clearProductionColorCode ? null : productionColorCode ?? this.productionColorCode,
+      sourceProfileColorCode: clearSourceProfileColorCode
+          ? null
+          : sourceProfileColorCode ?? this.sourceProfileColorCode,
       handoverTypeCode: clearHandover ? null : handoverTypeCode ?? this.handoverTypeCode,
       completionWeek: clearCompletionWeek ? null : completionWeek ?? this.completionWeek,
       deliveryLatestCode:
@@ -1848,6 +1858,8 @@ class CalculatorDraft {
       if (colorCode != null && colorCode!.isNotEmpty) 'color_code': colorCode,
       if (productionColorCode != null && productionColorCode!.trim().isNotEmpty)
         'production_color_code': productionColorCode!.trim(),
+      if (sourceProfileColorCode != null && sourceProfileColorCode!.trim().isNotEmpty)
+        'source_profile_color_code': sourceProfileColorCode!.trim(),
       if (handoverTypeCode != null && handoverTypeCode!.isNotEmpty) 'handover_type_code': handoverTypeCode,
       if (completionWeek != null) 'completion_week': completionWeek,
       if (deliveryLatestCode != null && deliveryLatestCode!.isNotEmpty)

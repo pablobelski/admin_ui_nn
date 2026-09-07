@@ -90,6 +90,7 @@ String _setContentsRequestSignature(CalculatorDraft draft) {
     'depth_mm': draft.depthMm,
     'height_mm': draft.heightMm,
     'color_code': draft.colorCode,
+    'source_profile_color_code': draft.sourceProfileColorCode,
     'roof_angle_deg': draft.roofAngleDeg,
     'roof_rear_height_mm': draft.roofRearHeightMm,
     'roof_front_height_mm': draft.roofFrontHeightMm,
@@ -698,6 +699,11 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
   void setProductionColorCode(String? value) => state = state.copyWith(
         productionColorCode: value,
         clearProductionColorCode: value == null || value.trim().isEmpty,
+      );
+
+  void setSourceProfileColorCode(String? value) => state = state.copyWith(
+        sourceProfileColorCode: value,
+        clearSourceProfileColorCode: value == null || value.trim().isEmpty,
       );
 
   void setHandover(String? value) => state = state.copyWith(
