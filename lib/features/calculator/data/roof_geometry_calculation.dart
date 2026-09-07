@@ -36,7 +36,8 @@ const Map<String, Map<String, int>> _fallbackBeamCountOffsetsByModel = {
   'LRTR': {'main': -1, 'small': -1},
   'LRTL': {'main': -1, 'small': -1},
   'LWTR': {'main': -1, 'small': -1},
-  'LWTL': {'main': -1, 'small': 0},
+  // Beam selection uses n - 1; glass count keeps its separate shared-edge offset.
+  'LWTL': {'main': -1, 'small': -1},
   'UWTM': {'left': -1, 'right': -1, 'middle': -1},
   'TWTM': {'middle': -1, 'left': -1, 'right': -1},
   'SWL': {'main': -1},
@@ -474,7 +475,10 @@ RoofGeometryCalculation calculateRoofGeometryForDraft({
     if (glassCountAcrossWidth <= 0) continue;
     final beamStep = (width - beamCount * beamWidth) / glassCountAcrossWidth;
     final roundedBeamStep = (beamStep * 10).round() / 10;
-    final glassWidth = (roundedBeamStep - wallGutterBlendeClearanceMm + glassOverlap).truncate();
+    final glassWidth = (roundedBeamStep -
+            (draft.wallGutterBlendeLongLength ? 0 : wallGutterBlendeClearanceMm) +
+            glassOverlap)
+        .truncate();
     final unsplitGlassLength = (beamLength + glassFrontAdd + _angleCorrection(angle)).round();
 
     final beamRunStartMm = backOffset.round();
