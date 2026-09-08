@@ -1786,8 +1786,8 @@ class _ProductStepState extends State<_ProductStep> {
     _sync(_quoteNoExternal, widget.draft.quoteNoExternal);
     _sync(_submissionDate, widget.draft.submissionDate);
     _sync(_externalNotes, widget.draft.externalNotes);
-    _sync(_organizationSearch, _organizationById(widget.draft.organizationId)?.label);
     if (oldWidget.draft.organizationId != widget.draft.organizationId) {
+      _sync(_organizationSearch, _organizationById(widget.draft.organizationId)?.label);
       _byRelatedCustomer = false;
       _selectedRelatedCustomerId = null;
       _relatedCustomerSearch.clear();
@@ -1848,18 +1848,46 @@ class _ProductStepState extends State<_ProductStep> {
     return branding.hasLogo || (branding.engravingText ?? '').isNotEmpty ? branding : null;
   }
 
+  CalculatorBranding? _engravingBranding(bool byRelatedCustomer) {
+    if (byRelatedCustomer) {
+      final relatedCustomers = widget.contextData.relatedCustomersFor(widget.draft.organizationId);
+      return _brandingFromOrganization(_selectedRelatedCustomer(relatedCustomers));
+    }
+    return _brandingFromOrganization(_organizationById(widget.draft.organizationId));
+  }
+
   Map<String, dynamic> _brandingJsonFor({
     required bool byRelatedCustomer,
     bool? engravingEnabled,
   }) {
-    final branding = byRelatedCustomer
-        ? _brandingFromOrganization(_organizationById(widget.draft.organizationId))
-        : widget.contextData.headBranding;
-    if (branding == null) return const {};
-    return branding.toCalculationJson(
-      sourceCode: byRelatedCustomer ? 'selected_organization' : 'head_company',
-      engravingEnabled: byRelatedCustomer ? (engravingEnabled ?? _brandingEngravingEnabled()) : false,
-    );
+    final baseBranding = widget.contextData.headBranding;
+    final next = baseBranding?.toCalculationJson(
+          sourceCode: 'head_company',
+          engravingEnabled: false,
+        ) ??
+        <String, dynamic>{
+          'source_code': 'head_company',
+          'engraving_enabled': false,
+        };
+
+    final engravingBranding = _engravingBranding(byRelatedCustomer);
+    final engravingText = engravingBranding?.engravingText?.trim() ?? '';
+    if (engravingText.isEmpty) return next;
+
+    next['engraving_text'] = engravingText;
+    next['engraving_enabled'] = engravingEnabled ?? _brandingEngravingEnabled();
+    final engravingOrganizationId = engravingBranding?.organizationId?.trim() ?? '';
+    if (engravingOrganizationId.isNotEmpty) {
+      next['engraving_organization_id'] = engravingOrganizationId;
+    }
+    next['engraving_source_code'] = byRelatedCustomer ? 'related_customer' : 'own_organization';
+    if (byRelatedCustomer) {
+      final selected = _selectedRelatedCustomer(
+        widget.contextData.relatedCustomersFor(widget.draft.organizationId),
+      );
+      if (selected != null) next['engraving_relation_id'] = selected.id;
+    }
+    return next;
   }
 
   void _applyBranding({required bool byRelatedCustomer, bool? engravingEnabled}) {
@@ -1879,10 +1907,8 @@ class _ProductStepState extends State<_ProductStep> {
     return true;
   }
 
-  CalculatorBranding? _activeBranding(bool canUseRelatedCustomer) {
-    return _byRelatedCustomer && canUseRelatedCustomer
-        ? _brandingFromOrganization(_organizationById(widget.draft.organizationId))
-        : widget.contextData.headBranding;
+  CalculatorBranding? _activeEngravingBranding(bool canUseRelatedCustomer) {
+    return _engravingBranding(_byRelatedCustomer && canUseRelatedCustomer);
   }
 
   @override
@@ -1954,6 +1980,28 @@ class _ProductStepState extends State<_ProductStep> {
     _applyBranding(byRelatedCustomer: true);
   }
 
+  void _selectOrganization(CalculatorOption option) {
+    final label = option.label;
+    setState(() {
+      _organizationSearch.value = TextEditingValue(
+        text: label,
+        selection: TextSelection.collapsed(offset: label.length),
+      );
+      _byRelatedCustomer = false;
+      _selectedRelatedCustomerId = null;
+    });
+    _organizationFocus.unfocus();
+    _relatedCustomerSearch.clear();
+    widget.onOrganizationChanged(option.id);
+    widget.onRelatedCustomerChanged(null);
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || widget.draft.organizationId != option.id) return;
+      _sync(_organizationSearch, option.label);
+      _applyBranding(byRelatedCustomer: false, engravingEnabled: false);
+    });
+  }
+
   String? _buyerOrganizationId(CalculatorOption? relatedCustomer) {
     if (_byRelatedCustomer && relatedCustomer != null) {
       final raw = relatedCustomer.raw;
@@ -1974,8 +2022,8 @@ class _ProductStepState extends State<_ProductStep> {
     if (!_relatedCustomerFocus.hasFocus) {
       _sync(_relatedCustomerSearch, selectedRelatedCustomer == null ? null : _relatedCustomerName(selectedRelatedCustomer));
     }
-    final activeBranding = _activeBranding(canUseRelatedCustomer);
-    final engravingText = activeBranding?.engravingText?.trim() ?? '';
+    final engravingBranding = _activeEngravingBranding(canUseRelatedCustomer);
+    final engravingText = engravingBranding?.engravingText?.trim() ?? '';
     final engravingEnabled = _brandingEngravingEnabled();
     final buyerContact = widget.contextData.buyerContactFor(widget.draft);
 
@@ -2002,18 +2050,7 @@ class _ProductStepState extends State<_ProductStep> {
             option.raw['display_name'],
             option.raw['short_name'],
           ].whereType<Object>().join(' '),
-          onSelected: (option) {
-            widget.onOrganizationChanged(option.id);
-            if (_byRelatedCustomer) {
-              setState(() {
-                _byRelatedCustomer = false;
-                _selectedRelatedCustomerId = null;
-              });
-              _relatedCustomerSearch.clear();
-              widget.onRelatedCustomerChanged(null);
-            }
-            _applyBranding(byRelatedCustomer: false, engravingEnabled: false);
-          },
+          onSelected: _selectOrganization,
         ),
         if (buyerContact.hasOrganization || buyerContact.hasContact) ...[
           const SizedBox(height: 8),
@@ -2150,7 +2187,7 @@ class _ProductStepState extends State<_ProductStep> {
               SizedBox(
                 width: 104,
                 child: _BrandingLogoPlaque(
-                  branding: activeBranding,
+                  branding: widget.contextData.headBranding,
                   repository: widget.mediaRepository,
                 ),
               ),
@@ -2172,17 +2209,18 @@ class _ProductStepState extends State<_ProductStep> {
             ],
           ),
         ),
-        if (_byRelatedCustomer && canUseRelatedCustomer) ...[
+        if (engravingText.isNotEmpty) ...[
           const SizedBox(height: 16),
           _EngravingTextToggle(
             text: engravingText,
-            enabled: engravingEnabled && engravingText.isNotEmpty,
-            onChanged: engravingText.isEmpty
-                ? null
-                : (value) {
-                    widget.onEngravingEnabledChanged(value);
-                    _applyBranding(byRelatedCustomer: true, engravingEnabled: value);
-                  },
+            enabled: engravingEnabled,
+            onChanged: (value) {
+              widget.onEngravingEnabledChanged(value);
+              _applyBranding(
+                byRelatedCustomer: _byRelatedCustomer && canUseRelatedCustomer,
+                engravingEnabled: value,
+              );
+            },
           ),
         ],
       ],
@@ -15048,6 +15086,7 @@ class _SearchableOptionField<T extends Object> extends StatefulWidget {
 class _SearchableOptionFieldState<T extends Object> extends State<_SearchableOptionField<T>> {
   final _layerLink = LayerLink();
   OverlayEntry? _overlayEntry;
+  bool _isSelectingOption = false;
 
   @override
   void initState() {
@@ -15088,7 +15127,7 @@ class _SearchableOptionFieldState<T extends Object> extends State<_SearchableOpt
   }
 
   void _handleInputChanged() {
-    if (!widget.focusNode.hasFocus) return;
+    if (_isSelectingOption || !widget.focusNode.hasFocus) return;
     _showOrUpdateOverlay();
   }
 
@@ -15098,7 +15137,7 @@ class _SearchableOptionFieldState<T extends Object> extends State<_SearchableOpt
       return;
     }
     Future<void>.delayed(const Duration(milliseconds: 120), () {
-      if (!mounted || widget.focusNode.hasFocus) return;
+      if (!mounted || widget.focusNode.hasFocus || _isSelectingOption) return;
       _hideOverlay();
     });
   }
@@ -15170,19 +15209,34 @@ class _SearchableOptionFieldState<T extends Object> extends State<_SearchableOpt
                 separatorBuilder: (_, __) => const Divider(height: 1),
                 itemBuilder: (context, index) {
                   final option = rows[index];
-                  return ListTile(
-                    dense: true,
-                    leading: widget.leadingBuilder?.call(option),
-                    title: Text(
-                      widget.displayStringForOption(option),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
+                  return Listener(
+                    onPointerDown: (_) => _isSelectingOption = true,
+                    onPointerUp: (_) => Future<void>.microtask(() {
+                      if (mounted) _isSelectingOption = false;
+                    }),
+                    onPointerCancel: (_) => _isSelectingOption = false,
+                    child: ListTile(
+                      dense: true,
+                      leading: widget.leadingBuilder?.call(option),
+                      title: Text(
+                        widget.displayStringForOption(option),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      onTap: () {
+                        final label = widget.displayStringForOption(option);
+                        try {
+                          _hideOverlay();
+                          widget.controller.value = TextEditingValue(
+                            text: label,
+                            selection: TextSelection.collapsed(offset: label.length),
+                          );
+                          widget.onSelected(option);
+                        } finally {
+                          _isSelectingOption = false;
+                        }
+                      },
                     ),
-                    onTap: () {
-                      widget.controller.text = widget.displayStringForOption(option);
-                      widget.onSelected(option);
-                      _hideOverlay();
-                    },
                   );
                 },
               ),
