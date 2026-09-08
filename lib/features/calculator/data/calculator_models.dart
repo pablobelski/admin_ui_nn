@@ -601,7 +601,10 @@ class CalculatorCatalogVariantOption {
     final parts = [
       if (profileNo != null && profileNo!.isNotEmpty) profileNo,
       if (variantSku.isNotEmpty) variantSku,
-      if (articleNo != null && articleNo!.isNotEmpty) articleNo,
+      if (articleNo != null &&
+          articleNo!.isNotEmpty &&
+          articleNo!.trim() != variantSku.trim())
+        articleNo,
       if (colorName != null && colorName!.isNotEmpty) colorName,
       if (lengthMm != null) '$lengthMm mm',
     ];

@@ -3191,6 +3191,7 @@ class _SetContentModuleDimensionsEditor extends StatelessWidget {
                         _CalculationValueChip(
                           label: 'Beam length',
                           value: '${calculated.beamLengthMm} mm',
+                          highlighted: true,
                         ),
                         _CalculationValueChip(
                           label: 'Glass offset',
@@ -3746,27 +3747,34 @@ class _CalculationValueChip extends StatelessWidget {
     required this.label,
     required this.value,
     this.prominent = false,
+    this.highlighted = false,
   });
 
   final String label;
   final String value;
   final bool prominent;
+  final bool highlighted;
 
   @override
   Widget build(BuildContext context) {
+    final textStyle = prominent
+        ? Theme.of(context).textTheme.bodyMedium
+        : Theme.of(context).textTheme.bodySmall;
     return Container(
       padding: prominent
           ? const EdgeInsets.symmetric(horizontal: 14, vertical: 8)
           : const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        color: highlighted
+            ? Colors.lightGreen.shade100
+            : Theme.of(context).colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(prominent ? 10 : 8),
       ),
       child: Text(
         '$label: $value',
-        style: prominent
-            ? Theme.of(context).textTheme.bodyMedium
-            : Theme.of(context).textTheme.bodySmall,
+        style: highlighted
+            ? textStyle?.copyWith(fontWeight: FontWeight.w700)
+            : textStyle,
       ),
     );
   }
@@ -5615,8 +5623,9 @@ class _CoveringModuleCardState extends State<_CoveringModuleCard> {
                           _CalculationValueChip(
                             label: 'Final glass size',
                             value:
-                                '$sheetsPerField × ${module.glassWidthMm} × $fieldLength mm',
+                                '$sheetsPerField × B: ${module.glassWidthMm} × T: $fieldLength mm',
                             prominent: true,
+                            highlighted: true,
                           ),
                           _CalculationValueChip(
                             label: 'Field area',
@@ -5850,11 +5859,12 @@ class _CoveringModuleCardState extends State<_CoveringModuleCard> {
                       _CalculationValueChip(
                         label: 'Sheet size',
                         value: module.glassDepthSegmentLengthsMm.length > 1
-                            ? 'B: ${module.glassWidthMm} × L: '
+                            ? 'B: ${module.glassWidthMm} × T: '
                                 '${module.glassDepthSegmentLengthsMm.join(' / ')} mm'
-                            : 'B: ${module.glassWidthMm} × L: '
+                            : 'B: ${module.glassWidthMm} × T: '
                                 '${module.glassLengthMm} mm',
                         prominent: true,
+                        highlighted: true,
                       ),
                       _CalculationValueChip(
                         label: 'Total area',
@@ -6587,14 +6597,12 @@ class _MarkiseSegmentCard extends StatelessWidget {
                     prominent: true,
                   ),
                   _CalculationValueChip(
-                    label: 'Bestell Breite',
-                    value: orderWidthMm == null ? 'Calculate' : '$orderWidthMm mm',
+                    label: 'Bestellgröße',
+                    value: orderWidthMm == null || orderDepthMm == null
+                        ? 'Calculate'
+                        : 'B: $orderWidthMm × T: $orderDepthMm mm',
                     prominent: true,
-                  ),
-                  _CalculationValueChip(
-                    label: 'Bestell Tiefe',
-                    value: orderDepthMm == null ? 'Calculate' : '$orderDepthMm mm',
-                    prominent: true,
+                    highlighted: true,
                   ),
                   _CalculationValueChip(
                     label: 'Weight',
