@@ -17,6 +17,7 @@ class CalculatorContext {
     required this.templateSetCatalogVariants,
     required this.additionalHandlingByParentItemId,
     this.customPaintCatalogItem,
+    this.additionalDiscountAvailable = true,
     this.loadedCatalogWarnings = const [],
   });
 
@@ -52,6 +53,9 @@ class CalculatorContext {
       templateSetCatalogVariants: _list(json['templateSetCatalogVariants']).map(CalculatorCatalogVariantOption.fromJson).toList(),
       additionalHandlingByParentItemId: _additionalHandlingMap(json['additionalHandlingByParentItemId']),
       customPaintCatalogItem: customPaintCatalogItem,
+      additionalDiscountAvailable: json['additionalDiscountAvailable'] is bool
+          ? json['additionalDiscountAvailable'] as bool
+          : true,
     );
   }
 
@@ -70,6 +74,7 @@ class CalculatorContext {
   final List<CalculatorCatalogVariantOption> templateSetCatalogVariants;
   final Map<String, List<CalculatorAdditionalHandlingOption>> additionalHandlingByParentItemId;
   final CalculatorCatalogItemOption? customPaintCatalogItem;
+  final bool additionalDiscountAvailable;
   final List<Map<String, dynamic>> loadedCatalogWarnings;
 
   List<CalculatorCatalogItemOption> templateSetCatalogItemsFor(String? templateId) {
@@ -113,6 +118,7 @@ class CalculatorContext {
       templateSetCatalogVariants: templateSetCatalogVariants,
       additionalHandlingByParentItemId: additionalHandlingByParentItemId,
       customPaintCatalogItem: customPaintCatalogItem,
+      additionalDiscountAvailable: additionalDiscountAvailable,
       loadedCatalogWarnings: warnings,
     );
   }
@@ -132,6 +138,7 @@ class CalculatorContext {
       return normalized.isEmpty ? null : normalized;
     }
     return CalculatorBuyerContact(
+      customerNumber: text(raw['customer_number']),
       organizationName: text(raw['legal_name']) ?? text(raw['display_name']) ?? option.label,
       contactName: text(raw['configurator_contact_full_name']),
       email: text(raw['configurator_contact_email']),
@@ -150,12 +157,14 @@ class CalculatorContext {
 
 class CalculatorBuyerContact {
   const CalculatorBuyerContact({
+    this.customerNumber,
     this.organizationName,
     this.contactName,
     this.email,
     this.phone,
   });
 
+  final String? customerNumber;
   final String? organizationName;
   final String? contactName;
   final String? email;
@@ -644,6 +653,9 @@ class CalculatorAdditionalHandlingOption {
   final int sortOrder;
   final Map<String, dynamic> raw;
 
+  bool get isCoating => baseCode?.trim().toUpperCase() == 'ZLK';
+  bool get isCutting => baseCode?.trim().toUpperCase() == 'PZSO';
+
   String get displayName {
     final parts = [
       if (baseCode != null && baseCode!.isNotEmpty) baseCode,
@@ -658,24 +670,55 @@ class CalculatorSelectedAdditionalHandling {
   const CalculatorSelectedAdditionalHandling({
     required this.catalogItemId,
     required this.quantity,
+    this.colorCode,
+    this.cuts = const [],
   });
 
   factory CalculatorSelectedAdditionalHandling.fromJson(Map<String, dynamic> json) {
     return CalculatorSelectedAdditionalHandling(
       catalogItemId: _string(json['catalog_item_id']),
       quantity: _numOrDefault(json['quantity'], 0),
+      colorCode: _nullableString(json['color_code']),
+      cuts: _list(json['cuts']).map(CalculatorOptionCut.fromJson).toList(),
     );
   }
 
   final String catalogItemId;
   final num quantity;
+  final String? colorCode;
+  final List<CalculatorOptionCut> cuts;
+
+  CalculatorSelectedAdditionalHandling copyWith({num? quantity, String? colorCode, List<CalculatorOptionCut>? cuts}) {
+    return CalculatorSelectedAdditionalHandling(
+      catalogItemId: catalogItemId,
+      quantity: quantity ?? this.quantity,
+      colorCode: colorCode ?? this.colorCode,
+      cuts: cuts ?? this.cuts,
+    );
+  }
 
   Map<String, dynamic> toJson() {
     return {
       'catalog_item_id': catalogItemId,
       'quantity': quantity,
+      if (colorCode?.trim().isNotEmpty == true) 'color_code': colorCode!.trim(),
+      if (cuts.isNotEmpty) 'cuts': cuts.map((cut) => cut.toJson()).toList(),
     };
   }
+}
+
+class CalculatorOptionCut {
+  const CalculatorOptionCut({required this.lengthMm, required this.quantity});
+
+  factory CalculatorOptionCut.fromJson(Map<String, dynamic> json) => CalculatorOptionCut(
+    lengthMm: _intOrNull(json['length_mm']) ?? 0,
+    quantity: _intOrNull(json['quantity']) ?? 1,
+  );
+
+  final int lengthMm;
+  final int quantity;
+
+  Map<String, dynamic> toJson() => {'length_mm': lengthMm, 'quantity': quantity};
 }
 
 class CalculatorCoveringAllocation {
@@ -1404,6 +1447,7 @@ class CalculatorDraft {
     this.completionWeek,
     this.deliveryLatestCode,
     this.quoteNoExternal,
+    this.submissionDate,
     this.externalNotes,
     this.relatedCustomerId,
     this.branding = const {},
@@ -1562,6 +1606,7 @@ class CalculatorDraft {
         json['delivery_latest_code'] ?? json['deliveryLatestCode'],
       ),
       quoteNoExternal: _nullableString(json['quote_no_external'] ?? json['quoteNoExternal']),
+      submissionDate: _nullableString(json['submission_date'] ?? json['submissionDate']),
       externalNotes: _nullableString(json['external_notes'] ?? json['externalNotes']),
       relatedCustomerId: _nullableString(json['related_customer_id'] ?? json['relatedCustomerId']),
       branding: _map(json['branding']),
@@ -1613,6 +1658,7 @@ class CalculatorDraft {
   final int? completionWeek;
   final String? deliveryLatestCode;
   final String? quoteNoExternal;
+  final String? submissionDate;
   final String? externalNotes;
   final String? relatedCustomerId;
   final Map<String, dynamic> branding;
@@ -1674,6 +1720,8 @@ class CalculatorDraft {
     bool clearDeliveryLatest = false,
     String? quoteNoExternal,
     bool clearQuoteNoExternal = false,
+    String? submissionDate,
+    bool clearSubmissionDate = false,
     String? externalNotes,
     bool clearExternalNotes = false,
     String? relatedCustomerId,
@@ -1730,6 +1778,7 @@ class CalculatorDraft {
       deliveryLatestCode:
           clearDeliveryLatest ? null : deliveryLatestCode ?? this.deliveryLatestCode,
       quoteNoExternal: clearQuoteNoExternal ? null : quoteNoExternal ?? this.quoteNoExternal,
+      submissionDate: clearSubmissionDate ? null : submissionDate ?? this.submissionDate,
       externalNotes: clearExternalNotes ? null : externalNotes ?? this.externalNotes,
       relatedCustomerId: clearRelatedCustomer ? null : relatedCustomerId ?? this.relatedCustomerId,
       branding: clearBranding ? const {} : branding ?? this.branding,
@@ -1865,6 +1914,7 @@ class CalculatorDraft {
       if (deliveryLatestCode != null && deliveryLatestCode!.isNotEmpty)
         'delivery_latest_code': deliveryLatestCode,
       if (quoteNoExternal != null && quoteNoExternal!.isNotEmpty) 'quote_no_external': quoteNoExternal,
+      if (submissionDate != null && submissionDate!.isNotEmpty) 'submission_date': submissionDate,
       if (externalNotes != null && externalNotes!.isNotEmpty) 'external_notes': externalNotes,
       if (relatedCustomerId != null && relatedCustomerId!.isNotEmpty) 'related_customer_id': relatedCustomerId,
       if (branding.isNotEmpty) 'branding': branding,
@@ -2147,9 +2197,11 @@ class LoadedQuote {
   factory LoadedQuote.fromJson(Map<String, dynamic> json) {
     final quote = _map(json['quote']);
     final quoteNoExternal = _nullableString(quote['quote_no_external'] ?? json['quote_no_external']);
+    final submissionDate = _nullableString(quote['submission_date'] ?? json['submission_date']);
     final externalNotes = _nullableString(quote['external_notes'] ?? json['external_notes']);
     final input = Map<String, dynamic>.from(_map(json['input'] ?? quote['input_json']));
     if (quoteNoExternal != null && quoteNoExternal.isNotEmpty) input['quote_no_external'] = quoteNoExternal;
+    if (submissionDate != null && submissionDate.isNotEmpty) input['submission_date'] = submissionDate;
     if (externalNotes != null && externalNotes.isNotEmpty) input['external_notes'] = externalNotes;
     final catalogContext = _map(json['catalog_context'] ?? json['catalogContext']);
     final catalogWarnings = _list(json['catalog_warnings'] ?? json['catalogWarnings']);

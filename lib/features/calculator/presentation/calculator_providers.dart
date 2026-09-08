@@ -745,6 +745,14 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
         clearQuoteNoExternal: value.trim().isEmpty,
       );
 
+  void setSubmissionDate(String? value) {
+    final normalized = value?.trim();
+    state = state.copyWith(
+      submissionDate: normalized,
+      clearSubmissionDate: normalized == null || normalized.isEmpty,
+    );
+  }
+
   void setExternalNotes(String value) => state = state.copyWith(
         externalNotes: value,
         clearExternalNotes: value.trim().isEmpty,
@@ -1835,6 +1843,13 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
     final tabs = [...state.setContents];
     tabs[tabIndex] = tab.copyWith(items: items);
     state = state.copyWith(setContents: tabs);
+  }
+
+  void updateOption(int index, CalculatorSelectedOption option) {
+    if (index < 0 || index >= state.options.length) return;
+    final next = [...state.options];
+    next[index] = option;
+    state = state.copyWith(options: next);
   }
 
   void updateOptionAdditionalHandlings(

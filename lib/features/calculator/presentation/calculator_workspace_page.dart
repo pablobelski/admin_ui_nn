@@ -791,7 +791,7 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
         calculatedModules: previewData.roofCalculation.modules,
         calculationNumber: calculationNumber,
         calculationSavedAt: previewSavedAt,
-        buyerName: buyerContact.organizationName,
+        buyerName: _buyerDisplayName(buyerContact),
         buyerContactName: buyerContact.contactName,
         buyerEmail: buyerContact.email,
         buyerPhone: buyerContact.phone,
@@ -948,6 +948,14 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
 
 }
 
+String _buyerDisplayName(CalculatorBuyerContact contact) {
+  final customerNumber = contact.customerNumber?.trim() ?? '';
+  final organizationName = contact.organizationName?.trim() ?? '';
+  if (customerNumber.isEmpty) return organizationName;
+  if (organizationName.isEmpty) return customerNumber;
+  return '$customerNumber, $organizationName';
+}
+
 class _Header extends StatelessWidget {
   const _Header({
     required this.onRefresh,
@@ -975,7 +983,7 @@ class _Header extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final buyerName = buyerContact.organizationName?.trim() ?? '';
+    final buyerName = _buyerDisplayName(buyerContact);
     final buyerContactDetails = [
       buyerContact.contactName,
       buyerContact.email,
@@ -1029,10 +1037,11 @@ class _Header extends StatelessWidget {
             ),
           ],
         );
-        final actions = Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          mainAxisSize: MainAxisSize.min,
-          children: [
+        final actions = SelectionArea(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisSize: MainAxisSize.min,
+            children: [
             if (buyerName.isNotEmpty || buyerContactDetails.isNotEmpty) ...[
               const SizedBox(height: 6),
               Padding(
@@ -1131,6 +1140,7 @@ class _Header extends StatelessWidget {
               ),
             ],
           ],
+          ),
         );
 
         if (constraints.maxWidth >= 1180) {
@@ -1547,6 +1557,7 @@ class _StepCard extends ConsumerWidget {
           onProductFamilyChanged: notifier.setProductFamily,
           onPriceModeChanged: notifier.setPriceMode,
           onQuoteNoExternalChanged: notifier.setQuoteNoExternal,
+          onSubmissionDateChanged: notifier.setSubmissionDate,
           onExternalNotesChanged: notifier.setExternalNotes,
           onRelatedCustomerChanged: notifier.setRelatedCustomer,
           onBrandingChanged: notifier.setBranding,
@@ -1715,6 +1726,7 @@ class _ProductStep extends StatefulWidget {
     required this.onProductFamilyChanged,
     required this.onPriceModeChanged,
     required this.onQuoteNoExternalChanged,
+    required this.onSubmissionDateChanged,
     required this.onExternalNotesChanged,
     required this.onRelatedCustomerChanged,
     required this.onBrandingChanged,
@@ -1730,6 +1742,7 @@ class _ProductStep extends StatefulWidget {
   final ValueChanged<String?> onProductFamilyChanged;
   final ValueChanged<String?> onPriceModeChanged;
   final ValueChanged<String> onQuoteNoExternalChanged;
+  final ValueChanged<String?> onSubmissionDateChanged;
   final ValueChanged<String> onExternalNotesChanged;
   final ValueChanged<String?> onRelatedCustomerChanged;
   final ValueChanged<Map<String, dynamic>> onBrandingChanged;
@@ -1742,6 +1755,7 @@ class _ProductStep extends StatefulWidget {
 
 class _ProductStepState extends State<_ProductStep> {
   late final TextEditingController _quoteNoExternal;
+  late final TextEditingController _submissionDate;
   late final TextEditingController _externalNotes;
   late final TextEditingController _organizationSearch;
   late final FocusNode _organizationFocus;
@@ -1754,6 +1768,7 @@ class _ProductStepState extends State<_ProductStep> {
   void initState() {
     super.initState();
     _quoteNoExternal = TextEditingController(text: widget.draft.quoteNoExternal ?? '');
+    _submissionDate = TextEditingController(text: widget.draft.submissionDate ?? '');
     _externalNotes = TextEditingController(text: widget.draft.externalNotes ?? '');
     _organizationSearch = TextEditingController(text: _organizationById(widget.draft.organizationId)?.label ?? '');
     _organizationFocus = FocusNode();
@@ -1769,6 +1784,7 @@ class _ProductStepState extends State<_ProductStep> {
   void didUpdateWidget(covariant _ProductStep oldWidget) {
     super.didUpdateWidget(oldWidget);
     _sync(_quoteNoExternal, widget.draft.quoteNoExternal);
+    _sync(_submissionDate, widget.draft.submissionDate);
     _sync(_externalNotes, widget.draft.externalNotes);
     _sync(_organizationSearch, _organizationById(widget.draft.organizationId)?.label);
     if (oldWidget.draft.organizationId != widget.draft.organizationId) {
@@ -1872,12 +1888,27 @@ class _ProductStepState extends State<_ProductStep> {
   @override
   void dispose() {
     _quoteNoExternal.dispose();
+    _submissionDate.dispose();
     _externalNotes.dispose();
     _organizationSearch.dispose();
     _organizationFocus.dispose();
     _relatedCustomerSearch.dispose();
     _relatedCustomerFocus.dispose();
     super.dispose();
+  }
+
+  Future<void> _pickSubmissionDate() async {
+    final current = DateTime.tryParse(widget.draft.submissionDate ?? '');
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: current ?? DateTime.now(),
+      firstDate: DateTime(1, 1, 1),
+      lastDate: DateTime(9999, 12, 31),
+    );
+    if (picked == null || !mounted) return;
+    final value = DateFormat('yyyy-MM-dd').format(picked);
+    _submissionDate.text = value;
+    widget.onSubmissionDateChanged(value);
   }
 
   String _relatedCustomerName(CalculatorOption option) {
@@ -2094,6 +2125,23 @@ class _ProductStepState extends State<_ProductStep> {
             ),
             onChanged: widget.onQuoteNoExternalChanged,
           ),
+        const SizedBox(height: 16),
+        TextField(
+          controller: _submissionDate,
+          readOnly: true,
+          onTap: _pickSubmissionDate,
+          decoration: InputDecoration(
+            labelText: 'Submission date / Eingangsdatum',
+            helperText: 'Date when the request was received.',
+            border: const OutlineInputBorder(),
+            isDense: true,
+            suffixIcon: IconButton(
+              tooltip: 'Choose date',
+              onPressed: _pickSubmissionDate,
+              icon: const Icon(Icons.calendar_month_outlined),
+            ),
+          ),
+        ),
         const SizedBox(height: 16),
         IntrinsicHeight(
           child: Row(
@@ -6760,7 +6808,8 @@ class _DeliveryStepState extends State<_DeliveryStep> {
       _completionSyncScheduled = false;
       if (!mounted) return;
       final week = _tdsCompletionWeek;
-      if (widget.draft.completionWeek != week) {
+      final current = widget.draft.completionWeek;
+      if (week != null && (current == null || current < week)) {
         widget.onCompletionWeekChanged(week);
       }
     });
@@ -6809,25 +6858,56 @@ class _DeliveryStepState extends State<_DeliveryStep> {
 
   Widget _buildTdsCompletionWeek() {
     final leadDays = _tdsLeadDays;
-    final week = _tdsCompletionWeek;
+    final automaticWeek = _tdsCompletionWeek;
     final source = _isSpecialColor
         ? 'Sonder Farbe'
         : _hasGlass
             ? 'Glas 8 oder 10'
             : null;
+    final now = DateTime.now();
+    final currentWeek = _isoWeekNumber(now);
+    final lastWeek = _isoWeekNumber(DateTime(now.year, 12, 28));
+    final minimumWeek = automaticWeek != null && automaticWeek >= currentWeek
+        ? automaticWeek
+        : currentWeek;
+
     return SizedBox(
       width: 300,
-      child: InputDecorator(
+      child: TextFormField(
+        controller: _weekController,
+        keyboardType: TextInputType.number,
+        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
         decoration: InputDecoration(
           labelText: 'Fertigst. KW',
-          enabled: false,
+          suffixText: 'KW',
           helperText: leadDays == null || source == null
-              ? 'No lead time required by the TDS Glas rule.'
-              : 'Automatic: today + $leadDays days ($source)',
+              ? 'Allowed: KW $currentWeek–$lastWeek (${now.year})'
+              : 'Minimum: KW $minimumWeek · today + $leadDays days ($source)',
           border: const OutlineInputBorder(),
           isDense: true,
         ),
-        child: Text(week == null ? '—' : '$week'),
+        autovalidateMode: AutovalidateMode.onUserInteraction,
+        validator: (value) {
+          if (value == null || value.trim().isEmpty) return null;
+          final week = int.tryParse(value);
+          if (week == null || week < currentWeek || week > lastWeek) {
+            return 'Enter a week from $currentWeek to $lastWeek';
+          }
+          if (automaticWeek != null && automaticWeek >= currentWeek && week < automaticWeek) {
+            return 'Enter KW $automaticWeek or later';
+          }
+          return null;
+        },
+        onChanged: (value) {
+          if (value.trim().isEmpty) {
+            widget.onCompletionWeekChanged(null);
+            return;
+          }
+          final week = int.tryParse(value);
+          if (week == null || week < currentWeek || week > lastWeek) return;
+          if (automaticWeek != null && automaticWeek >= currentWeek && week < automaticWeek) return;
+          widget.onCompletionWeekChanged(week);
+        },
       ),
     );
   }
@@ -10560,6 +10640,7 @@ class _OptionsStepState extends State<_OptionsStep> {
   final _catalogVariantFocusNode = FocusNode();
   final Map<String, TextEditingController> _additionalHandlingControllers = {};
   final Set<String> _enabledAdditionalHandlingIds = <String>{};
+  final Map<String, CalculatorSelectedAdditionalHandling> _additionalHandlingDetails = {};
   var _additionalHandlingInputEnabled = false;
 
   String? _pendingAdditionalHandlingId;
@@ -10567,6 +10648,7 @@ class _OptionsStepState extends State<_OptionsStep> {
   String? _catalogItemId;
   String? _catalogVariantId;
   String? _salesUnitCode;
+  String? _addOptionError;
 
   @override
   void dispose() {
@@ -10596,6 +10678,16 @@ class _OptionsStepState extends State<_OptionsStep> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        if (_addOptionError != null) ...[
+          SizedBox(
+            width: double.infinity,
+            child: _ErrorCard(
+              title: 'Cannot add option',
+              message: _addOptionError!,
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
         Text('Options / additional catalog positions', style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 8),
         const Text(
@@ -10612,74 +10704,79 @@ class _OptionsStepState extends State<_OptionsStep> {
           ),
         ],
         const SizedBox(height: 16),
-        Wrap(
-          spacing: 12,
-          runSpacing: 12,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: [
-            SizedBox(
-              width: 220,
-              child: DropdownButtonFormField<String>(
-                initialValue: _itemTypeCode,
-                isExpanded: true,
-                decoration: const InputDecoration(labelText: 'Item type'),
-                items: [
-                  const DropdownMenuItem(value: '', child: Text('— All item types —')),
-                  for (final option in widget.contextData.optionItemTypes)
-                    DropdownMenuItem(value: option.code, child: Text(option.label)),
-                ],
-                onChanged: (value) => setState(() {
-                  _itemTypeCode = value == null || value.isEmpty ? null : value;
-                  _catalogItemId = null;
-                  _catalogVariantId = null;
-                  _salesUnitCode = null;
-                  _catalogItemController.clear();
-                  _catalogVariantController.clear();
-                  _resetAdditionalHandlingInputs();
-                }),
-              ),
-            ),
-            SizedBox(
-              width: 520,
-              child: _SearchableOptionField<CalculatorCatalogItemOption>(
-                label: 'Catalog item',
-                hintText: 'Type to search catalog items',
-                controller: _catalogItemController,
-                focusNode: _catalogItemFocusNode,
-                options: items,
-                displayStringForOption: _itemLabel,
-                searchStringForOption: _itemSearchText,
-                leadingBuilder: (item) => _CatalogNomenclatureMedia(
-                  item: item,
-                  repository: widget.mediaRepository,
-                  size: 36,
-                ),
-                onSelected: (item) {
-                  final variants = _variantsForItem(item.id);
-                  final onlyVariant = variants.length == 1 ? variants.first : null;
-                  setState(() {
-                    _catalogItemId = item.id;
-                    _catalogVariantId = onlyVariant?.id;
-                    _salesUnitCode = _defaultSalesUnitCode(item, onlyVariant);
-                    _catalogItemController.text = _itemLabel(item);
-                    _catalogVariantController.text = onlyVariant == null ? '' : _variantLabel(onlyVariant);
+        Padding(
+          padding: const EdgeInsets.only(right: 10),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              SizedBox(
+                width: 220,
+                child: DropdownButtonFormField<String>(
+                  initialValue: _itemTypeCode,
+                  isExpanded: true,
+                  decoration: const InputDecoration(labelText: 'Item type'),
+                  items: [
+                    const DropdownMenuItem(value: '', child: Text('— All item types —')),
+                    for (final option in widget.contextData.optionItemTypes)
+                      DropdownMenuItem(value: option.code, child: Text(option.label)),
+                  ],
+                  onChanged: (value) => setState(() {
+                    _itemTypeCode = value == null || value.isEmpty ? null : value;
+                    _catalogItemId = null;
+                    _catalogVariantId = null;
+                    _salesUnitCode = null;
+                    _catalogItemController.clear();
+                    _catalogVariantController.clear();
                     _resetAdditionalHandlingInputs();
-                  });
-                  if (onlyVariant == null && variants.isNotEmpty) {
-                    WidgetsBinding.instance.addPostFrameCallback((_) {
-                      if (!mounted) return;
-                      _catalogVariantFocusNode.requestFocus();
-                    });
-                  }
-                },
+                  }),
+                ),
               ),
-            ),
-            OutlinedButton.icon(
-              onPressed: _clearOptionSelection,
-              icon: const Icon(Icons.restart_alt),
-              label: const Text('Clear'),
-            ),
-          ],
+              const SizedBox(width: 12),
+              Expanded(
+                child: _SearchableOptionField<CalculatorCatalogItemOption>(
+                  label: 'Catalog item',
+                  hintText: 'Type to search catalog items',
+                  controller: _catalogItemController,
+                  focusNode: _catalogItemFocusNode,
+                  options: items,
+                  displayStringForOption: _itemLabel,
+                  searchStringForOption: _itemSearchText,
+                  leadingBuilder: (item) => _CatalogNomenclatureMedia(
+                    item: item,
+                    repository: widget.mediaRepository,
+                    size: 36,
+                  ),
+                  onSelected: (item) {
+                    final variants = _variantsForItem(item.id);
+                    final onlyVariant = variants.length == 1 ? variants.first : null;
+                    setState(() {
+                      _catalogItemId = item.id;
+                      _catalogVariantId = onlyVariant?.id;
+                      _salesUnitCode = _defaultSalesUnitCode(item, onlyVariant);
+                      _catalogItemController.text = _itemLabel(item);
+                      _catalogVariantController.text = onlyVariant == null ? '' : _variantLabel(onlyVariant);
+                      _resetAdditionalHandlingInputs();
+                    });
+                    if (onlyVariant == null && variants.isNotEmpty) {
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (!mounted) return;
+                        _catalogVariantFocusNode.requestFocus();
+                      });
+                    }
+                  },
+                ),
+              ),
+              const SizedBox(width: 12),
+              SizedBox(
+                width: 150,
+                child: OutlinedButton.icon(
+                  onPressed: _clearOptionSelection,
+                  icon: const Icon(Icons.restart_alt),
+                  label: const Text('Clear'),
+                ),
+              ),
+            ],
+          ),
         ),
         const SizedBox(height: 12),
         if (selectedItem != null) ...[
@@ -10746,6 +10843,7 @@ class _OptionsStepState extends State<_OptionsStep> {
           options: widget.draft.options,
           optionDiagnostics: widget.optionDiagnostics,
           onQuantityChanged: widget.notifier.updateOptionQuantity,
+          onOptionChanged: widget.notifier.updateOption,
           onRemove: widget.notifier.removeOptionAt,
         ),
       ],
@@ -10974,7 +11072,7 @@ class _OptionsStepState extends State<_OptionsStep> {
         ),
         if (packageInfoLabel != null) ...[
           const SizedBox(width: 8),
-          Flexible(
+          Expanded(
             child: Text(
               packageInfoLabel,
               maxLines: 2,
@@ -11090,16 +11188,18 @@ class _OptionsStepState extends State<_OptionsStep> {
         : item?.allowedSalesUnitCodes ?? const <String>[];
 
     final candidates = <String?>[
-      if (roundingCode == 'package_only' && packageUnit != null) packageUnit,
-      if (roundingCode != 'package_only') ...explicit,
-      variant?.defaultSalesUnitCode,
-      item?.defaultSalesUnitCode,
-      item?.measureTypeCode,
-      variant?.packageUnitCode,
-      item?.packageUnitCode,
-      variant?.packageContentUnitCode,
-      item?.packageContentUnitCode,
-      'piece',
+      if (roundingCode == 'package_only' && packageUnit != null)
+        packageUnit
+      else if (explicit.isNotEmpty)
+        ...explicit
+      else ...[
+        variant?.defaultSalesUnitCode,
+        item?.defaultSalesUnitCode,
+        item?.measureTypeCode,
+        packageUnit,
+        variant?.packageContentUnitCode,
+        item?.packageContentUnitCode,
+      ],
     ];
 
     final result = <String>[];
@@ -11232,6 +11332,14 @@ class _OptionsStepState extends State<_OptionsStep> {
 
     setState(() {
       _enabledAdditionalHandlingIds.add(option.catalogItemId);
+      _additionalHandlingDetails[option.catalogItemId] = CalculatorSelectedAdditionalHandling(
+        catalogItemId: option.catalogItemId,
+        quantity: 1,
+        cuts: option.isCutting ? const [CalculatorOptionCut(lengthMm: 0, quantity: 1)] : const [],
+      );
+      if (option.isCutting && _salesUnitOptions(_findItem(_catalogItemId), _findVariant(_catalogVariantId)).contains('piece')) {
+        _salesUnitCode = 'piece';
+      }
       final controller = _handlingQuantityController(option);
       final currentQuantity = num.tryParse(controller.text.replaceAll(',', '.')) ?? 0;
       if (currentQuantity <= 0) controller.text = '1';
@@ -11262,41 +11370,43 @@ class _OptionsStepState extends State<_OptionsStep> {
           const SizedBox(height: 6),
           for (final option in selectedHandlings)
             Padding(
+              key: ValueKey(option.catalogItemId),
               padding: const EdgeInsets.only(top: 4),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      option.displayName,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  SizedBox(
-                    width: 84,
-                    child: TextField(
-                      controller: _handlingQuantityController(option),
-                      keyboardType: TextInputType.number,
-                      decoration: InputDecoration(
-                        isDense: true,
-                        labelText: 'Qty',
-                        helperText: 'max ${_formatInputQuantity(option.maxQuantity)}',
+              child: _OptionHandlingRow(
+                label: option.displayName,
+                trailing: IconButton(
+                  tooltip: 'Remove handling',
+                  onPressed: () => setState(() {
+                    _enabledAdditionalHandlingIds.remove(option.catalogItemId);
+                    _pendingAdditionalHandlingId ??= option.catalogItemId;
+                  }),
+                  icon: const Icon(Icons.close),
+                ),
+                child: option.isCoating || option.isCutting
+                    ? _OptionHandlingFields(
+                        definition: option,
+                        value: _additionalHandlingDetails[option.catalogItemId]!,
+                        contextData: widget.contextData,
+                        onChanged: (value) => setState(() => _additionalHandlingDetails[option.catalogItemId] = value),
+                      )
+                    : Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: _handlingQuantityController(option),
+                              keyboardType: TextInputType.number,
+                              decoration: InputDecoration(
+                                isDense: true,
+                                labelText: 'Qty',
+                                helperText: 'max ${_formatInputQuantity(option.maxQuantity)}',
+                              ),
+                              onEditingComplete: () => _clampHandlingQuantity(option),
+                              onSubmitted: (_) => _clampHandlingQuantity(option),
+                            ),
+                          ),
+                          const SizedBox(width: 80),
+                        ],
                       ),
-                      onEditingComplete: () => _clampHandlingQuantity(option),
-                      onSubmitted: (_) => _clampHandlingQuantity(option),
-                    ),
-                  ),
-                  IconButton(
-                    tooltip: 'Remove handling',
-                    onPressed: () => setState(() {
-                      _enabledAdditionalHandlingIds.remove(option.catalogItemId);
-                      _pendingAdditionalHandlingId ??= option.catalogItemId;
-                    }),
-                    icon: const Icon(Icons.close),
-                  ),
-                ],
               ),
             ),
         ],
@@ -11316,6 +11426,7 @@ class _OptionsStepState extends State<_OptionsStep> {
 
   void _resetAdditionalHandlingInputs() {
     _enabledAdditionalHandlingIds.clear();
+    _additionalHandlingDetails.clear();
     _additionalHandlingInputEnabled = false;
     _pendingAdditionalHandlingId = null;
     for (final controller in _additionalHandlingControllers.values) {
@@ -11335,7 +11446,9 @@ class _OptionsStepState extends State<_OptionsStep> {
         quantity = option.maxQuantity;
         controller.text = option.maxQuantity.toString();
       }
-      result.add(CalculatorSelectedAdditionalHandling(catalogItemId: option.catalogItemId, quantity: quantity));
+      result.add((_additionalHandlingDetails[option.catalogItemId]
+        ?? CalculatorSelectedAdditionalHandling(catalogItemId: option.catalogItemId, quantity: quantity))
+        .copyWith(quantity: option.isCoating || option.isCutting ? 1 : quantity));
     }
     return result;
   }
@@ -11346,6 +11459,7 @@ class _OptionsStepState extends State<_OptionsStep> {
       _catalogItemId = null;
       _catalogVariantId = null;
       _salesUnitCode = null;
+      _addOptionError = null;
       _catalogItemController.clear();
       _catalogVariantController.clear();
       _quantityController.text = '1';
@@ -11360,20 +11474,433 @@ class _OptionsStepState extends State<_OptionsStep> {
     final item = _findItem(itemId);
     final variant = _findVariant(_catalogVariantId);
     final salesUnitCode = _effectiveSalesUnitCode(item, variant);
+    final handlings = _selectedAdditionalHandlings(itemId);
+    final error = _optionHandlingError(handlings, widget.contextData.additionalHandlingByParentItemId[itemId] ?? const [],
+      salesUnitCode, variant?.lengthMm, quantity);
+    if (error != null) {
+      if (error.startsWith('PZSO: cuts do not fit into ')) {
+        showTopNotification(
+          context,
+          error,
+          type: TopNotificationType.error,
+        );
+        setState(() => _addOptionError = null);
+      } else {
+        setState(() => _addOptionError = error);
+      }
+      return;
+    }
     widget.notifier.addCatalogOption(
       catalogItemId: itemId,
       catalogVariantId: _catalogVariantId,
       quantity: quantity,
       salesUnitCode: salesUnitCode,
-      additionalHandlings: _selectedAdditionalHandlings(itemId),
+      additionalHandlings: handlings,
     );
     setState(() {
+      _addOptionError = null;
       _catalogVariantId = null;
       _salesUnitCode = _defaultSalesUnitCode(_findItem(itemId), null);
       _catalogVariantController.clear();
       _quantityController.text = '1';
       _resetAdditionalHandlingInputs();
     });
+  }
+}
+
+String? _optionHandlingError(
+  List<CalculatorSelectedAdditionalHandling> handlings,
+  List<CalculatorAdditionalHandlingOption> definitions,
+  String? unit,
+  int? stockLength,
+  num quantity,
+) {
+  for (final handling in handlings) {
+    final definition = definitions.where((entry) => entry.catalogItemId == handling.catalogItemId).firstOrNull;
+    if (definition == null) return 'This handling is no longer available for the option.';
+    if (handling.quantity <= 0 || (definition.maxQuantity > 0 && handling.quantity > definition.maxQuantity)) {
+      return '${definition.displayName}: enter a quantity from 1 to ${definition.maxQuantity}.';
+    }
+    if (definition.isCoating && handling.colorCode?.trim().isNotEmpty != true) {
+      return 'ZLK: select the desired color.';
+    }
+    if (definition.isCutting) {
+      if (_formatUnitLabel(unit) != 'Stk' || stockLength == null || stockLength <= 1 || quantity % 1 != 0 || quantity < 1 || quantity > 200) {
+        return 'PZSO: select a stock SKU and 1–200 whole bars (Stk).';
+      }
+      if (handling.cuts.isEmpty || handling.cuts.length > 50 || handling.cuts.any((cut) =>
+          cut.quantity < 1 || cut.lengthMm < 1 || cut.lengthMm > stockLength)) {
+        return 'PZSO: enter cut quantities and lengths within the stock length.';
+      }
+      if (handling.cuts.fold<int>(0, (sum, cut) => sum + cut.quantity) > 200) {
+        return 'PZSO: maximum 200 cut pieces per option.';
+      }
+      if (!_optionCutsFitStockBars(stockLength, quantity.toInt(), handling.cuts)) {
+        return 'PZSO: cuts do not fit into ${quantity.toInt()} × $stockLength mm (kerf 3 mm).';
+      }
+    }
+  }
+  return null;
+}
+
+bool _optionCutsFitStockBars(
+  int stockLengthMm,
+  int stockQuantity,
+  List<CalculatorOptionCut> cuts,
+) {
+  const kerfMm = 3;
+  final pieces = <int>[
+    for (final cut in cuts)
+      for (var index = 0; index < cut.quantity; index++) cut.lengthMm,
+  ]..sort((a, b) => b.compareTo(a));
+  final capacity = stockLengthMm + kerfMm;
+  if (pieces.fold<int>(0, (sum, length) => sum + length + kerfMm) > stockQuantity * capacity) {
+    return false;
+  }
+
+  final remaining = List<int>.filled(stockQuantity, capacity);
+  final memo = <String>{};
+  var attempts = 0;
+  late bool Function(int index) pack;
+  pack = (index) {
+    if (index == pieces.length) return true;
+    if (++attempts > 100000) return false;
+    final sortedRemaining = [...remaining]..sort((a, b) => b.compareTo(a));
+    final key = '$index|${sortedRemaining.join(',')}';
+    if (memo.contains(key)) return false;
+
+    final required = pieces[index] + kerfMm;
+    final tried = <int>{};
+    for (var bar = 0; bar < remaining.length; bar++) {
+      final available = remaining[bar];
+      if (available < required || !tried.add(available)) continue;
+      remaining[bar] -= required;
+      if (pack(index + 1)) return true;
+      remaining[bar] = available;
+    }
+    memo.add(key);
+    return false;
+  };
+  return pack(0);
+}
+
+class _OptionHandlingRow extends StatelessWidget {
+  const _OptionHandlingRow({required this.label, required this.child, this.trailing});
+
+  final String label;
+  final Widget child;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 210,
+          child: Padding(
+            padding: const EdgeInsets.only(top: 12),
+            child: Text(
+              label,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(child: child),
+        if (trailing != null) ...[
+          const SizedBox(width: 4),
+          trailing!,
+        ],
+      ],
+    );
+  }
+}
+
+class _OptionHandlingFields extends StatelessWidget {
+  const _OptionHandlingFields({super.key, required this.definition, required this.value, required this.contextData, required this.onChanged});
+
+  final CalculatorAdditionalHandlingOption definition;
+  final CalculatorSelectedAdditionalHandling value;
+  final CalculatorContext contextData;
+  final ValueChanged<CalculatorSelectedAdditionalHandling> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    if (definition.isCoating) {
+      final colors = <String, CalculatorOption>{};
+      for (final entry in [...(contextData.references['colors'] ?? const <CalculatorOption>[]),
+        ...(contextData.references['ral_colors'] ?? const <CalculatorOption>[])]) {
+        colors[entry.code] = entry;
+      }
+      return Row(
+        children: [
+          Expanded(
+            child: Autocomplete<CalculatorOption>(
+              initialValue: TextEditingValue(text: value.colorCode ?? ''),
+              displayStringForOption: (entry) => entry.code,
+              optionsBuilder: (text) {
+                final search = text.text.trim().toLowerCase();
+                return colors.values.where((entry) => '${entry.code} ${entry.label}'.toLowerCase().contains(search)).take(20);
+              },
+              onSelected: (entry) => onChanged(value.copyWith(colorCode: entry.code)),
+              fieldViewBuilder: (context, controller, focus, onSubmitted) => TextFormField(
+                controller: controller,
+                focusNode: focus,
+                maxLength: 100,
+                decoration: const InputDecoration(
+                  isDense: true,
+                  labelText: 'Desired color / RAL',
+                  counterText: '',
+                ),
+                onChanged: (text) => onChanged(value.copyWith(colorCode: text)),
+                onFieldSubmitted: (_) => onSubmitted(),
+              ),
+            ),
+          ),
+          const SizedBox(width: 80),
+        ],
+      );
+    }
+    if (!definition.isCutting) return const SizedBox.shrink();
+
+    final cuts = value.cuts.isEmpty
+        ? const [CalculatorOptionCut(lengthMm: 0, quantity: 1)]
+        : value.cuts;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (var index = 0; index < cuts.length; index++)
+          Padding(
+            padding: EdgeInsets.only(top: index == 0 ? 0 : 6),
+            child: Row(
+              children: [
+                SizedBox(
+                  width: 80,
+                  child: _StableNumberField(
+                    key: ValueKey('${value.catalogItemId}-cut-qty-$index'),
+                    value: '${cuts[index].quantity}',
+                    enabled: true,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(labelText: 'Qty', isDense: true),
+                    onChanged: (text) {
+                      final nextCuts = value.cuts.isEmpty ? [...cuts] : [...value.cuts];
+                      nextCuts[index] = CalculatorOptionCut(
+                        lengthMm: nextCuts[index].lengthMm,
+                        quantity: int.tryParse(text) ?? 0,
+                      );
+                      onChanged(value.copyWith(cuts: nextCuts));
+                    },
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _StableNumberField(
+                    key: ValueKey('${value.catalogItemId}-cut-length-$index'),
+                    value: '${cuts[index].lengthMm}',
+                    enabled: true,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(labelText: 'Length, mm', isDense: true),
+                    onChanged: (text) {
+                      final nextCuts = value.cuts.isEmpty ? [...cuts] : [...value.cuts];
+                      nextCuts[index] = CalculatorOptionCut(
+                        lengthMm: int.tryParse(text) ?? 0,
+                        quantity: nextCuts[index].quantity,
+                      );
+                      onChanged(value.copyWith(cuts: nextCuts));
+                    },
+                  ),
+                ),
+                if (index == 0)
+                  IconButton(
+                    tooltip: 'Add cut',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: value.cuts.length < 50
+                        ? () => onChanged(value.copyWith(
+                              cuts: [
+                                ...value.cuts,
+                                if (value.cuts.isEmpty) cuts.first,
+                                const CalculatorOptionCut(lengthMm: 0, quantity: 1),
+                              ],
+                            ))
+                        : null,
+                    icon: const Icon(Icons.add, size: 18),
+                  )
+                else
+                  const SizedBox(width: 40),
+                IconButton(
+                  tooltip: 'Remove cut',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: value.cuts.isEmpty
+                      ? null
+                      : () => onChanged(value.copyWith(cuts: [...value.cuts]..removeAt(index))),
+                  icon: const Icon(Icons.close, size: 18),
+                ),
+              ],
+            ),
+          ),
+        const SizedBox(height: 4),
+        Text(
+          'Stock bars remain charged in full. REST is calculated with a 3 mm saw kerf.',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+      ],
+    );
+  }
+}
+
+class _OptionEditDialog extends StatefulWidget {
+  const _OptionEditDialog({required this.option, required this.item, required this.variant, required this.contextData});
+  final CalculatorSelectedOption option;
+  final CalculatorCatalogItemOption? item;
+  final CalculatorCatalogVariantOption? variant;
+  final CalculatorContext contextData;
+
+  @override
+  State<_OptionEditDialog> createState() => _OptionEditDialogState();
+}
+
+class _OptionEditDialogState extends State<_OptionEditDialog> {
+  late CalculatorSelectedOption _option;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _option = widget.option;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final definitions = widget.contextData.additionalHandlingByParentItemId[widget.item?.id] ?? const <CalculatorAdditionalHandlingOption>[];
+    final units = widget.variant?.allowedSalesUnitCodes.isNotEmpty == true
+      ? widget.variant!.allowedSalesUnitCodes
+      : widget.item?.allowedSalesUnitCodes ?? const <String>[];
+    final selectedUnit = _option.salesUnitCode ?? widget.variant?.defaultSalesUnitCode ?? widget.item?.defaultSalesUnitCode ?? 'piece';
+    final availableUnits = {...units, selectedUnit};
+    return AlertDialog(
+      title: const Text('Option · unit / handling'),
+      content: SizedBox(width: 540, child: SingleChildScrollView(child: Column(
+        mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(widget.variant?.displayName ?? widget.item?.displayName ?? 'Option'),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<String>(key: ValueKey(selectedUnit), initialValue: selectedUnit,
+            decoration: const InputDecoration(labelText: 'Unit', isDense: true),
+            items: [for (final unit in availableUnits) DropdownMenuItem(value: unit, child: Text(_formatUnitLabel(unit)))],
+            onChanged: (unit) => setState(() => _option = _option.copyWith(salesUnitCode: unit))),
+          for (final definition in definitions)
+            Builder(
+              builder: (context) {
+                final handling = _option.additionalHandlings
+                    .where((entry) => entry.catalogItemId == definition.catalogItemId)
+                    .firstOrNull;
+                return Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SizedBox(
+                        width: 38,
+                        child: Checkbox(
+                          value: handling != null,
+                          visualDensity: VisualDensity.compact,
+                          onChanged: (enabled) => setState(() {
+                            final selected = _option.additionalHandlings
+                                .where((entry) => entry.catalogItemId != definition.catalogItemId)
+                                .toList();
+                            if (enabled == true) {
+                              selected.add(CalculatorSelectedAdditionalHandling(
+                                catalogItemId: definition.catalogItemId,
+                                quantity: 1,
+                                cuts: definition.isCutting
+                                    ? const [CalculatorOptionCut(lengthMm: 0, quantity: 1)]
+                                    : const [],
+                              ));
+                            }
+                            _option = _option.copyWith(
+                              additionalHandlings: selected,
+                              salesUnitCode: enabled == true && definition.isCutting && units.contains('piece')
+                                  ? 'piece'
+                                  : null,
+                            );
+                          }),
+                        ),
+                      ),
+                      Expanded(
+                        child: _OptionHandlingRow(
+                          label: definition.displayName,
+                          child: handling == null
+                              ? const SizedBox(height: 40)
+                              : definition.isCoating || definition.isCutting
+                                  ? _OptionHandlingFields(
+                                      key: ValueKey(definition.catalogItemId),
+                                      definition: definition,
+                                      value: handling,
+                                      contextData: widget.contextData,
+                                      onChanged: _updateHandling,
+                                    )
+                                  : Row(
+                                      children: [
+                                        Expanded(
+                                          child: _StableNumberField(
+                                            value: _formatInputQuantity(handling.quantity),
+                                            enabled: true,
+                                            keyboardType: TextInputType.number,
+                                            decoration: InputDecoration(
+                                              labelText: 'Qty',
+                                              helperText: 'max ${_formatInputQuantity(definition.maxQuantity)}',
+                                              isDense: true,
+                                            ),
+                                            onChanged: (text) => _updateHandling(
+                                              handling.copyWith(quantity: num.tryParse(text.replaceAll(',', '.')) ?? 1),
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 80),
+                                      ],
+                                    ),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          if (_error != null) Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+        ],
+      ))),
+      actions: [
+        TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
+        FilledButton(onPressed: () {
+          final error = _optionHandlingError(_option.additionalHandlings, definitions,
+            selectedUnit, widget.variant?.lengthMm, _option.quantity);
+          if (error != null) {
+            if (error.startsWith('PZSO: cuts do not fit into ')) {
+              showTopNotification(
+                context,
+                error,
+                type: TopNotificationType.error,
+              );
+              setState(() => _error = null);
+            } else {
+              setState(() => _error = error);
+            }
+            return;
+          }
+          Navigator.of(context).pop(_option.copyWith(salesUnitCode: selectedUnit));
+        }, child: const Text('Save')),
+      ],
+    );
+  }
+
+  void _updateHandling(CalculatorSelectedAdditionalHandling handling) {
+    setState(() => _option = _option.copyWith(additionalHandlings: [
+      for (final entry in _option.additionalHandlings)
+        entry.catalogItemId == handling.catalogItemId ? handling : entry,
+    ]));
   }
 }
 
@@ -11613,6 +12140,7 @@ class _SelectedOptionsTable extends StatelessWidget {
     required this.options,
     required this.optionDiagnostics,
     required this.onQuantityChanged,
+    required this.onOptionChanged,
     required this.onRemove,
   });
 
@@ -11621,6 +12149,7 @@ class _SelectedOptionsTable extends StatelessWidget {
   final List<CalculatorSelectedOption> options;
   final List<Map<String, dynamic>> optionDiagnostics;
   final void Function(int index, num quantity) onQuantityChanged;
+  final void Function(int index, CalculatorSelectedOption option) onOptionChanged;
   final ValueChanged<int> onRemove;
 
   @override
@@ -11683,6 +12212,7 @@ class _SelectedOptionsTable extends StatelessWidget {
         : contextData.additionalHandlingByParentItemId[item.id] ?? const <CalculatorAdditionalHandlingOption>[];
     final unitCode = option.salesUnitCode
         ?? diagnostic?['requested_unit_code']?.toString()
+        ?? variant?.defaultSalesUnitCode
         ?? item?.defaultSalesUnitCode
         ?? item?.measureTypeCode
         ?? diagnostic?['unit_code']?.toString()
@@ -11716,6 +12246,13 @@ class _SelectedOptionsTable extends StatelessWidget {
               availableHandlings: availableHandlings,
               selectedHandlings: option.additionalHandlings,
               catalogItems: contextData.optionCatalogItems,
+              onEdit: () async {
+                final edited = await showDialog<CalculatorSelectedOption>(
+                  context: context,
+                  builder: (_) => _OptionEditDialog(option: option, item: item, variant: variant, contextData: contextData),
+                );
+                if (edited != null) onOptionChanged(index, edited);
+              },
             ),
             flex: 5,
           ),
@@ -11866,8 +12403,10 @@ class _SelectedOptionNameCell extends StatelessWidget {
     required this.availableHandlings,
     required this.selectedHandlings,
     required this.catalogItems,
+    required this.onEdit,
   });
 
+  final VoidCallback onEdit;
   final String name;
   final List<CalculatorAdditionalHandlingOption> availableHandlings;
   final List<CalculatorSelectedAdditionalHandling> selectedHandlings;
@@ -11879,12 +12418,16 @@ class _SelectedOptionNameCell extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(
+        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Expanded(child: Text(
           name,
           softWrap: true,
           maxLines: 4,
           overflow: TextOverflow.ellipsis,
-        ),
+          )),
+          IconButton(tooltip: 'Edit unit / handling', visualDensity: VisualDensity.compact,
+            onPressed: onEdit, icon: const Icon(Icons.edit_outlined, size: 16)),
+        ]),
         if (selectedHandlings.isNotEmpty) ...[
           const SizedBox(height: 5),
           for (final entry in selectedHandlings)
@@ -11901,9 +12444,13 @@ class _SelectedOptionNameCell extends StatelessWidget {
                   const SizedBox(width: 4),
                   Expanded(
                     child: Text(
-                      '${_handlingLabel(entry)} × ${_formatInputQuantity(entry.quantity)}',
+                      [
+                        '${_handlingLabel(entry)} × ${_formatInputQuantity(entry.quantity)}',
+                        if (entry.colorCode?.isNotEmpty == true) '→ ${entry.colorCode}',
+                        for (final cut in entry.cuts) '${cut.quantity} × ${cut.lengthMm} mm',
+                      ].join(' · '),
                       softWrap: true,
-                      maxLines: 2,
+                      maxLines: 6,
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                             color: Theme.of(context).colorScheme.onSurfaceVariant,
@@ -12680,7 +13227,7 @@ class _GeometryPreviewTab extends StatelessWidget {
               calculatedModules: previewData.roofCalculation.modules,
               calculationNumber: calculationNumber,
               calculationSavedAt: calculationSavedAt,
-              buyerName: buyerContact.organizationName,
+              buyerName: _buyerDisplayName(buyerContact),
               buyerContactName: buyerContact.contactName,
               buyerEmail: buyerContact.email,
               buyerPhone: buyerContact.phone,
@@ -13828,19 +14375,21 @@ class _PriceHeader extends ConsumerWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Expanded(
-              child: Text.rich(
-                TextSpan(
-                  children: [
-                    TextSpan(text: 'Net / gross price: ', style: Theme.of(context).textTheme.labelLarge),
-                    TextSpan(
-                      text: '${_moneyFormat.format(net)} / ${_moneyFormat.format(gross)}',
-                      style: needsRecalculation
+              child: SelectionArea(
+                child: Text.rich(
+                  TextSpan(
+                    children: [
+                      TextSpan(text: 'Net / gross price: ', style: Theme.of(context).textTheme.labelLarge),
+                      TextSpan(
+                        text: '${_moneyFormat.format(net)} / ${_moneyFormat.format(gross)}',
+                        style: needsRecalculation
                           ? Theme.of(context).textTheme.headlineSmall?.copyWith(
                                 color: Theme.of(context).colorScheme.error,
                               )
                           : Theme.of(context).textTheme.headlineSmall,
                     ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -13911,12 +14460,13 @@ class _PriceHeader extends ConsumerWidget {
             ),
           ),
         ],
-        const SizedBox(height: 10),
-        Wrap(
-          crossAxisAlignment: WrapCrossAlignment.center,
-          spacing: 10,
-          runSpacing: 8,
-          children: [
+        if (calculatorContext.additionalDiscountAvailable) ...[
+          const SizedBox(height: 10),
+          Wrap(
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 10,
+            runSpacing: 8,
+            children: [
             Row(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -13970,7 +14520,8 @@ class _PriceHeader extends ConsumerWidget {
               ),
             ],
           ],
-        ),
+          ),
+        ],
       ],
     ),
         if ((quoteId ?? '').isNotEmpty)
@@ -15127,6 +15678,7 @@ String? _roofModelString(dynamic value) {
 String _priceSignature(CalculatorDraft draft) {
   final input = Map<String, dynamic>.from(draft.toCalculationJson())
     ..remove('quote_no_external')
+    ..remove('submission_date')
     ..remove('external_notes')
     ..remove('branding')
     ..remove('language_code');
