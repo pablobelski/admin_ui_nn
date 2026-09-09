@@ -745,7 +745,22 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
         calculatorContext,
         draft.colorCode,
       );
-      final buyerContact = calculatorContext.buyerContactFor(draft);
+      final dealerOption = _calculatorOrganizationOption(
+        calculatorContext,
+        draft.organizationId,
+      );
+      final b2bOption = _calculatorRelatedCustomerOption(
+        calculatorContext,
+        draft.relatedCustomerId,
+      );
+      final dealerContact = _calculatorContactForOption(dealerOption);
+      final previewContact = b2bOption == null
+          ? dealerContact
+          : _calculatorContactForOption(b2bOption);
+      final dealerPreviewName = _calculatorPartyShortCustomerLabel(dealerOption);
+      final b2bPreviewName = b2bOption == null
+          ? null
+          : _calculatorPartyShortCustomerLabel(b2bOption);
       final handoverTypeCode = draft.handoverTypeCode?.trim();
       final handover = (calculatorContext.references['handover_types'] ?? const [])
           .where(
@@ -791,10 +806,11 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
         calculatedModules: previewData.roofCalculation.modules,
         calculationNumber: calculationNumber,
         calculationSavedAt: previewSavedAt,
-        buyerName: _buyerDisplayName(buyerContact),
-        buyerContactName: buyerContact.contactName,
-        buyerEmail: buyerContact.email,
-        buyerPhone: buyerContact.phone,
+        buyerName: dealerPreviewName,
+        b2bPartnerName: b2bPreviewName,
+        buyerContactName: previewContact.contactName,
+        buyerEmail: previewContact.email,
+        buyerPhone: previewContact.phone,
         weights: serverResult.weights,
         deliveryName: handover?.label ?? handoverTypeCode,
         completionWeek: draft.completionWeek,
@@ -954,6 +970,60 @@ String _buyerDisplayName(CalculatorBuyerContact contact) {
   if (customerNumber.isEmpty) return organizationName;
   if (organizationName.isEmpty) return customerNumber;
   return '$customerNumber, $organizationName';
+}
+
+CalculatorOption? _calculatorOrganizationOption(
+  CalculatorContext context,
+  String? organizationId,
+) {
+  final id = organizationId?.trim() ?? '';
+  if (id.isEmpty) return null;
+  return context.organizations.where((entry) => entry.id == id).firstOrNull;
+}
+
+CalculatorOption? _calculatorRelatedCustomerOption(
+  CalculatorContext context,
+  String? relationId,
+) {
+  final id = relationId?.trim() ?? '';
+  if (id.isEmpty) return null;
+  return context.relatedCustomers.where((entry) => entry.id == id).firstOrNull;
+}
+
+CalculatorBuyerContact _calculatorContactForOption(CalculatorOption? option) {
+  if (option == null) return const CalculatorBuyerContact();
+  final raw = option.raw;
+  String? text(Object? value) {
+    final normalized = value == null ? '' : '$value'.trim();
+    return normalized.isEmpty ? null : normalized;
+  }
+
+  return CalculatorBuyerContact(
+    customerNumber: text(raw['customer_number']),
+    organizationName:
+        text(raw['legal_name']) ?? text(raw['display_name']) ?? option.label,
+    contactName: text(raw['configurator_contact_full_name']),
+    email: text(raw['configurator_contact_email']),
+    phone: text(raw['configurator_contact_phone']),
+  );
+}
+
+String _calculatorPartyShortCustomerLabel(CalculatorOption? option) {
+  if (option == null) return '—';
+  final raw = option.raw;
+  String text(Object? value) => value == null ? '' : '$value'.trim();
+  final name = [
+    text(raw['short_name']),
+    text(raw['display_name']),
+    text(raw['legal_name']),
+    option.label.trim(),
+  ].firstWhere((value) => value.isNotEmpty, orElse: () => '—');
+  final customerNumber = [
+    text(raw['customer_number']),
+    text(raw['customer_no']),
+    text(raw['kundennummer']),
+  ].firstWhere((value) => value.isNotEmpty, orElse: () => '');
+  return customerNumber.isEmpty ? name : '$name - $customerNumber';
 }
 
 class _Header extends StatelessWidget {
@@ -2014,6 +2084,24 @@ class _ProductStepState extends State<_ProductStep> {
     return organizationId.isEmpty ? null : organizationId;
   }
 
+  CalculatorBuyerContact _contactForOption(CalculatorOption? option) {
+    if (option == null) return const CalculatorBuyerContact();
+    final raw = option.raw;
+    String? text(Object? value) {
+      final normalized = value == null ? '' : '$value'.trim();
+      return normalized.isEmpty ? null : normalized;
+    }
+
+    return CalculatorBuyerContact(
+      customerNumber: text(raw['customer_number']),
+      organizationName:
+          text(raw['legal_name']) ?? text(raw['display_name']) ?? option.label,
+      contactName: text(raw['configurator_contact_full_name']),
+      email: text(raw['configurator_contact_email']),
+      phone: text(raw['configurator_contact_phone']),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final relatedCustomers = widget.contextData.relatedCustomersFor(widget.draft.organizationId);
@@ -2025,7 +2113,17 @@ class _ProductStepState extends State<_ProductStep> {
     final engravingBranding = _activeEngravingBranding(canUseRelatedCustomer);
     final engravingText = engravingBranding?.engravingText?.trim() ?? '';
     final engravingEnabled = _brandingEngravingEnabled();
-    final buyerContact = widget.contextData.buyerContactFor(widget.draft);
+    final parentOrganization = _organizationById(widget.draft.organizationId);
+    final parentContact = _contactForOption(parentOrganization);
+    final b2bMode =
+        _byRelatedCustomer && canUseRelatedCustomer && selectedRelatedCustomer != null;
+    final b2bContact =
+        b2bMode ? _contactForOption(selectedRelatedCustomer) : const CalculatorBuyerContact();
+    final b2bOrganizationId =
+        b2bMode ? _buyerOrganizationId(selectedRelatedCustomer) : null;
+    final logoBranding = b2bMode
+        ? _brandingFromOrganization(parentOrganization)
+        : widget.contextData.headBranding;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -2052,48 +2150,25 @@ class _ProductStepState extends State<_ProductStep> {
           ].whereType<Object>().join(' '),
           onSelected: _selectOrganization,
         ),
-        if (buyerContact.hasOrganization || buyerContact.hasContact) ...[
+        if (parentContact.hasOrganization || parentContact.hasContact) ...[
           const SizedBox(height: 8),
-          Card(
-            margin: EdgeInsets.zero,
-            clipBehavior: Clip.antiAlias,
-            child: InkWell(
-              onTap: () {
-                final organizationId = _buyerOrganizationId(selectedRelatedCustomer);
-                if (organizationId != null) widget.onOpenOrganization(organizationId);
-              },
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          if (buyerContact.hasOrganization)
-                            Text(
-                              buyerContact.organizationName!,
-                              style: Theme.of(context).textTheme.labelLarge,
-                            ),
-                          if (buyerContact.hasContact) ...[
-                            const SizedBox(height: 4),
-                            Text(
-                              [buyerContact.contactName, buyerContact.email, buyerContact.phone]
-                                  .whereType<String>()
-                                  .where((value) => value.trim().isNotEmpty)
-                                  .join(' · '),
-                              style: Theme.of(context).textTheme.bodySmall,
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    const Icon(Icons.open_in_new, size: 18),
-                  ],
-                ),
-              ),
-            ),
+          _OrganizationLinkPlaque(
+            roleLabel: b2bMode ? 'Parent dealer' : 'Organization',
+            contact: parentContact,
+            onTap: (widget.draft.organizationId?.trim() ?? '').isEmpty
+                ? null
+                : () => widget.onOpenOrganization(widget.draft.organizationId!),
+          ),
+        ],
+        if (b2bMode &&
+            (b2bContact.hasOrganization || b2bContact.hasContact)) ...[
+          const SizedBox(height: 8),
+          _OrganizationLinkPlaque(
+            roleLabel: 'B2B partner',
+            contact: b2bContact,
+            onTap: (b2bOrganizationId ?? '').isEmpty
+                ? null
+                : () => widget.onOpenOrganization(b2bOrganizationId!),
           ),
         ],
         const SizedBox(height: 16),
@@ -2187,7 +2262,7 @@ class _ProductStepState extends State<_ProductStep> {
               SizedBox(
                 width: 104,
                 child: _BrandingLogoPlaque(
-                  branding: widget.contextData.headBranding,
+                  branding: logoBranding,
                   repository: widget.mediaRepository,
                 ),
               ),
@@ -2224,6 +2299,81 @@ class _ProductStepState extends State<_ProductStep> {
           ),
         ],
       ],
+    );
+  }
+}
+
+
+class _OrganizationLinkPlaque extends StatelessWidget {
+  const _OrganizationLinkPlaque({
+    required this.roleLabel,
+    required this.contact,
+    required this.onTap,
+  });
+
+  final String roleLabel;
+  final CalculatorBuyerContact contact;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final details = [
+      contact.customerNumber == null ? null : 'Kdnr. ${contact.customerNumber}',
+      contact.contactName,
+      contact.email,
+      contact.phone,
+    ]
+        .whereType<String>()
+        .where((value) => value.trim().isNotEmpty)
+        .join(' · ');
+
+    return Card(
+      margin: EdgeInsets.zero,
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 96,
+                child: Text(
+                  roleLabel,
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (contact.hasOrganization)
+                      Text(
+                        contact.organizationName!,
+                        style: Theme.of(context).textTheme.labelLarge,
+                      ),
+                    if (details.isNotEmpty) ...[
+                      const SizedBox(height: 3),
+                      Text(
+                        details,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              if (onTap != null) ...[
+                const SizedBox(width: 8),
+                const Icon(Icons.open_in_new, size: 18),
+              ],
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -12822,13 +12972,16 @@ class _ResultPanel extends StatelessWidget {
             );
           }
 
+          final hasB2bCommercialView = result.hasB2bCommercialView;
+          final resultTabCount = (showPreviewTab ? 8 : 7) + (hasB2bCommercialView ? 1 : 0);
+
           return Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Expanded(
                 child: DefaultTabController(
                   key: resultTabsKey,
-                  length: showPreviewTab ? 8 : 7,
+                  length: resultTabCount,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
@@ -12862,6 +13015,7 @@ class _ResultPanel extends StatelessWidget {
                         tabs: [
                           if (showPreviewTab) const Tab(text: 'Preview'),
                           const Tab(text: 'Lines'),
+                          if (hasB2bCommercialView) const Tab(text: 'B2B Lines'),
                           const Tab(text: 'BOM'),
                           const Tab(text: 'Reserve'),
                           const Tab(text: 'Integrations'),
@@ -12891,6 +13045,11 @@ class _ResultPanel extends StatelessWidget {
                                   highlightedManufacturingFieldKind: highlightedManufacturingFieldKind,
                                 ),
                               _LinesTab(result: result),
+                              if (hasB2bCommercialView)
+                                _LinesTab(
+                                  result: result,
+                                  lines: result.b2bVisibleLines,
+                                ),
                               _BomTab(result: result),
                               ReserveMaterialsView(
                                 items: result.reserveItems,
@@ -13111,23 +13270,10 @@ class _GeometryPreviewRenderData {
   final String? coveringSummary;
 }
 
-String? _geometryPreviewCoveringSummary(CalculatorResult? result) {
-  final quantities = <String, int>{};
-  for (final line in result?.glassLines ?? const <Map<String, dynamic>>[]) {
-    final label = _firstString(
-      line['catalog_name'],
-      line['catalogName'],
-      line['glass_type_code'] ?? line['glassTypeCode'],
+String? _geometryPreviewCoveringSummary(CalculatorResult? result) =>
+    geometryPreviewGlassSummary(
+      result?.glassLines ?? const <Map<String, dynamic>>[],
     );
-    final quantity = _intFromFlexible(line['quantity']) ?? 0;
-    if (label == null || quantity <= 0) continue;
-    quantities[label] = (quantities[label] ?? 0) + quantity;
-  }
-  if (quantities.isEmpty) return null;
-  return quantities.entries
-      .map((entry) => '${entry.key} · ${entry.value} stk.')
-      .join('\n');
-}
 
 _GeometryPreviewRenderData _geometryPreviewRenderDataFor({
   required CalculatorDraft draft,
@@ -13227,7 +13373,22 @@ class _GeometryPreviewTab extends StatelessWidget {
       result: result,
     );
     final colorPreview = _colorPreviewDataFor(calculatorContext, draft.colorCode);
-    final buyerContact = calculatorContext.buyerContactFor(draft);
+    final dealerOption = _calculatorOrganizationOption(
+      calculatorContext,
+      draft.organizationId,
+    );
+    final b2bOption = _calculatorRelatedCustomerOption(
+      calculatorContext,
+      draft.relatedCustomerId,
+    );
+    final dealerContact = _calculatorContactForOption(dealerOption);
+    final previewContact = b2bOption == null
+        ? dealerContact
+        : _calculatorContactForOption(b2bOption);
+    final dealerPreviewName = _calculatorPartyShortCustomerLabel(dealerOption);
+    final b2bPreviewName = b2bOption == null
+        ? null
+        : _calculatorPartyShortCustomerLabel(b2bOption);
     final draftHandoverTypeCode = draft.handoverTypeCode?.trim();
     final savedHandoverTypeCode = (savedInput?['handover_type_code'] ?? savedInput?['handoverTypeCode'])
         ?.toString()
@@ -13273,10 +13434,11 @@ class _GeometryPreviewTab extends StatelessWidget {
               calculatedModules: previewData.roofCalculation.modules,
               calculationNumber: calculationNumber,
               calculationSavedAt: calculationSavedAt,
-              buyerName: _buyerDisplayName(buyerContact),
-              buyerContactName: buyerContact.contactName,
-              buyerEmail: buyerContact.email,
-              buyerPhone: buyerContact.phone,
+              buyerName: dealerPreviewName,
+              b2bPartnerName: b2bPreviewName,
+              buyerContactName: previewContact.contactName,
+              buyerEmail: previewContact.email,
+              buyerPhone: previewContact.phone,
               weights: result?.weights ?? const {},
               deliveryName: handover?.label ?? effectiveHandoverTypeCode,
               completionWeek: effectiveCompletionWeek,
@@ -13718,6 +13880,24 @@ Map<String, List<String>> _calculatorAttentionMessagesByStep({
   CalculatorContext? calculatorContext,
 }) {
   final grouped = <String, List<String>>{};
+
+  final relatedCustomerId = draft.relatedCustomerId?.trim() ?? '';
+  if (relatedCustomerId.isNotEmpty) {
+    final relation = calculatorContext?.relatedCustomers
+        .where((entry) => entry.id == relatedCustomerId)
+        .firstOrNull;
+    final parent = calculatorContext?.organizations
+        .where((entry) => entry.id == draft.organizationId)
+        .firstOrNull;
+    final parentName = parent?.label.trim() ?? '';
+    final childName = relation?.label.trim() ?? relatedCustomerId;
+    final relationLabel = parentName.isEmpty ? childName : '$parentName → $childName';
+    _addAttentionMessage(
+      grouped,
+      const ['product', 'summary'],
+      'B2B relation selected: $relationLabel. Separate B2B commercial pricing is active.',
+    );
+  }
 
   if (draft.addWallSealPressurePlate) {
     _addAttentionMessage(
@@ -14307,7 +14487,7 @@ List<String> _flattenWarningMessages(
   return messages;
 }
 
-class _PriceHeader extends ConsumerWidget {
+class _PriceHeader extends ConsumerStatefulWidget {
   const _PriceHeader({
     required this.result,
     required this.draft,
@@ -14335,51 +14515,134 @@ class _PriceHeader extends ConsumerWidget {
   final Future<void> Function(QuoteStatusChangeResult result)
       onQuoteStatusChanged;
 
-  List<String> _discounts() {
+  @override
+  ConsumerState<_PriceHeader> createState() => _PriceHeaderState();
+}
+
+class _PriceHeaderState extends ConsumerState<_PriceHeader> {
+  bool _showB2bPrice = false;
+
+  CalculatorResult get result => widget.result;
+  CalculatorDraft get draft => widget.draft;
+  CalculatorTemplateOption? get selectedTemplate => widget.selectedTemplate;
+  CalculatorContext get calculatorContext => widget.calculatorContext;
+  bool get needsRecalculation => widget.needsRecalculation;
+  String? get quoteId => widget.quoteId;
+  String get quoteStatusCode => widget.quoteStatusCode;
+  bool get canSubmit => widget.canSubmit;
+  CalculatorRepository get repository => widget.repository;
+  Future<void> Function(QuoteSubmitResult result) get onQuoteSubmitted =>
+      widget.onQuoteSubmitted;
+  Future<void> Function(QuoteStatusChangeResult result) get onQuoteStatusChanged =>
+      widget.onQuoteStatusChanged;
+
+  @override
+  void didUpdateWidget(covariant _PriceHeader oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!widget.result.hasB2bCommercialView && _showB2bPrice) {
+      _showB2bPrice = false;
+    }
+  }
+
+  List<String> _discountsFor(
+    Map<String, dynamic> price, {
+    bool includeDiagnostics = false,
+  }) {
     final labels = <String>[];
     final seen = <String>{};
-    final breakdown = result.price['discount_breakdown'];
+    final breakdown = price['discount_breakdown'];
     if (breakdown is List) {
       for (final raw in breakdown.whereType<Map>()) {
         final row = Map<String, dynamic>.from(raw);
         final pct = _num(row['discount_pct']).toDouble();
         if (pct <= 0) continue;
         final source = '${row['label'] ?? row['code'] ?? 'Discount'}'.trim();
-        final label = '$source ${pct.toStringAsFixed(pct == pct.roundToDouble() ? 0 : 1)}%';
+        final label =
+            '$source ${pct.toStringAsFixed(pct == pct.roundToDouble() ? 0 : 1)}%';
         if (seen.add(label)) labels.add(label);
       }
     }
 
-    final diagnostics = [
-      ...result.setDeltaDiagnostics,
-      ...result.derivedAccessoryDiagnostics,
-      ...result.manualComponentDiagnostics,
-      ...result.optionDiagnostics,
-    ];
-    for (final row in diagnostics) {
-      final pct = _num(row['item_discount_pct']).toDouble();
-      if (pct <= 0) continue;
-      final source = '${row['option_price_list_code'] ?? row['price_list_code'] ?? 'Position'}'.trim();
-      final label = '$source ${pct.toStringAsFixed(pct == pct.roundToDouble() ? 0 : 1)}%';
-      if (seen.add(label)) labels.add(label);
+    if (includeDiagnostics) {
+      final diagnostics = [
+        ...result.setDeltaDiagnostics,
+        ...result.derivedAccessoryDiagnostics,
+        ...result.manualComponentDiagnostics,
+        ...result.optionDiagnostics,
+      ];
+      for (final row in diagnostics) {
+        final pct = _num(row['item_discount_pct']).toDouble();
+        if (pct <= 0) continue;
+        final source =
+            '${row['option_price_list_code'] ?? row['price_list_code'] ?? 'Position'}'
+                .trim();
+        final label =
+            '$source ${pct.toStringAsFixed(pct == pct.roundToDouble() ? 0 : 1)}%';
+        if (seen.add(label)) labels.add(label);
+      }
     }
 
     if (labels.isEmpty) {
-      final global = _num(result.price['discount_pct']).toDouble();
+      final global = _num(price['discount_pct']).toDouble();
       if (global > 0) {
-        final label = 'Organization ${global.toStringAsFixed(global == global.roundToDouble() ? 0 : 1)}%';
+        final label =
+            'Organization ${global.toStringAsFixed(global == global.roundToDouble() ? 0 : 1)}%';
         if (seen.add(label)) labels.add(label);
       }
     }
     return labels;
   }
 
+  String _discountText(List<String> discounts) {
+    if (discounts.isEmpty) return 'Discounts: —';
+    return [
+      for (var index = 0; index < discounts.length; index++)
+        '${index == 0 ? 'Discount 1' : 'then ${index + 1}'}: ${discounts[index]}',
+    ].join(' · ');
+  }
+
+  String _organizationLabel(String? organizationId) {
+    final id = organizationId?.trim() ?? '';
+    if (id.isEmpty) return '—';
+    final organization = calculatorContext.organizations
+        .where((entry) => entry.id == id)
+        .firstOrNull;
+    if (organization != null) return _calculatorPartyShortCustomerLabel(organization);
+
+    final related = calculatorContext.relatedCustomers.where((entry) {
+      final raw = entry.raw;
+      return [
+        raw['child_organization_id'],
+        raw['organization_id'],
+        raw['branding_organization_id'],
+      ].any((value) => '${value ?? ''}'.trim() == id);
+    }).firstOrNull;
+    if (related != null) return _calculatorPartyShortCustomerLabel(related);
+    return id;
+  }
+
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final net = _num(result.price['net']);
     final gross = _num(result.price['gross']);
+    final relationSelected = (draft.relatedCustomerId?.trim() ?? '').isNotEmpty;
+    final hasB2b = relationSelected && result.hasB2bCommercialView;
+    final b2bNet = _num(result.b2bPrice['net']);
+    final b2bGross = _num(result.b2bPrice['gross']);
+    final dealerViewRaw = result.commercialViews['dealer'];
+    final dealerView = dealerViewRaw is Map
+        ? Map<String, dynamic>.from(dealerViewRaw)
+        : const <String, dynamic>{};
+    final b2bView = result.b2bCommercialView;
+    final dealerName = _organizationLabel(
+      '${dealerView['buyerOrganizationId'] ?? dealerView['buyer_organization_id'] ?? draft.organizationId ?? ''}',
+    );
+    final b2bPartnerName = _organizationLabel(
+      '${b2bView['buyerOrganizationId'] ?? b2bView['buyer_organization_id'] ?? ''}',
+    );
     final margin = result.internalPrice['margin'];
-    final discounts = _discounts();
+    final discounts = _discountsFor(result.price, includeDiagnostics: true);
+    final b2bDiscounts = _discountsFor(result.b2bPrice);
     final nonGlassComplete = _weightComplete(result.weights, 'set_complete')
         && _weightComplete(result.weights, 'accessories_complete')
         && _weightComplete(result.weights, 'options_complete');
@@ -14410,193 +14673,372 @@ class _PriceHeader extends ConsumerWidget {
     final additionalDiscountPctText = additionalDiscountPct.toStringAsFixed(
       additionalDiscountPct == additionalDiscountPct.roundToDouble() ? 0 : 1,
     );
+    final effectiveQuoteId = quoteId?.trim() ?? '';
 
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        Column(
+    Widget messageSlot({
+      required bool attention,
+      required List<String> messages,
+      required List<CalculatorMessageGroup> groups,
+    }) {
+      if (messages.isEmpty) {
+        return _ResultMessageCountPlate(
+          attention: attention,
+          count: 0,
+        );
+      }
+      return SizedBox(
+        width: 136,
+        height: 36,
+        child: attention
+            ? _AttentionDropdown(
+                messages: messages,
+                groups: groups,
+                width: 136,
+              )
+            : _WarningsDropdown(
+                messages: messages,
+                groups: groups,
+                width: 136,
+              ),
+      );
+    }
+
+    return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: SelectionArea(
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Expanded(
+                    child: Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: [
+                        Chip(
+                          visualDensity: VisualDensity.compact,
+                          avatar: Icon(
+                            needsRecalculation
+                                ? Icons.error_outline
+                                : result.status == 'valid'
+                                    ? Icons.check_circle
+                                    : Icons.warning_amber_rounded,
+                            color: needsRecalculation
+                                ? Theme.of(context).colorScheme.error
+                                : null,
+                          ),
+                          label: Text(
+                            needsRecalculation ? 'recalculate' : result.status,
+                          ),
+                          backgroundColor: needsRecalculation
+                              ? Theme.of(context).colorScheme.errorContainer
+                              : null,
+                        ),
+                        if (relationSelected)
+                          const Chip(
+                            visualDensity: VisualDensity.compact,
+                            label: Text('b2b'),
+                          ),
+                      ],
+                    ),
+                  ),
+                  if (hasB2b) ...[
+                    const SizedBox(width: 12),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Transform.scale(
+                          scale: 0.82,
+                          child: Switch(
+                            value: _showB2bPrice,
+                            onChanged: (value) =>
+                                setState(() => _showB2bPrice = value),
+                          ),
+                        ),
+                        const SizedBox(width: 2),
+                        Text(
+                          'B2B price',
+                          style: Theme.of(context).textTheme.labelMedium,
+                        ),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+              const SizedBox(height: 8),
+              SelectionArea(
+                child: Text(
+                  dealerName,
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+              ),
+              const SizedBox(height: 3),
+              SelectionArea(
                 child: Text.rich(
                   TextSpan(
                     children: [
-                      TextSpan(text: 'Net / gross price: ', style: Theme.of(context).textTheme.labelLarge),
                       TextSpan(
-                        text: '${_moneyFormat.format(net)} / ${_moneyFormat.format(gross)}',
+                        text: hasB2b
+                            ? 'Base net / gross price: '
+                            : 'Net / gross price: ',
+                        style: Theme.of(context).textTheme.labelLarge,
+                      ),
+                      TextSpan(
+                        text:
+                            '${_moneyFormat.format(net)} / ${_moneyFormat.format(gross)}',
                         style: needsRecalculation
-                          ? Theme.of(context).textTheme.headlineSmall?.copyWith(
-                                color: Theme.of(context).colorScheme.error,
-                              )
-                          : Theme.of(context).textTheme.headlineSmall,
-                    ),
+                            ? Theme.of(context)
+                                .textTheme
+                                .headlineSmall
+                                ?.copyWith(
+                                  color: Theme.of(context).colorScheme.error,
+                                )
+                            : Theme.of(context).textTheme.headlineSmall,
+                      ),
                     ],
                   ),
                 ),
               ),
-            ),
-            const SizedBox(width: 12),
-            Chip(
-              visualDensity: VisualDensity.compact,
-              avatar: Icon(
-                needsRecalculation
-                    ? Icons.error_outline
-                    : result.status == 'valid'
-                        ? Icons.check_circle
-                        : Icons.warning_amber_rounded,
-                color: needsRecalculation ? Theme.of(context).colorScheme.error : null,
+              const SizedBox(height: 4),
+              Text(
+                _discountText(discounts),
+                style: Theme.of(context).textTheme.labelLarge,
               ),
-              label: Text(needsRecalculation ? 'recalculate' : result.status),
-              backgroundColor: needsRecalculation
-                  ? Theme.of(context).colorScheme.errorContainer
-                  : null,
-            ),
-          ],
-        ),
-        const SizedBox(height: 4),
-        Text(
-          discounts.isEmpty
-              ? 'Discounts: —'
-              : [
-                  for (var index = 0; index < discounts.length; index++)
-                    '${index == 0 ? 'Discount 1' : 'then ${index + 1}'}: ${discounts[index]}',
-                ].join(' · '),
-          style: Theme.of(context).textTheme.labelLarge,
-        ),
-        if (margin != null) ...[
-          const SizedBox(height: 8),
-          _MetricChip(label: 'Margin', value: _moneyFormat.format(_num(margin))),
-        ],
-        if (result.weights.isNotEmpty) ...[
-          const SizedBox(height: 8),
-          Text(
-            'Gewicht: ${nonGlassWeight > 0 ? '${nonGlassWeight.toStringAsFixed(1)} kg${nonGlassComplete ? '' : '*'}' : '—'} / '
-            'Markise: ${_weightText(result.weights, 'markise_kg', 'markise_complete')} / '
-            'Glas: ${_weightText(result.weights, 'glass_kg', 'glass_complete')} / '
-            'Gesamt: ${_weightText(result.weights, 'total_kg', 'total_complete')}',
-            style: Theme.of(context).textTheme.labelMedium,
-          ),
-        ],
-        if (attentionMessages.isNotEmpty || warningMessages.isNotEmpty) ...[
-          const SizedBox(height: 10),
-          SizedBox(
-            width: double.infinity,
-            child: Wrap(
-              alignment: WrapAlignment.end,
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                if (attentionMessages.isNotEmpty)
-                  _AttentionDropdown(
-                    messages: attentionMessages,
-                    groups: attentionGroups,
-                    width: 136,
-                  ),
-                if (warningMessages.isNotEmpty)
-                  _WarningsDropdown(
-                    messages: warningMessages,
-                    groups: warningGroups,
-                    width: 136,
-                  ),
-              ],
-            ),
-          ),
-        ],
-        if (calculatorContext.additionalDiscountAvailable) ...[
-          const SizedBox(height: 10),
-          Wrap(
-            crossAxisAlignment: WrapCrossAlignment.center,
-            spacing: 10,
-            runSpacing: 8,
-            children: [
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Transform.scale(
-                  scale: 0.82,
-                  alignment: Alignment.centerLeft,
-                  child: Switch(
-                    value: draft.additionalDiscountEnabled,
-                    onChanged: notifier.setAdditionalDiscountEnabled,
+              if (hasB2b && _showB2bPrice) ...[
+                const SizedBox(height: 12),
+                Divider(
+                  height: 1,
+                  color: Theme.of(context).colorScheme.outlineVariant,
+                ),
+                const SizedBox(height: 10),
+                SelectionArea(
+                  child: Text(
+                    b2bPartnerName,
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
                   ),
                 ),
-                const SizedBox(width: 2),
+                const SizedBox(height: 3),
+                SelectionArea(
+                  child: Text.rich(
+                    TextSpan(
+                      children: [
+                        TextSpan(
+                          text: 'B2B net / gross price: ',
+                          style: Theme.of(context).textTheme.labelLarge,
+                        ),
+                        TextSpan(
+                          text:
+                              '${_moneyFormat.format(b2bNet)} / ${_moneyFormat.format(b2bGross)}',
+                          style: needsRecalculation
+                              ? Theme.of(context)
+                                  .textTheme
+                                  .titleLarge
+                                  ?.copyWith(
+                                    color: Theme.of(context).colorScheme.error,
+                                  )
+                              : Theme.of(context).textTheme.titleLarge,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 4),
                 Text(
-                  'Additional discount',
+                  _discountText(b2bDiscounts),
+                  style: Theme.of(context).textTheme.labelLarge,
+                ),
+              ],
+              if (margin != null) ...[
+                const SizedBox(height: 8),
+                _MetricChip(
+                  label: 'Margin',
+                  value: _moneyFormat.format(_num(margin)),
+                ),
+              ],
+              if (result.weights.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'Gewicht: Set ${nonGlassWeight > 0 ? '${nonGlassWeight.toStringAsFixed(1)} kg${nonGlassComplete ? '' : '*'}' : '—'} / '
+                  'Markise: ${_weightText(result.weights, 'markise_kg', 'markise_complete')} / '
+                  'Glas: ${_weightText(result.weights, 'glass_kg', 'glass_complete')} / '
+                  'Gesamt: ${_weightText(result.weights, 'total_kg', 'total_complete')}',
                   style: Theme.of(context).textTheme.labelMedium,
                 ),
               ],
-            ),
-            if (draft.additionalDiscountEnabled) ...[
-              SizedBox(
-                width: 92,
-                child: TextFormField(
-                  initialValue: additionalDiscountPctText,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  decoration: const InputDecoration(
-                    labelText: 'Discount',
-                    suffixText: '%',
-                    isDense: true,
-                  ),
-                  onChanged: notifier.setAdditionalDiscountPct,
-                ),
-              ),
-              SizedBox(
-                width: 230,
-                child: DropdownButtonFormField<String>(
-                  initialValue: selectedDiscountReason,
-                  isExpanded: true,
-                  decoration: const InputDecoration(
-                    labelText: 'Reason',
-                    isDense: true,
-                  ),
-                  items: [
-                    for (final option in discountTypes)
-                      DropdownMenuItem<String>(
-                        value: option.code,
-                        child: Text(option.label),
+              if (calculatorContext.additionalDiscountAvailable) ...[
+                const SizedBox(height: 10),
+                Wrap(
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 10,
+                  runSpacing: 8,
+                  children: [
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Transform.scale(
+                          scale: 0.82,
+                          alignment: Alignment.centerLeft,
+                          child: Switch(
+                            value: draft.additionalDiscountEnabled,
+                            onChanged: notifier.setAdditionalDiscountEnabled,
+                          ),
+                        ),
+                        const SizedBox(width: 2),
+                        Text(
+                          'Additional discount',
+                          style: Theme.of(context).textTheme.labelMedium,
+                        ),
+                      ],
+                    ),
+                    if (draft.additionalDiscountEnabled) ...[
+                      SizedBox(
+                        width: 92,
+                        child: TextFormField(
+                          initialValue: additionalDiscountPctText,
+                          keyboardType:
+                              const TextInputType.numberWithOptions(decimal: true),
+                          decoration: const InputDecoration(
+                            labelText: 'Discount',
+                            suffixText: '%',
+                            isDense: true,
+                          ),
+                          onChanged: notifier.setAdditionalDiscountPct,
+                        ),
                       ),
+                      SizedBox(
+                        width: 230,
+                        child: DropdownButtonFormField<String>(
+                          initialValue: selectedDiscountReason,
+                          isExpanded: true,
+                          decoration: const InputDecoration(
+                            labelText: 'Reason',
+                            isDense: true,
+                          ),
+                          items: [
+                            for (final option in discountTypes)
+                              DropdownMenuItem<String>(
+                                value: option.code,
+                                child: Text(option.label),
+                              ),
+                          ],
+                          onChanged: notifier.setAdditionalDiscountReasonCode,
+                        ),
+                      ),
+                    ],
                   ],
-                  onChanged: notifier.setAdditionalDiscountReasonCode,
+                ),
+              ],
+            ],
+          ),
+        ),
+        const SizedBox(width: 16),
+        SizedBox(
+          width: 136,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              QuoteStatusButton(
+                quoteId: effectiveQuoteId,
+                statusCode: quoteStatusCode,
+                repository: repository,
+                prominent: true,
+                onCompleted: onQuoteStatusChanged,
+              ),
+              const SizedBox(height: 8),
+              QuoteSubmitButton(
+                quoteId: effectiveQuoteId,
+                statusCode: quoteStatusCode,
+                repository: repository,
+                enabled: effectiveQuoteId.isNotEmpty && canSubmit,
+                prominent: true,
+                onCompleted: onQuoteSubmitted,
+              ),
+              const SizedBox(height: 8),
+              messageSlot(
+                attention: true,
+                messages: attentionMessages,
+                groups: attentionGroups,
+              ),
+              const SizedBox(height: 8),
+              messageSlot(
+                attention: false,
+                messages: warningMessages,
+                groups: warningGroups,
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+
+class _ResultMessageCountPlate extends StatelessWidget {
+  const _ResultMessageCountPlate({
+    required this.attention,
+    required this.count,
+  });
+
+  final bool attention;
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final accentColor =
+        attention ? colorScheme.onSurfaceVariant : colorScheme.error;
+    final foregroundColor =
+        attention ? colorScheme.onSurfaceVariant : colorScheme.onErrorContainer;
+    final backgroundColor = attention
+        ? colorScheme.surfaceContainerHighest.withValues(alpha: 0.72)
+        : colorScheme.errorContainer.withValues(alpha: 0.55);
+    final borderColor = attention
+        ? colorScheme.outline.withValues(alpha: 0.5)
+        : colorScheme.error.withValues(alpha: 0.5);
+
+    return SizedBox(
+      width: 136,
+      height: 36,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: backgroundColor,
+          border: Border.all(color: borderColor),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 9),
+          child: Row(
+            children: [
+              Icon(
+                attention
+                    ? Icons.info_outline_rounded
+                    : Icons.warning_amber_rounded,
+                size: 17,
+                color: accentColor,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  '${attention ? 'Attention' : 'Warnings'}: $count',
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                        color: foregroundColor,
+                        fontWeight: FontWeight.w600,
+                      ),
                 ),
               ),
             ],
-          ],
           ),
-        ],
-      ],
-    ),
-        if ((quoteId ?? '').isNotEmpty)
-          Positioned(
-            top: 43,
-            right: 0,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                QuoteStatusButton(
-                  quoteId: quoteId!,
-                  statusCode: quoteStatusCode,
-                  repository: repository,
-                  prominent: true,
-                  onCompleted: onQuoteStatusChanged,
-                ),
-                const SizedBox(width: 8),
-                QuoteSubmitButton(
-                  quoteId: quoteId!,
-                  statusCode: quoteStatusCode,
-                  repository: repository,
-                  enabled: canSubmit,
-                  prominent: true,
-                  onCompleted: onQuoteSubmitted,
-                ),
-              ],
-            ),
-          ),
-      ],
+        ),
+      ),
     );
   }
 }
@@ -14676,13 +15118,15 @@ List<CalculatorMessageGroup> _calculatorMessageGroupsByStep(
 
 
 class _LinesTab extends StatelessWidget {
-  const _LinesTab({required this.result});
+  const _LinesTab({required this.result, this.lines});
 
   final CalculatorResult result;
+  final List<Map<String, dynamic>>? lines;
 
   @override
   Widget build(BuildContext context) {
-    if (result.visibleLines.isEmpty) return const Center(child: Text('No lines.'));
+    final visibleLines = lines ?? result.visibleLines;
+    if (visibleLines.isEmpty) return const Center(child: Text('No lines.'));
 
     final sectionTitles = <String, String>{
       'base_set': 'Base set price',
@@ -14694,10 +15138,10 @@ class _LinesTab extends StatelessWidget {
       'special_color': 'Sonderfarbe',
       'options': 'Options / additional handling',
     };
-    final hasSections = result.visibleLines.any((line) => '${line['section'] ?? ''}'.trim().isNotEmpty);
+    final hasSections = visibleLines.any((line) => '${line['section'] ?? ''}'.trim().isNotEmpty);
     if (hasSections) {
       final grouped = <String, List<Map<String, dynamic>>>{};
-      for (final line in result.visibleLines) {
+      for (final line in visibleLines) {
         final section = '${line['section'] ?? 'options'}'.trim();
         grouped.putIfAbsent(section.isEmpty ? 'options' : section, () => []).add(line);
       }
@@ -14727,8 +15171,8 @@ class _LinesTab extends StatelessWidget {
       );
     }
 
-    final baseLines = result.visibleLines.take(1).toList(growable: false);
-    var remaining = result.visibleLines.skip(baseLines.length).toList(growable: false);
+    final baseLines = visibleLines.take(1).toList(growable: false);
+    var remaining = visibleLines.skip(baseLines.length).toList(growable: false);
     int pricedCount(List<Map<String, dynamic>> diagnostics) =>
         diagnostics.where((entry) => entry['price_found'] == true).length;
     List<Map<String, dynamic>> takeSection(int count) {

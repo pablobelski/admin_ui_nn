@@ -28,6 +28,37 @@ Future<ui.Image?>? _geometryPreviewHumanImageFutureCache;
 final Map<String, Future<Uint8List?>> _geometryPreviewMediaBytesFutureCache =
     {};
 
+String? geometryPreviewGlassSummary(List<Map<String, dynamic>> glassLines) {
+  var totalQuantity = 0;
+  var totalAreaM2 = 0.0;
+  var hasArea = false;
+
+  double? number(Object? value) {
+    if (value is num) return value.toDouble();
+    final text = value?.toString().trim().replaceAll(',', '.') ?? '';
+    return text.isEmpty ? null : double.tryParse(text);
+  }
+
+  for (final line in glassLines) {
+    final quantity = number(line['quantity']) ?? 0;
+    if (quantity > 0) totalQuantity += quantity.round();
+    final explicitArea = number(line['area_m2'] ?? line['areaM2']);
+    if (explicitArea != null && explicitArea >= 0) {
+      totalAreaM2 += explicitArea;
+      hasArea = true;
+      continue;
+    }
+    final widthMm = number(line['width_mm'] ?? line['widthMm']);
+    final lengthMm = number(line['length_mm'] ?? line['lengthMm']);
+    if (widthMm != null && lengthMm != null && quantity > 0) {
+      totalAreaM2 += quantity * widthMm * lengthMm / 1000000;
+      hasArea = true;
+    }
+  }
+  if (totalQuantity <= 0 && !hasArea) return null;
+  return '$totalQuantity stk. · ${hasArea ? '${totalAreaM2.toStringAsFixed(2)} m²' : '— m²'}';
+}
+
 bool _isGeometryPreviewPostItem(CalculatorSetContentItem item) {
   final source = item.sourceComponent;
   final candidates = <String?>[
@@ -165,6 +196,7 @@ class ModelGeometryPreview extends ConsumerStatefulWidget {
     this.calculationNumber,
     this.calculationSavedAt,
     this.buyerName,
+    this.b2bPartnerName,
     this.buyerContactName,
     this.buyerEmail,
     this.buyerPhone,
@@ -205,6 +237,7 @@ class ModelGeometryPreview extends ConsumerStatefulWidget {
   final String? calculationNumber;
   final String? calculationSavedAt;
   final String? buyerName;
+  final String? b2bPartnerName;
   final String? buyerContactName;
   final String? buyerEmail;
   final String? buyerPhone;
@@ -623,6 +656,7 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
                                 width: 320,
                                 child: _ExpandedPreviewInfo(
                                   buyerName: widget.buyerName,
+                                  b2bPartnerName: widget.b2bPartnerName,
                                   buyerContactName: widget.buyerContactName,
                                   buyerEmail: widget.buyerEmail,
                                   buyerPhone: widget.buyerPhone,
@@ -739,7 +773,7 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
                                                             ),
                                                           ),
                                                           child: Text(
-                                                            'Kommission: ${_expandedKommissionLabel(widget.calculationNumber)}',
+                                                            'Kommission${(widget.b2bPartnerName ?? '').trim().isNotEmpty ? ' B2B' : ''}: ${_expandedKommissionLabel(widget.calculationNumber)}',
                                                             maxLines: 1,
                                                             overflow:
                                                                 TextOverflow
@@ -983,6 +1017,7 @@ class _ExpandedPreviewTextBlock extends StatelessWidget {
 class _ExpandedPreviewInfo extends StatelessWidget {
   const _ExpandedPreviewInfo({
     required this.buyerName,
+    required this.b2bPartnerName,
     required this.buyerContactName,
     required this.buyerEmail,
     required this.buyerPhone,
@@ -1006,6 +1041,7 @@ class _ExpandedPreviewInfo extends StatelessWidget {
   });
 
   final String? buyerName;
+  final String? b2bPartnerName;
   final String? buyerContactName;
   final String? buyerEmail;
   final String? buyerPhone;
@@ -1032,6 +1068,8 @@ class _ExpandedPreviewInfo extends StatelessWidget {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final buyerNameValue = buyerName?.trim();
+    final b2bPartnerNameValue = b2bPartnerName?.trim();
+    final hasB2b = b2bPartnerNameValue != null && b2bPartnerNameValue.isNotEmpty;
     final contactDetails = [buyerContactName, buyerEmail, buyerPhone]
         .map((value) => value?.trim() ?? '')
         .where((value) => value.isNotEmpty)
@@ -1060,7 +1098,6 @@ class _ExpandedPreviewInfo extends StatelessWidget {
       0,
       (sum, segment) => sum + segment.quantity,
     );
-    final glassName = coveringName?.trim() ?? '';
     final glassSummary = coveringSummary?.trim() ?? '';
 
     return Container(
@@ -1078,9 +1115,11 @@ class _ExpandedPreviewInfo extends StatelessWidget {
             //Text('Roof geometry', style: theme.textTheme.titleLarge),
             //const SizedBox(height: 14),
             _PreviewMetadataRow(
-              label: 'Besteller / Auftraggeber',
+              label: hasB2b ? 'Dealer' : 'Besteller / Auftraggeber',
               value: buyerNameValue == null || buyerNameValue.isEmpty ? '—' : buyerNameValue,
             ),
+            if (hasB2b)
+              _PreviewMetadataRow(label: 'B2B partner', value: b2bPartnerNameValue!),
             if (contactDetails.isNotEmpty)
               _PreviewMetadataRow(label: 'Configurator contact', value: contactDetails),
             if (colorCode?.trim().isNotEmpty == true)
@@ -1088,14 +1127,14 @@ class _ExpandedPreviewInfo extends StatelessWidget {
                 label: isSpecialColor ? 'Color (Sonderfarbe)' : 'Color',
                 value: colorCode!.trim(),
               ),
-            if (glassSummary.isNotEmpty || glassName.isNotEmpty || totalGlassCount > 0 || totalMarkiseCount > 0)
+            if (glassSummary.isNotEmpty || totalGlassCount > 0 || totalMarkiseCount > 0)
               _PreviewMetadataRow(
                 label: 'Covering',
                 value: [
                   if (glassSummary.isNotEmpty)
-                    'Glas:\n$glassSummary'
-                  else if (glassName.isNotEmpty || totalGlassCount > 0)
-                    'Glas: ${glassName.isEmpty ? '—' : glassName} · $totalGlassCount stk.',
+                    'Glas: $glassSummary'
+                  else if (totalGlassCount > 0)
+                    'Glas: $totalGlassCount stk. · — m²',
                   if (totalMarkiseCount > 0) 'Markise: $totalMarkiseCount stk.',
                 ].join('\n'),
               ),
@@ -1630,6 +1669,7 @@ Future<Uint8List> renderExpandedGeometryPreviewPng({
   required String? calculationNumber,
   required String? calculationSavedAt,
   required String? buyerName,
+  required String? b2bPartnerName,
   required String? buyerContactName,
   required String? buyerEmail,
   required String? buyerPhone,
@@ -1710,9 +1750,10 @@ Future<Uint8List> renderExpandedGeometryPreviewPng({
     0,
     (sum, segment) => sum + segment.quantity,
   );
-  final glassName = coveringName?.trim() ?? '';
   final glassSummary = coveringSummary?.trim() ?? '';
   final buyerNameValue = buyerName?.trim();
+  final b2bPartnerNameValue = b2bPartnerName?.trim();
+  final hasB2b = b2bPartnerNameValue != null && b2bPartnerNameValue.isNotEmpty;
   final contactDetails = [buyerContactName, buyerEmail, buyerPhone]
       .map((value) => value?.trim() ?? '')
       .where((value) => value.isNotEmpty)
@@ -1732,23 +1773,24 @@ Future<Uint8List> renderExpandedGeometryPreviewPng({
   }
 
   info(
-    'Besteller / Auftraggeber',
+    hasB2b ? 'Dealer' : 'Besteller / Auftraggeber',
     buyerNameValue == null || buyerNameValue.isEmpty ? '—' : buyerNameValue,
   );
+  if (hasB2b) info('B2B partner', b2bPartnerNameValue!);
   if (contactDetails.isNotEmpty) {
     info('Configurator contact', contactDetails);
   }
   if (colorCode?.trim().isNotEmpty == true) {
     info(isSpecialColor ? 'Color (Sonderfarbe)' : 'Color', colorCode!.trim());
   }
-  if (glassSummary.isNotEmpty || glassName.isNotEmpty || totalGlassCount > 0 || totalMarkiseCount > 0) {
+  if (glassSummary.isNotEmpty || totalGlassCount > 0 || totalMarkiseCount > 0) {
     info(
       'Covering',
       [
         if (glassSummary.isNotEmpty)
-          'Glas:\n$glassSummary'
-        else if (glassName.isNotEmpty || totalGlassCount > 0)
-          'Glas: ${glassName.isEmpty ? '—' : glassName} · $totalGlassCount stk.',
+          'Glas: $glassSummary'
+        else if (totalGlassCount > 0)
+          'Glas: $totalGlassCount stk. · — m²',
         if (totalMarkiseCount > 0) 'Markise: $totalMarkiseCount stk.',
       ].join('\n'),
     );
@@ -1844,7 +1886,7 @@ Future<Uint8List> renderExpandedGeometryPreviewPng({
   canvas.restore();
 
   final commissionText =
-      'Kommission: ${_expandedKommissionLabel(calculationNumber)}';
+      'Kommission${hasB2b ? ' B2B' : ''}: ${_expandedKommissionLabel(calculationNumber)}';
   final commissionPainter = TextPainter(
     text: const TextSpan(),
     textDirection: TextDirection.ltr,

@@ -2051,6 +2051,7 @@ class CalculatorResult {
     required this.status,
     required this.currency,
     required this.price,
+    required this.commercialViews,
     required this.visibleLines,
     required this.summary,
     required this.warnings,
@@ -2083,6 +2084,7 @@ class CalculatorResult {
       status: _string(json['status']),
       currency: _string(json['currency']),
       price: _map(json['price']),
+      commercialViews: _map(json['commercialViews'] ?? json['commercial_views']),
       visibleLines: _list(_visibleLineItems(json['visibleLines'])),
       summary: _list(json['summary']),
       warnings: _list(json['warnings']),
@@ -2120,7 +2122,14 @@ class CalculatorResult {
   final String status;
   final String currency;
   final Map<String, dynamic> price;
+  final Map<String, dynamic> commercialViews;
   final List<Map<String, dynamic>> visibleLines;
+
+  Map<String, dynamic> get b2bCommercialView => _map(commercialViews['b2b']);
+  Map<String, dynamic> get b2bPrice => _map(b2bCommercialView['price']);
+  List<Map<String, dynamic>> get b2bVisibleLines =>
+      _list(_visibleLineItems(b2bCommercialView['visibleLines']));
+  bool get hasB2bCommercialView => b2bCommercialView.isNotEmpty;
   final List<Map<String, dynamic>> summary;
   final List<Map<String, dynamic>> warnings;
   final Map<String, dynamic> weights;

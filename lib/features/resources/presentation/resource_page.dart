@@ -37,6 +37,7 @@ import 'organization_relation_tree.dart';
 
 final _uiDateTimeFormat = DateFormat('dd.MM.yy HH:mm');
 final _quoteEuroFormat = NumberFormat.currency(locale: 'de_DE', symbol: '€');
+final _quoteEuroValueFormat = NumberFormat.currency(locale: 'de_DE', symbol: '', decimalDigits: 2);
 
 class ResourcePage extends ConsumerWidget {
   const ResourcePage({
@@ -1691,11 +1692,161 @@ class _ResourceDetailsContent extends StatelessWidget {
   final AsyncValue<CalculatorContext>? quotePreviewContext;
   final Map<String, String> roofModelLabelsByCode;
 
+  Map<String, dynamic> _quoteCommercialViews(Map<String, dynamic> result) {
+    return _mapFromJsonLike(
+      result['commercialViews'] ?? result['commercial_views'],
+    );
+  }
+
+  Map<String, dynamic> _quoteDealerView(Map<String, dynamic> result) {
+    return _mapFromJsonLike(_quoteCommercialViews(result)['dealer']);
+  }
+
+  Map<String, dynamic> _quoteB2bView(Map<String, dynamic> result) {
+    return _mapFromJsonLike(_quoteCommercialViews(result)['b2b']);
+  }
+
+  List<Map<String, dynamic>> _quoteCommercialVisibleLines(
+    Map<String, dynamic> view,
+  ) {
+    final visible = view['visibleLines'] ?? view['visible_lines'];
+    if (visible is List) {
+      return visible
+          .whereType<Map>()
+          .map((entry) => Map<String, dynamic>.from(entry))
+          .toList(growable: false);
+    }
+    final visibleMap = _mapFromJsonLike(visible);
+    final items = visibleMap['items'];
+    if (items is! List) return const [];
+    return items
+        .whereType<Map>()
+        .map((entry) => Map<String, dynamic>.from(entry))
+        .toList(growable: false);
+  }
+
+  String _quoteOrganizationLabel(String? organizationId) {
+    final id = organizationId?.trim() ?? '';
+    if (id.isEmpty) return '—';
+    return quotePreviewContext?.maybeWhen(
+          data: (context) {
+            final organization = context.organizations
+                .where((entry) => entry.id == id)
+                .firstOrNull;
+            if (organization != null) return organization.label;
+
+            final related = context.relatedCustomers.where((entry) {
+              final raw = entry.raw;
+              return [
+                raw['child_organization_id'],
+                raw['organization_id'],
+                raw['branding_organization_id'],
+              ].any((value) => '${value ?? ''}'.trim() == id);
+            }).firstOrNull;
+            if (related != null) {
+              final raw = related.raw;
+              final label =
+                  '${raw['legal_name'] ?? raw['display_name'] ?? related.label}'
+                      .trim();
+              if (label.isNotEmpty) return label;
+            }
+            return id;
+          },
+          orElse: () => id,
+        ) ??
+        id;
+  }
+
+  String _quoteOrganizationShortCustomerLabel(
+    String? organizationId, {
+    String? fallbackLabel,
+  }) {
+    final id = organizationId?.trim() ?? '';
+    if (id.isEmpty) return fallbackLabel?.trim().isNotEmpty == true
+        ? fallbackLabel!.trim()
+        : '—';
+
+    String labelFor(CalculatorOption option) {
+      final raw = option.raw;
+      final name = _firstText(
+            raw['short_name'],
+            raw['display_name'],
+            raw['legal_name'],
+            option.label,
+          ) ??
+          id;
+      final customerNumber = _firstText(
+        raw['customer_number'],
+        raw['customer_no'],
+        raw['kundennummer'],
+      );
+      return customerNumber == null ? name : '$name - $customerNumber';
+    }
+
+    return quotePreviewContext?.maybeWhen(
+          data: (context) {
+            final organization = context.organizations
+                .where((entry) => entry.id == id)
+                .firstOrNull;
+            if (organization != null) return labelFor(organization);
+
+            final related = context.relatedCustomers.where((entry) {
+              final raw = entry.raw;
+              return [
+                raw['child_organization_id'],
+                raw['organization_id'],
+                raw['branding_organization_id'],
+              ].any((value) => '${value ?? ''}'.trim() == id);
+            }).firstOrNull;
+            if (related != null) return labelFor(related);
+            return fallbackLabel?.trim().isNotEmpty == true
+                ? fallbackLabel!.trim()
+                : id;
+          },
+          orElse: () => fallbackLabel?.trim().isNotEmpty == true
+              ? fallbackLabel!.trim()
+              : id,
+        ) ??
+        id;
+  }
+
+  String _commercialNetGrossDisplay(
+    Map<String, dynamic> view, {
+    Map<String, dynamic>? fallbackResult,
+    num? fallbackGross,
+  }) {
+    var price = _mapFromJsonLike(view['price']);
+    if (price.isEmpty && fallbackResult != null) {
+      price = _mapFromJsonLike(fallbackResult['price']);
+    }
+    final net = _firstNumberValue(price, const [
+      'net',
+      'net_amount',
+      'netAmount',
+      'subtotal',
+    ]);
+    final gross = _firstNumberValue(price, const [
+          'gross',
+          'amount',
+          'total',
+          'gross_amount',
+          'grossAmount',
+        ]) ??
+        fallbackGross;
+    String value(num? amount) =>
+        amount == null ? '—' : _quoteEuroValueFormat.format(amount).trim();
+    return 'Net / gross: ${value(net)} / ${value(gross)} €';
+  }
+
   @override
   Widget build(BuildContext context) {
     if (resource.key == 'quotes') {
       final quoteId = data['id']?.toString() ?? '';
       final quoteResult = _mapFromJsonLike(data['result_json'] ?? data['resultJson']);
+      final dealerView = _quoteDealerView(quoteResult);
+      final b2bView = _quoteB2bView(quoteResult);
+      final b2bVisibleLines = _quoteCommercialVisibleLines(b2bView);
+      final hasB2b = b2bView.isNotEmpty;
       final reserveValue = quoteResult['reserveItems'] ?? quoteResult['reserve_items'];
       final reserveItems = reserveValue is List
           ? reserveValue
@@ -1708,17 +1859,19 @@ class _ResourceDetailsContent extends StatelessWidget {
           ? reserveWarningsValue.map((entry) => '$entry').toList(growable: false)
           : const <String>[];
       return DefaultTabController(
-        length: 7,
+        length: 7 + (hasB2b ? 1 : 0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _QuoteNumberPlate(
               quoteId: quoteId,
               quoteNo: _firstText(data['quote_no'], data['quoteNo']),
-              quoteNoExternal: _firstText(
-                data['quote_no_external'],
-                data['quoteNoExternal'],
-              ),
+              quoteType: (data['order_type_code'] ?? data['orderTypeCode']) == null
+                  ? null
+                  : _displayValue(
+                      data['order_type_code'] ?? data['orderTypeCode'],
+                      lookupLabels: lookupLabelsByKey['order_type_code'],
+                    ),
               statusCode: _firstText(
                 data['status_code'],
                 data['statusCode'],
@@ -1728,20 +1881,58 @@ class _ResourceDetailsContent extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             _QuoteDetailsSummaryCard(
-              rows: _quoteDetailsSummaryRows(),
+              date: _displayValue(
+                data['created_at'] ??
+                    data['createdAt'] ??
+                    data['quote_date'] ??
+                    data['quoteDate'],
+              ),
+              dealer: _quoteOrganizationShortCustomerLabel(
+                _firstText(
+                  data['buyer_organization_id'],
+                  data['buyerOrganizationId'],
+                ),
+                fallbackLabel: _displayValue(
+                  data['buyer_organization_id'] ?? data['buyerOrganizationId'],
+                  lookupLabels: lookupLabelsByKey['buyer_organization_id'],
+                ),
+              ),
+              dealerAmount: _commercialNetGrossDisplay(
+                dealerView,
+                fallbackResult: quoteResult,
+                fallbackGross: _quoteAmountEur(data),
+              ),
+              b2bPartner: hasB2b
+                  ? _quoteOrganizationShortCustomerLabel(
+                      _firstText(
+                        b2bView['buyerOrganizationId'],
+                        b2bView['buyer_organization_id'],
+                      ),
+                      fallbackLabel: _quoteOrganizationLabel(
+                        _firstText(
+                          b2bView['buyerOrganizationId'],
+                          b2bView['buyer_organization_id'],
+                        ),
+                      ),
+                    )
+                  : null,
+              b2bAmount: hasB2b
+                  ? _commercialNetGrossDisplay(b2bView)
+                  : null,
               notes: _firstText(data['external_notes'], data['externalNotes']),
             ),
             const SizedBox(height: 12),
-            const TabBar(
+            TabBar(
               isScrollable: true,
               tabs: [
-                Tab(text: 'Preview'),
-                Tab(text: 'Details'),
-                Tab(text: 'Documents'),
-                Tab(text: 'Lines'),
-                Tab(text: 'Reserve'),
-                Tab(text: 'Integrations'),
-                Tab(text: 'Raw JSON'),
+                const Tab(text: 'Preview'),
+                const Tab(text: 'Details'),
+                const Tab(text: 'Documents'),
+                const Tab(text: 'Lines'),
+                if (hasB2b) const Tab(text: 'B2B Lines'),
+                const Tab(text: 'Reserve'),
+                const Tab(text: 'Integrations'),
+                const Tab(text: 'Raw JSON'),
               ],
             ),
             const SizedBox(height: 12),
@@ -1767,6 +1958,10 @@ class _ResourceDetailsContent extends StatelessWidget {
                     quoteId: quoteId,
                     repository: repository,
                   ),
+                  if (hasB2b)
+                    _SavedQuoteCommercialLinesTab(
+                      lines: b2bVisibleLines,
+                    ),
                   ReserveMaterialsView(
                     items: reserveItems,
                     warnings: reserveWarnings,
@@ -1885,28 +2080,6 @@ class _ResourceDetailsContent extends StatelessWidget {
     );
   }
 
-  List<_DetailRowData> _quoteDetailsSummaryRows() {
-    final buyerValue = data['buyer_organization_id'] ?? data['buyerOrganizationId'];
-
-    return [
-      _DetailRowData(
-        'Buyer',
-        _displayValue(
-          buyerValue,
-          lookupLabels: lookupLabelsByKey['buyer_organization_id'],
-        ),
-      ),
-      _DetailRowData(
-        'Quote date',
-        data['created_at'] ??
-            data['createdAt'] ??
-            data['quote_date'] ??
-            data['quoteDate'],
-      ),
-      _DetailRowData('Quote type', data['order_type_code'] ?? data['orderTypeCode']),
-      _DetailRowData('Amount EUR', _quoteAmountEurDisplay(data)),
-    ];
-  }
 
   Widget _detailsListView(BuildContext context) {
     return ListView(
@@ -2237,6 +2410,123 @@ String _quoteLineDiscountPctDisplay(Map<String, dynamic> row) {
   return pct == pct.roundToDouble() ? pct.toInt().toString() : pct.toStringAsFixed(2);
 }
 
+class _SavedQuoteCommercialLinesTab extends StatelessWidget {
+  const _SavedQuoteCommercialLinesTab({
+    required this.lines,
+  });
+
+  final List<Map<String, dynamic>> lines;
+
+  num _lineNum(Map<String, dynamic> line, String camel, String snake) {
+    return _numFromRaw(line[camel] ?? line[snake]) ?? 0;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (lines.isEmpty) {
+      return const _QuoteRelatedTabEmpty(
+        icon: Icons.format_list_bulleted_rounded,
+        message: 'No B2B commercial lines found.',
+      );
+    }
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final tableWidth = math.max(816.0, constraints.maxWidth);
+        return HorizontalScrollArea(
+          child: SizedBox(
+            width: tableWidth,
+            child: Column(
+              children: [
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  child: Row(
+                    children: [
+                      AdminTableHeaderCell(label: 'Description', flex: 5),
+                      AdminTableHeaderCell(label: 'Qty', width: 72),
+                      AdminTableHeaderCell(label: 'Unit', width: 88),
+                      AdminTableHeaderCell(label: 'Unit price', width: 112),
+                      AdminTableHeaderCell(label: 'Disc %', width: 76),
+                      AdminTableHeaderCell(label: 'Net amount', width: 120),
+                    ],
+                  ),
+                ),
+                const Divider(height: 2),
+                Expanded(
+                  child: ListView.separated(
+                    itemCount: lines.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (context, index) {
+                      final line = lines[index];
+                      final unitPrice =
+                          _lineNum(line, 'unitPrice', 'unit_price');
+                      final discountPct =
+                          _lineNum(line, 'discountPct', 'discount_pct');
+                      final netAmount =
+                          _lineNum(line, 'netAmount', 'net_amount');
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        child: Row(
+                          children: [
+                            AdminTableValueCell(
+                              value: _firstText(
+                                    line['label'],
+                                    line['catalog_name'],
+                                    line['article'],
+                                  ) ??
+                                  '—',
+                              flex: 5,
+                              strong: true,
+                            ),
+                            AdminTableValueCell(
+                              value: _displayValue(line['quantity']),
+                              width: 72,
+                            ),
+                            AdminTableValueCell(
+                              value: _displayValue(
+                                line['unit'] ?? line['unit_code'],
+                              ),
+                              width: 88,
+                            ),
+                            AdminTableValueCell(
+                              value: unitPrice == 0
+                                  ? '—'
+                                  : _quoteEuroFormat.format(unitPrice),
+                              width: 112,
+                            ),
+                            AdminTableValueCell(
+                              value: discountPct == 0
+                                  ? '—'
+                                  : discountPct ==
+                                          discountPct.roundToDouble()
+                                      ? discountPct.toInt().toString()
+                                      : discountPct.toStringAsFixed(2),
+                              width: 76,
+                            ),
+                            AdminTableValueCell(
+                              value: _quoteEuroFormat.format(netAmount),
+                              width: 120,
+                              strong: true,
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+
 class _QuoteLinesTab extends StatefulWidget {
   const _QuoteLinesTab({
     super.key,
@@ -2522,13 +2812,13 @@ class _QuoteNumberPlate extends StatelessWidget {
     required this.quoteNo,
     required this.repository,
     required this.onQuoteStatusChanged,
-    this.quoteNoExternal,
+    this.quoteType,
     this.statusCode,
   });
 
   final String quoteId;
   final String? quoteNo;
-  final String? quoteNoExternal;
+  final String? quoteType;
   final String? statusCode;
   final CalculatorRepository repository;
   final Future<void> Function(QuoteStatusChangeResult result)
@@ -2537,7 +2827,7 @@ class _QuoteNumberPlate extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    final external = quoteNoExternal?.trim() ?? '';
+    final type = quoteType?.trim() ?? '';
     final status = statusCode?.trim() ?? '';
 
     return Container(
@@ -2588,13 +2878,13 @@ class _QuoteNumberPlate extends StatelessWidget {
                         ],
                       ),
                     ),
-                    if (external.isNotEmpty)
+                    if (type.isNotEmpty)
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.end,
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Text(
-                            'Kommission',
+                            'Quote type',
                             style: Theme.of(context).textTheme.labelSmall?.copyWith(
                                   color: colorScheme.onPrimaryContainer
                                       .withValues(alpha: 0.75),
@@ -2602,7 +2892,7 @@ class _QuoteNumberPlate extends StatelessWidget {
                           ),
                           const SizedBox(height: 2),
                           SelectableText(
-                            external,
+                            type,
                             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                                   fontWeight: FontWeight.w600,
                                   color: colorScheme.onPrimaryContainer,
@@ -2635,24 +2925,28 @@ class _QuoteNumberPlate extends StatelessWidget {
 }
 
 class _QuoteDetailsSummaryCard extends StatelessWidget {
-  const _QuoteDetailsSummaryCard({required this.rows, this.notes});
+  const _QuoteDetailsSummaryCard({
+    required this.date,
+    required this.dealer,
+    required this.dealerAmount,
+    this.b2bPartner,
+    this.b2bAmount,
+    this.notes,
+  });
 
-  /// Ordered as built by `_quoteDetailsSummaryRows`: the first entry (Buyer)
-  /// anchors the left of the first line, the last entry (Amount EUR) anchors the
-  /// left of the second line, and everything in between is pushed to the right
-  /// of the first line.
-  final List<_DetailRowData> rows;
+  final String date;
+  final String dealer;
+  final String dealerAmount;
+  final String? b2bPartner;
+  final String? b2bAmount;
   final String? notes;
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final notesText = notes?.trim() ?? '';
-    final leading = rows.isEmpty ? null : rows.first;
-    final trailing = rows.length > 1 ? rows.last : null;
-    final middle = rows.length > 2
-        ? rows.sublist(1, rows.length - 1)
-        : const <_DetailRowData>[];
+    final b2bName = b2bPartner?.trim() ?? '';
+    final hasB2b = b2bName.isNotEmpty;
 
     return Container(
       width: double.infinity,
@@ -2663,72 +2957,101 @@ class _QuoteDetailsSummaryCard extends StatelessWidget {
         border: Border.all(color: colorScheme.outlineVariant),
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+        crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
+          SelectableText(
+            date,
+            style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                ),
+          ),
+          const SizedBox(height: 10),
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              if (leading != null)
-                Expanded(child: _cell(context, colorScheme, leading.label, _displayValue(leading.value))),
-              for (final row in middle) ...[
-                const SizedBox(width: 16),
-                _cell(context, colorScheme, row.label, _displayValue(row.value), alignEnd: true),
+              Expanded(
+                flex: hasB2b ? 3 : 2,
+                child: _partyColumn(
+                  context,
+                  colorScheme,
+                  role: 'Dealer',
+                  name: dealer,
+                  amount: dealerAmount,
+                ),
+              ),
+              if (hasB2b) ...[
+                const SizedBox(width: 18),
+                Expanded(
+                  flex: 3,
+                  child: _partyColumn(
+                    context,
+                    colorScheme,
+                    role: 'B2B partner',
+                    name: b2bName,
+                    amount: b2bAmount?.trim().isNotEmpty == true
+                        ? b2bAmount!.trim()
+                        : '—',
+                  ),
+                ),
               ],
+              const SizedBox(width: 18),
+              Expanded(
+                flex: 6,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Quote note',
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            color: colorScheme.onSurfaceVariant,
+                          ),
+                    ),
+                    const SizedBox(height: 3),
+                    SelectableText(
+                      notesText.isEmpty ? '—' : notesText,
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                  ],
+                ),
+              ),
             ],
           ),
-          if (trailing != null || notesText.isNotEmpty) ...[
-            const SizedBox(height: 10),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: trailing == null
-                      ? const SizedBox.shrink()
-                      : _cell(context, colorScheme, trailing.label, _displayValue(trailing.value)),
-                ),
-                if (notesText.isNotEmpty) ...[
-                  const SizedBox(width: 16),
-                  Flexible(
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 360),
-                      child: _cell(context, colorScheme, 'Quote notes', notesText, alignEnd: true),
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ],
         ],
       ),
     );
   }
 
-  Widget _cell(
+  Widget _partyColumn(
     BuildContext context,
-    ColorScheme colorScheme,
-    String label,
-    String value, {
-    bool alignEnd = false,
+    ColorScheme colorScheme, {
+    required String role,
+    required String name,
+    required String amount,
   }) {
     return Column(
-      crossAxisAlignment: alignEnd ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(
-          label,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
+          role,
           style: Theme.of(context).textTheme.labelSmall?.copyWith(
                 color: colorScheme.onSurfaceVariant,
               ),
         ),
-        const SizedBox(height: 2),
+        const SizedBox(height: 3),
         SelectableText(
-          value,
-          textAlign: alignEnd ? TextAlign.right : TextAlign.left,
+          name,
           style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                fontWeight: FontWeight.w600,
+                fontWeight: FontWeight.w700,
+              ),
+        ),
+        const SizedBox(height: 5),
+        SelectableText(
+          amount,
+          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w700,
               ),
         ),
       ],
@@ -2765,7 +3088,86 @@ class _SavedQuoteGeometryPreviewTab extends StatelessWidget {
     final resultJson = _mapFromJsonLike(data['result_json'] ?? data['resultJson']);
     final resultSources = _mapFromJsonLike(resultJson['sources']);
     final resultWeights = _mapFromJsonLike(resultJson['weights']);
-    final buyerContact = contextData?.buyerContactFor(draft) ?? const CalculatorBuyerContact();
+    final commercialViews = _mapFromJsonLike(
+      resultJson['commercialViews'] ?? resultJson['commercial_views'],
+    );
+    final b2bView = _mapFromJsonLike(commercialViews['b2b']);
+
+    CalculatorOption? findOrganization(String? id) {
+      final value = id?.trim() ?? '';
+      if (value.isEmpty || contextData == null) return null;
+      return contextData.organizations.where((entry) => entry.id == value).firstOrNull;
+    }
+
+    CalculatorOption? findRelated(String? id) {
+      final value = id?.trim() ?? '';
+      if (value.isEmpty || contextData == null) return null;
+      return contextData.relatedCustomers.where((entry) => entry.id == value).firstOrNull;
+    }
+
+    CalculatorBuyerContact contactFor(CalculatorOption? option) {
+      if (option == null) return const CalculatorBuyerContact();
+      final raw = option.raw;
+      String? text(Object? value) {
+        final normalized = value == null ? '' : '$value'.trim();
+        return normalized.isEmpty ? null : normalized;
+      }
+      return CalculatorBuyerContact(
+        customerNumber: text(raw['customer_number']),
+        organizationName:
+            text(raw['legal_name']) ?? text(raw['display_name']) ?? option.label,
+        contactName: text(raw['configurator_contact_full_name']),
+        email: text(raw['configurator_contact_email']),
+        phone: text(raw['configurator_contact_phone']),
+      );
+    }
+
+    String partyLabel(CalculatorOption? option, String fallback) {
+      if (option == null) return fallback;
+      final raw = option.raw;
+      String text(Object? value) => value == null ? '' : '$value'.trim();
+      final name = [
+        text(raw['short_name']),
+        text(raw['display_name']),
+        text(raw['legal_name']),
+        option.label.trim(),
+      ].firstWhere((value) => value.isNotEmpty, orElse: () => fallback);
+      final customerNumber = [
+        text(raw['customer_number']),
+        text(raw['customer_no']),
+        text(raw['kundennummer']),
+      ].firstWhere((value) => value.isNotEmpty, orElse: () => '');
+      return customerNumber.isEmpty ? name : '$name - $customerNumber';
+    }
+
+    final dealerOption = findOrganization(draft.organizationId);
+    final relatedOption = findRelated(draft.relatedCustomerId);
+    final dealerContact = contactFor(dealerOption);
+    final activeContact = relatedOption == null ? dealerContact : contactFor(relatedOption);
+    final dealerName = partyLabel(
+      dealerOption,
+      dealerContact.organizationName ?? '—',
+    );
+    final b2bPartnerName = b2bView.isEmpty
+        ? null
+        : partyLabel(
+            relatedOption,
+            _firstText(
+                  b2bView['buyerOrganizationName'],
+                  b2bView['buyer_organization_name'],
+                  b2bView['buyerOrganizationId'],
+                  b2bView['buyer_organization_id'],
+                ) ??
+                '—',
+          );
+    final rawGlassLines = resultJson['glassLines'] ?? resultJson['glass_lines'];
+    final glassLines = rawGlassLines is List
+        ? rawGlassLines
+            .whereType<Map>()
+            .map((entry) => Map<String, dynamic>.from(entry))
+            .toList(growable: false)
+        : const <Map<String, dynamic>>[];
+    final coveringSummary = geometryPreviewGlassSummary(glassLines);
     final handoverName = contextData == null
         ? draft.handoverTypeCode
         : _quoteReferenceLabelFor(contextData, 'handover_types', draft.handoverTypeCode);
@@ -2826,10 +3228,11 @@ class _SavedQuoteGeometryPreviewTab extends StatelessWidget {
             calculationSavedAt:
                 _quoteTextField(data, 'updated_at', 'updatedAt') ??
                 _quoteTextField(data, 'created_at', 'createdAt'),
-            buyerName: buyerContact.organizationName,
-            buyerContactName: buyerContact.contactName,
-            buyerEmail: buyerContact.email,
-            buyerPhone: buyerContact.phone,
+            buyerName: dealerName,
+            b2bPartnerName: b2bPartnerName,
+            buyerContactName: activeContact.contactName,
+            buyerEmail: activeContact.email,
+            buyerPhone: activeContact.phone,
             weights: resultWeights,
             deliveryName: handoverName,
             completionWeek: draft.completionWeek,
@@ -2838,6 +3241,7 @@ class _SavedQuoteGeometryPreviewTab extends StatelessWidget {
             isSpecialColor: hasSavedSpecialColor ||
                 (colorPreview != null && !colorPreview.isStandard),
             coveringName: coveringName,
+            coveringSummary: coveringSummary,
             markiseSegments: markiseSegments,
             staticBeam: roofCalculation?.staticBeam,
             wallMounted: draft.wallMounted,
