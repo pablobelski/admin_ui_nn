@@ -1762,9 +1762,11 @@ class _ResourceDetailsContent extends StatelessWidget {
     String? fallbackLabel,
   }) {
     final id = organizationId?.trim() ?? '';
-    if (id.isEmpty) return fallbackLabel?.trim().isNotEmpty == true
-        ? fallbackLabel!.trim()
-        : '—';
+    if (id.isEmpty) {
+      return fallbackLabel?.trim().isNotEmpty == true
+          ? fallbackLabel!.trim()
+          : '—';
+    }
 
     String labelFor(CalculatorOption option) {
       final raw = option.raw;
@@ -1835,7 +1837,7 @@ class _ResourceDetailsContent extends StatelessWidget {
         fallbackGross;
     String value(num? amount) =>
         amount == null ? '—' : _quoteEuroValueFormat.format(amount).trim();
-    return 'Net / gross: ${value(net)} / ${value(gross)} €';
+    return '${value(net)} / ${value(gross)} €';
   }
 
   @override
@@ -3048,8 +3050,16 @@ class _QuoteDetailsSummaryCard extends StatelessWidget {
               ),
         ),
         const SizedBox(height: 5),
+        Text(
+          'Net / gross:',
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+              ),
+        ),
+        const SizedBox(height: 3),
         SelectableText(
           amount,
+          maxLines: 1,
           style: Theme.of(context).textTheme.titleSmall?.copyWith(
                 fontWeight: FontWeight.w700,
               ),

@@ -1119,7 +1119,7 @@ class _ExpandedPreviewInfo extends StatelessWidget {
               value: buyerNameValue == null || buyerNameValue.isEmpty ? '—' : buyerNameValue,
             ),
             if (hasB2b)
-              _PreviewMetadataRow(label: 'B2B partner', value: b2bPartnerNameValue!),
+              _PreviewMetadataRow(label: 'B2B partner', value: b2bPartnerNameValue),
             if (contactDetails.isNotEmpty)
               _PreviewMetadataRow(label: 'Configurator contact', value: contactDetails),
             if (colorCode?.trim().isNotEmpty == true)
@@ -1776,7 +1776,7 @@ Future<Uint8List> renderExpandedGeometryPreviewPng({
     hasB2b ? 'Dealer' : 'Besteller / Auftraggeber',
     buyerNameValue == null || buyerNameValue.isEmpty ? '—' : buyerNameValue,
   );
-  if (hasB2b) info('B2B partner', b2bPartnerNameValue!);
+  if (hasB2b) info('B2B partner', b2bPartnerNameValue);
   if (contactDetails.isNotEmpty) {
     info('Configurator contact', contactDetails);
   }
