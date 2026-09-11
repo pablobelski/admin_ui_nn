@@ -294,23 +294,8 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
   Future<ui.Image?> _loadHumanImage() =>
       loadGeometryPreviewHumanImage(widget.mediaRepository);
 
-  Future<Uint8List?> _loadStaticBeamInstructionImage() async {
-    final staticBeam = widget.staticBeam;
-    final filename = staticBeam?.instructionMediaFilename?.trim() ?? '';
-    if (staticBeam?.enabled != true || filename.isEmpty) return null;
-    return _geometryPreviewMediaBytesFutureCache.putIfAbsent(filename, () async {
-      try {
-        final mediaFile = await widget.mediaRepository
-            .findMediaFileByOriginalFilename(filename);
-        final fileId = mediaFile?['id']?.toString().trim() ?? '';
-        if (fileId.isEmpty) return null;
-        final response = await widget.mediaRepository.viewMediaFile(fileId);
-        return response.bytes;
-      } catch (_) {
-        return null;
-      }
-    });
-  }
+  Future<Uint8List?> _loadStaticBeamInstructionImage() =>
+      _loadGeometryPreviewInstructionImage(widget);
 
   Future<void> _generateGlb() async {
     final generate = widget.onGenerateGlb;
@@ -537,49 +522,33 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
     return FutureBuilder<ui.Image?>(
       future: _humanImageFuture,
       builder: (context, snapshot) {
-        return CustomPaint(
-          painter: _ModelGeometryPreviewPainter(
-            modelCode: widget.modelCode,
-            modelLabel: widget.modelLabel,
-            widthMm: widget.widthMm,
-            depthMm: widget.depthMm,
-            heightMm: widget.heightMm,
-            geometryParams: widget.geometryParams,
-            modules: widget.modules,
-            colorCode: widget.colorCode,
-            colorSwatchColor: widget.colorSwatchColor,
-            isSpecialColor: widget.isSpecialColor,
-            coveringName: widget.coveringName,
-            humanImage: snapshot.data,
-            lineColor: colorScheme.onSurface,
-            mutedLineColor: colorScheme.onSurfaceVariant,
-            accentColor: colorScheme.primary,
-            surfaceColor: colorScheme.surface,
-            highlightedModuleIndex: clearHighlight ? null : widget.highlightedModuleIndex,
-            highlightedGlassFieldIndex: clearHighlight ? null : widget.highlightedGlassFieldIndex,
-            highlightedManufacturingFieldKind: clearHighlight ? null : widget.highlightedManufacturingFieldKind,
-            roofAngleDeg: widget.roofAngleDeg,
-            rearHeightMm: widget.rearHeightMm,
-            frontHeightMm: widget.frontHeightMm,
-            calculatedModules: widget.calculatedModules,
-            wallMounted: widget.wallMounted,
-            postCount: widget.postCount,
-            hasMarkise: widget.markiseSegments.any(
-              (segment) => segment.quantity > 0,
-            ),
-            sideInfoBottomReserve: sideInfoBottomReserve,
-            alignRoofTop: alignRoofTop,
-            showRoofTypeInSideInfo: showRoofTypeInSideInfo,
-          ),
+        return _buildGeometryCanvasFor(
+          widget,
+          snapshot.data,
+          colorScheme,
+          clearHighlight: clearHighlight,
+          sideInfoBottomReserve: sideInfoBottomReserve,
+          alignRoofTop: alignRoofTop,
+          showRoofTypeInSideInfo: showRoofTypeInSideInfo,
         );
       },
     );
   }
 
-  Future<void> _showExpandedPreview(BuildContext context, String currentUser) async {
+  Future<void> _showExpandedPreview(
+    BuildContext context,
+    String currentUser,
+  ) async {
     final repaintBoundaryKey = GlobalKey();
     final colorScheme = Theme.of(context).colorScheme;
     final exportDate = DateTime.now();
+    final humanImage = await _humanImageFuture;
+    final instructionImage = await _staticBeamInstructionImageFuture;
+    if (!context.mounted) return;
+    if (instructionImage != null) {
+      await precacheImage(MemoryImage(instructionImage), context);
+    }
+    if (!context.mounted) return;
 
     await showDialog<void>(
       context: context,
@@ -609,7 +578,8 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
                         tooltip: widget.onGenerateGlb == null
                             ? 'Save the current calculation to generate GLB'
                             : 'Open 3D preview (generate GLB if needed)',
-                        onPressed: widget.onGenerateGlb != null && !_isGeneratingGlb
+                        onPressed:
+                            widget.onGenerateGlb != null && !_isGeneratingGlb
                             ? () async {
                                 Navigator.of(dialogContext).pop();
                                 await _generateGlb();
@@ -619,7 +589,9 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
                             ? const SizedBox(
                                 width: 18,
                                 height: 18,
-                                child: CircularProgressIndicator(strokeWidth: 2),
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
                               )
                             : const Icon(Icons.view_in_ar_outlined),
                       ),
@@ -643,286 +615,18 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
                 Expanded(
                   child: Padding(
                     padding: const EdgeInsets.all(18),
-                    child: RepaintBoundary(
-                      key: repaintBoundaryKey,
-                      child: ColoredBox(
-                        color: colorScheme.surface,
-                        child: Padding(
-                          padding: const EdgeInsets.all(20),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              SizedBox(
-                                width: 320,
-                                child: _ExpandedPreviewInfo(
-                                  buyerName: widget.buyerName,
-                                  b2bPartnerName: widget.b2bPartnerName,
-                                  buyerContactName: widget.buyerContactName,
-                                  buyerEmail: widget.buyerEmail,
-                                  buyerPhone: widget.buyerPhone,
-                                  weights: widget.weights,
-                                  deliveryName: widget.deliveryName,
-                                  completionWeek: widget.completionWeek,
-                                  widthMm: widget.widthMm,
-                                  depthMm: widget.depthMm,
-                                  heightMm: widget.heightMm,
-                                  roofAngleDeg: widget.roofAngleDeg,
-                                  colorCode: widget.colorCode,
-                                  isSpecialColor: widget.isSpecialColor,
-                                  coveringName: widget.coveringName,
-                                  coveringSummary: widget.coveringSummary,
-                                  markiseSegments: widget.markiseSegments,
-                                  staticBeam: widget.staticBeam,
-                                  wallMounted: widget.wallMounted,
-                                  calculatedModules: widget.calculatedModules,
-                                  postCount: widget.postCount,
-                                  currentUser: currentUser,
-                                ),
-                              ),
-                              const SizedBox(width: 20),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                                  children: [
-                                    Expanded(
-                                      child: LayoutBuilder(
-                                        builder: (context, constraints) {
-                                          final sideRect = _geometryPreviewSideRect(
-                                            Size(
-                                              constraints.maxWidth,
-                                              constraints.maxHeight,
-                                            ),
-                                            12,
-                                          );
-                                          final dateRightInset = math.max(
-                                            12.0,
-                                            constraints.maxWidth - sideRect.left + 9.0,
-                                          );
-                                          final calculationNumber =
-                                              widget.calculationNumber?.trim();
-                                          final qrSize = math.min(
-                                            72.0,
-                                            sideRect.width - 16.0,
-                                          );
-                                          final hasQr = calculationNumber != null &&
-                                              calculationNumber.isNotEmpty;
-                                          final instructionFilename = widget
-                                                  .staticBeam
-                                                  ?.instructionMediaFilename
-                                                  ?.trim() ??
-                                              '';
-                                          final hasStaticBeamInstructionImage =
-                                              widget.staticBeam?.enabled == true &&
-                                                  instructionFilename.isNotEmpty;
-                                          final instructionImageHeight = math.min(
-                                            88.0,
-                                            math.max(54.0, sideRect.height * 0.18),
-                                          );
-                                          final sideBottomReserve =
-                                              (hasQr ? qrSize + 16 : 0.0) +
-                                                  (hasStaticBeamInstructionImage
-                                                      ? instructionImageHeight + 14
-                                                      : 0.0);
-                                          final warningText = widget.warnings
-                                              .map((message) => message.trim())
-                                              .where((message) => message.isNotEmpty)
-                                              .toSet()
-                                              .join('\n\n');
-                                          final notesText =
-                                              widget.quoteNotes?.trim() ?? '';
-                                          return Stack(
-                                            fit: StackFit.expand,
-                                            children: [
-                                              _buildGeometryCanvas(
-                                                colorScheme,
-                                                clearHighlight: true,
-                                                sideInfoBottomReserve:
-                                                    sideBottomReserve,
-                                                alignRoofTop: true,
-                                                showRoofTypeInSideInfo:
-                                                    widget.showRoofType,
-                                              ),
-                                              Positioned(
-                                                left: 8,
-                                                right: dateRightInset,
-                                                top: 8,
-                                                child: Row(
-                                                  crossAxisAlignment:
-                                                      CrossAxisAlignment.start,
-                                                  children: [
-                                                    Expanded(
-                                                      child: Align(
-                                                        alignment: Alignment
-                                                            .centerLeft,
-                                                        child: Container(
-                                                          padding:
-                                                              const EdgeInsets
-                                                                  .symmetric(
-                                                            horizontal: 10,
-                                                            vertical: 4,
-                                                          ),
-                                                          decoration:
-                                                              BoxDecoration(
-                                                            color: Colors.white,
-                                                            borderRadius:
-                                                                BorderRadius
-                                                                    .circular(6),
-                                                            border: Border.all(
-                                                              color: Colors
-                                                                  .black26,
-                                                            ),
-                                                          ),
-                                                          child: Text(
-                                                            'Kommission${(widget.b2bPartnerName ?? '').trim().isNotEmpty ? ' B2B' : ''}: ${_expandedKommissionLabel(widget.calculationNumber)}',
-                                                            maxLines: 1,
-                                                            overflow:
-                                                                TextOverflow
-                                                                    .ellipsis,
-                                                            style: Theme.of(
-                                                              dialogContext,
-                                                            )
-                                                                .textTheme
-                                                                .labelSmall
-                                                                ?.copyWith(
-                                                                  color: Colors
-                                                                      .black87,
-                                                                  fontWeight:
-                                                                      FontWeight
-                                                                          .w600,
-                                                                  fontSize: (Theme.of(dialogContext)
-                                                                              .textTheme
-                                                                              .labelSmall
-                                                                              ?.fontSize ??
-                                                                          11) *
-                                                                      1.6,
-                                                                ),
-                                                          ),
-                                                        ),
-                                                      ),
-                                                    ),
-                                                    const SizedBox(width: 16),
-                                                    Text(
-                                                      'Date: ${_displaySavedDate(widget.calculationSavedAt)}',
-                                                      maxLines: 1,
-                                                      style: Theme.of(
-                                                        dialogContext,
-                                                      )
-                                                          .textTheme
-                                                          .labelSmall
-                                                          ?.copyWith(
-                                                            color:
-                                                                Colors.black87,
-                                                            fontWeight:
-                                                                FontWeight.w600,
-                                                          ),
-                                                    ),
-                                                  ],
-                                                ),
-                                              ),
-                                              if (warningText.isNotEmpty ||
-                                                  notesText.isNotEmpty)
-                                                Positioned(
-                                                  left: 12,
-                                                  right: dateRightInset,
-                                                  bottom: 0,
-                                                  child: Row(
-                                                    crossAxisAlignment:
-                                                        CrossAxisAlignment.end,
-                                                    children: [
-                                                      if (warningText.isNotEmpty)
-                                                        Expanded(
-                                                          child:
-                                                              _ExpandedPreviewTextBlock(
-                                                            title: 'Warnings',
-                                                            text: warningText,
-                                                            textColor:
-                                                                colorScheme.error,
-                                                          ),
-                                                        ),
-                                                      if (warningText.isNotEmpty &&
-                                                          notesText.isNotEmpty)
-                                                        const SizedBox(width: 8),
-                                                      if (notesText.isNotEmpty)
-                                                        Expanded(
-                                                          child:
-                                                              _ExpandedPreviewTextBlock(
-                                                            title: 'Notes',
-                                                            text: notesText,
-                                                          ),
-                                                        ),
-                                                    ],
-                                                  ),
-                                                ),
-                                              if (hasStaticBeamInstructionImage)
-                                                Positioned(
-                                                  left: sideRect.left + 8,
-                                                  width: sideRect.width - 16,
-                                                  height: instructionImageHeight,
-                                                  bottom: constraints.maxHeight -
-                                                      sideRect.bottom +
-                                                      8 +
-                                                      (hasQr ? qrSize + 10 : 0),
-                                                  child: FutureBuilder<Uint8List?>(
-                                                    future:
-                                                        _staticBeamInstructionImageFuture,
-                                                    builder: (context, snapshot) {
-                                                      final bytes = snapshot.data;
-                                                      if (bytes == null || bytes.isEmpty) {
-                                                        return const SizedBox.shrink();
-                                                      }
-                                                      return Container(
-                                                        padding: const EdgeInsets.all(5),
-                                                        decoration: BoxDecoration(
-                                                          color: Colors.white,
-                                                          borderRadius:
-                                                              BorderRadius.circular(8),
-                                                          border: Border.all(
-                                                            color: colorScheme
-                                                                .outlineVariant,
-                                                          ),
-                                                        ),
-                                                        child: Image.memory(
-                                                          bytes,
-                                                          fit: BoxFit.contain,
-                                                          gaplessPlayback: true,
-                                                        ),
-                                                      );
-                                                    },
-                                                  ),
-                                                ),
-                                              if (hasQr)
-                                                Positioned(
-                                                  left: sideRect.left +
-                                                      (sideRect.width - qrSize) /
-                                                          2,
-                                                  bottom: constraints.maxHeight -
-                                                      sideRect.bottom +
-                                                      8,
-                                                  child: QrImageView(
-                                                    data: calculationNumber,
-                                                    version: QrVersions.auto,
-                                                    size: qrSize,
-                                                    padding:
-                                                        const EdgeInsets.all(10),
-                                                    backgroundColor: Colors.white,
-                                                  ),
-                                                ),
-                                            ],
-                                          );
-                                        },
-                                      ),
-                                    ),
-                                    const SizedBox(height: 12),
-                                    _ExpandedPreviewModules(
-                                      calculatedModules: widget.calculatedModules,
-                                      modules: widget.modules,
-                                      moduleRoles: widget.moduleRoles,
-                                      markiseSegments: widget.markiseSegments,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
+                    child: FittedBox(
+                      fit: BoxFit.contain,
+                      child: RepaintBoundary(
+                        key: repaintBoundaryKey,
+                        child: SizedBox(
+                          width: expandedGeometryPreviewWidth.toDouble(),
+                          height: expandedGeometryPreviewHeight.toDouble(),
+                          child: _ExpandedGeometryPreview(
+                            widget: widget,
+                            currentUser: currentUser,
+                            humanImage: humanImage,
+                            staticBeamInstructionImage: instructionImage,
                           ),
                         ),
                       ),
@@ -945,7 +649,7 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
         throw StateError('Geometry preview is not ready for export.');
       }
 
-      final image = await renderObject.toImage(pixelRatio: 1.5);
+      final image = await renderObject.toImage(pixelRatio: expandedGeometryPreviewRasterScale.toDouble());
       final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
       image.dispose();
       if (byteData == null) throw StateError('PNG encoding failed.');
@@ -965,6 +669,334 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
         type: TopNotificationType.error,
       );
     }
+  }
+}
+
+Future<Uint8List?> _loadGeometryPreviewInstructionImage(
+  ModelGeometryPreview widget,
+) async {
+  final staticBeam = widget.staticBeam;
+  final filename = staticBeam?.instructionMediaFilename?.trim() ?? '';
+  if (staticBeam?.enabled != true || filename.isEmpty) return null;
+  return _geometryPreviewMediaBytesFutureCache.putIfAbsent(filename, () async {
+    try {
+      final mediaFile = await widget.mediaRepository
+          .findMediaFileByOriginalFilename(filename);
+      final fileId = mediaFile?['id']?.toString().trim() ?? '';
+      if (fileId.isEmpty) return null;
+      final response = await widget.mediaRepository.viewMediaFile(fileId);
+      return response.bytes;
+    } catch (_) {
+      return null;
+    }
+  });
+}
+
+Widget _buildGeometryCanvasFor(
+  ModelGeometryPreview widget,
+  ui.Image? humanImage,
+  ColorScheme colorScheme, {
+  bool clearHighlight = false,
+  double sideInfoBottomReserve = 0,
+  bool alignRoofTop = false,
+  bool showRoofTypeInSideInfo = false,
+}) {
+  return CustomPaint(
+    painter: _ModelGeometryPreviewPainter(
+      modelCode: widget.modelCode,
+      modelLabel: widget.modelLabel,
+      widthMm: widget.widthMm,
+      depthMm: widget.depthMm,
+      heightMm: widget.heightMm,
+      geometryParams: widget.geometryParams,
+      modules: widget.modules,
+      colorCode: widget.colorCode,
+      colorSwatchColor: widget.colorSwatchColor,
+      isSpecialColor: widget.isSpecialColor,
+      coveringName: widget.coveringName,
+      humanImage: humanImage,
+      lineColor: colorScheme.onSurface,
+      mutedLineColor: colorScheme.onSurfaceVariant,
+      accentColor: colorScheme.primary,
+      surfaceColor: colorScheme.surface,
+      highlightedModuleIndex: clearHighlight
+          ? null
+          : widget.highlightedModuleIndex,
+      highlightedGlassFieldIndex: clearHighlight
+          ? null
+          : widget.highlightedGlassFieldIndex,
+      highlightedManufacturingFieldKind: clearHighlight
+          ? null
+          : widget.highlightedManufacturingFieldKind,
+      roofAngleDeg: widget.roofAngleDeg,
+      rearHeightMm: widget.rearHeightMm,
+      frontHeightMm: widget.frontHeightMm,
+      calculatedModules: widget.calculatedModules,
+      wallMounted: widget.wallMounted,
+      postCount: widget.postCount,
+      hasMarkise: widget.markiseSegments.any((segment) => segment.quantity > 0),
+      sideInfoBottomReserve: sideInfoBottomReserve,
+      alignRoofTop: alignRoofTop,
+      showRoofTypeInSideInfo: showRoofTypeInSideInfo,
+    ),
+  );
+}
+
+class _ExpandedGeometryPreview extends StatelessWidget {
+  const _ExpandedGeometryPreview({
+    required this.widget,
+    required this.currentUser,
+    required this.humanImage,
+    required this.staticBeamInstructionImage,
+  });
+  final ModelGeometryPreview widget;
+  final String currentUser;
+  final ui.Image? humanImage;
+  final Uint8List? staticBeamInstructionImage;
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return ColoredBox(
+      color: colorScheme.surface,
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SizedBox(
+              width: 320,
+              child: _ExpandedPreviewInfo(
+                buyerName: widget.buyerName,
+                b2bPartnerName: widget.b2bPartnerName,
+                buyerContactName: widget.buyerContactName,
+                buyerEmail: widget.buyerEmail,
+                buyerPhone: widget.buyerPhone,
+                weights: widget.weights,
+                deliveryName: widget.deliveryName,
+                completionWeek: widget.completionWeek,
+                widthMm: widget.widthMm,
+                depthMm: widget.depthMm,
+                heightMm: widget.heightMm,
+                roofAngleDeg: widget.roofAngleDeg,
+                colorCode: widget.colorCode,
+                isSpecialColor: widget.isSpecialColor,
+                coveringName: widget.coveringName,
+                coveringSummary: widget.coveringSummary,
+                markiseSegments: widget.markiseSegments,
+                staticBeam: widget.staticBeam,
+                wallMounted: widget.wallMounted,
+                calculatedModules: widget.calculatedModules,
+                postCount: widget.postCount,
+                currentUser: currentUser,
+              ),
+            ),
+            const SizedBox(width: 20),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        final sideRect = _geometryPreviewSideRect(
+                          Size(constraints.maxWidth, constraints.maxHeight),
+                          12,
+                        );
+                        final dateRightInset = math.max(
+                          12.0,
+                          constraints.maxWidth - sideRect.left + 9.0,
+                        );
+                        final calculationNumber = widget.calculationNumber
+                            ?.trim();
+                        final qrSize = math.min(72.0, sideRect.width - 16.0);
+                        final hasQr =
+                            calculationNumber != null &&
+                            calculationNumber.isNotEmpty;
+                        final instructionFilename =
+                            widget.staticBeam?.instructionMediaFilename
+                                ?.trim() ??
+                            '';
+                        final hasStaticBeamInstructionImage =
+                            widget.staticBeam?.enabled == true &&
+                            instructionFilename.isNotEmpty &&
+                            staticBeamInstructionImage != null;
+                        final instructionImageHeight = math.min(
+                          88.0,
+                          math.max(54.0, sideRect.height * 0.18),
+                        );
+                        final sideBottomReserve =
+                            (hasQr ? qrSize + 16 : 0.0) +
+                            (hasStaticBeamInstructionImage
+                                ? instructionImageHeight + 14
+                                : 0.0);
+                        final warningText = widget.warnings
+                            .map((message) => message.trim())
+                            .where((message) => message.isNotEmpty)
+                            .toSet()
+                            .join('\n\n');
+                        final notesText = widget.quoteNotes?.trim() ?? '';
+                        return Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            _buildGeometryCanvasFor(
+                              widget,
+                              humanImage,
+                              colorScheme,
+                              clearHighlight: true,
+                              sideInfoBottomReserve: sideBottomReserve,
+                              alignRoofTop: true,
+                              showRoofTypeInSideInfo: widget.showRoofType,
+                            ),
+                            Positioned(
+                              left: 8,
+                              right: dateRightInset,
+                              top: 8,
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Expanded(
+                                    child: Align(
+                                      alignment: Alignment.centerLeft,
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 10,
+                                          vertical: 4,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: Colors.white,
+                                          borderRadius: BorderRadius.circular(
+                                            6,
+                                          ),
+                                          border: Border.all(
+                                            color: Colors.black26,
+                                          ),
+                                        ),
+                                        child: Text(
+                                          'Kommission${(widget.b2bPartnerName ?? '').trim().isNotEmpty ? ' B2B' : ''}: ${_expandedKommissionLabel(widget.calculationNumber)}',
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .labelSmall
+                                              ?.copyWith(
+                                                color: Colors.black87,
+                                                fontWeight: FontWeight.w600,
+                                                fontSize:
+                                                    (Theme.of(context)
+                                                            .textTheme
+                                                            .labelSmall
+                                                            ?.fontSize ??
+                                                        11) *
+                                                    1.6,
+                                              ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 16),
+                                  Text(
+                                    'Date: ${_displaySavedDate(widget.calculationSavedAt)}',
+                                    maxLines: 1,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .labelSmall
+                                        ?.copyWith(
+                                          color: Colors.black87,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            if (warningText.isNotEmpty || notesText.isNotEmpty)
+                              Positioned(
+                                left: 12,
+                                right: dateRightInset,
+                                bottom: 0,
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  children: [
+                                    if (warningText.isNotEmpty)
+                                      Expanded(
+                                        child: _ExpandedPreviewTextBlock(
+                                          title: 'Warnings',
+                                          text: warningText,
+                                          textColor: colorScheme.error,
+                                        ),
+                                      ),
+                                    if (warningText.isNotEmpty &&
+                                        notesText.isNotEmpty)
+                                      const SizedBox(width: 8),
+                                    if (notesText.isNotEmpty)
+                                      Expanded(
+                                        child: _ExpandedPreviewTextBlock(
+                                          title: 'Notes',
+                                          text: notesText,
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            if (hasStaticBeamInstructionImage)
+                              Positioned(
+                                left: sideRect.left + 8,
+                                width: sideRect.width - 16,
+                                height: instructionImageHeight,
+                                bottom:
+                                    constraints.maxHeight -
+                                    sideRect.bottom +
+                                    8 +
+                                    (hasQr ? qrSize + 10 : 0),
+                                child: Container(
+                                  padding: const EdgeInsets.all(5),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(
+                                      color: colorScheme.outlineVariant,
+                                    ),
+                                  ),
+                                  child: Image.memory(
+                                    staticBeamInstructionImage!,
+                                    fit: BoxFit.contain,
+                                    gaplessPlayback: true,
+                                  ),
+                                ),
+                              ),
+                            if (hasQr)
+                              Positioned(
+                                left:
+                                    sideRect.left +
+                                    (sideRect.width - qrSize) / 2,
+                                bottom:
+                                    constraints.maxHeight - sideRect.bottom + 8,
+                                child: QrImageView(
+                                  data: calculationNumber,
+                                  version: QrVersions.auto,
+                                  size: qrSize,
+                                  padding: const EdgeInsets.all(10),
+                                  backgroundColor: Colors.white,
+                                ),
+                              ),
+                          ],
+                        );
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  _ExpandedPreviewModules(
+                    calculatedModules: widget.calculatedModules,
+                    modules: widget.modules,
+                    moduleRoles: widget.moduleRoles,
+                    markiseSegments: widget.markiseSegments,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -1595,432 +1627,82 @@ const expandedGeometryPreviewRasterWidth =
 const expandedGeometryPreviewRasterHeight =
     expandedGeometryPreviewHeight * expandedGeometryPreviewRasterScale;
 
-class _CanvasTextResult {
-  const _CanvasTextResult(this.height);
-  final double height;
-}
-
-_CanvasTextResult _paintExpandedText(
-  Canvas canvas,
-  String text,
-  Offset offset, {
-  required double maxWidth,
-  double fontSize = 11,
-  FontWeight fontWeight = FontWeight.w400,
-  Color color = const Color(0xFF25262A),
-  double height = 1.18,
-  int? maxLines,
-}) {
-  final painter = TextPainter(
-    text: TextSpan(
-      text: text,
-      style: TextStyle(
-        fontSize: fontSize,
-        fontWeight: fontWeight,
-        color: color,
-        height: height,
+// Rasterize the same widget as the enlarged UI after its images have loaded.
+Future<Uint8List> renderExpandedGeometryPreviewPng({
+  required BuildContext context,
+  required ModelGeometryPreview preview,
+  required String currentUser,
+}) async {
+  final humanImage = await loadGeometryPreviewHumanImage(
+    preview.mediaRepository,
+  );
+  final instructionImage = await _loadGeometryPreviewInstructionImage(preview);
+  if (!context.mounted) {
+    throw StateError('Geometry preview context is no longer available.');
+  }
+  if (instructionImage != null) {
+    await precacheImage(MemoryImage(instructionImage), context);
+  }
+  if (!context.mounted) {
+    throw StateError('Geometry preview context is no longer available.');
+  }
+  final boundaryKey = GlobalKey();
+  final content = InheritedTheme.captureAll(
+    context,
+    MediaQuery(
+      data: MediaQuery.of(context),
+      child: Directionality(
+        textDirection: Directionality.of(context),
+        child: RepaintBoundary(
+          key: boundaryKey,
+          child: SizedBox(
+            width: expandedGeometryPreviewWidth.toDouble(),
+            height: expandedGeometryPreviewHeight.toDouble(),
+            child: _ExpandedGeometryPreview(
+              widget: preview,
+              currentUser: currentUser,
+              humanImage: humanImage,
+              staticBeamInstructionImage: instructionImage,
+            ),
+          ),
+        ),
       ),
     ),
-    textDirection: TextDirection.ltr,
-    maxLines: maxLines,
-    ellipsis: maxLines == null ? null : '…',
-  )..layout(maxWidth: maxWidth);
-  painter.paint(canvas, offset);
-  return _CanvasTextResult(painter.height);
-}
-
-double _paintExpandedInfoRow(
-  Canvas canvas,
-  double x,
-  double y,
-  double maxWidth,
-  String label,
-  String value,
-) {
-  final labelResult = _paintExpandedText(
-    canvas,
-    label,
-    Offset(x, y),
-    maxWidth: maxWidth,
-    fontSize: 9.5,
-    fontWeight: FontWeight.w600,
-    color: const Color(0xFF5F6269),
   );
-  final valueResult = _paintExpandedText(
-    canvas,
-    value,
-    Offset(x, y + labelResult.height + 2),
-    maxWidth: maxWidth,
-    fontSize: 10.5,
-  );
-  return labelResult.height + valueResult.height + 10;
-}
-
-Future<Uint8List> renderExpandedGeometryPreviewPng({
-  required String? modelCode,
-  required String? modelLabel,
-  required int? widthMm,
-  required int? depthMm,
-  required int? heightMm,
-  required List<RoofGeometryParam> geometryParams,
-  required List<CalculatorSetContentTab> modules,
-  required List<String> moduleRoles,
-  required List<RoofModuleCalculation> calculatedModules,
-  required String? calculationNumber,
-  required String? calculationSavedAt,
-  required String? buyerName,
-  required String? b2bPartnerName,
-  required String? buyerContactName,
-  required String? buyerEmail,
-  required String? buyerPhone,
-  required Map<String, dynamic> weights,
-  required String? deliveryName,
-  required int? completionWeek,
-  required String? colorCode,
-  required Color? colorSwatchColor,
-  required bool isSpecialColor,
-  required String? coveringName,
-  required String? coveringSummary,
-  required List<GeometryPreviewMarkiseSegment> markiseSegments,
-  required RoofStaticBeamCalculation? staticBeam,
-  required bool wallMounted,
-  required int postCount,
-  required String? quoteNotes,
-  required int? roofAngleDeg,
-  required int? rearHeightMm,
-  required int? frontHeightMm,
-  required String currentUser,
-  ui.Image? humanImage,
-  bool showRoofType = true,
-}) async {
-  const logicalSize = Size(1200, 760);
-  final recorder = ui.PictureRecorder();
-  final canvas = Canvas(recorder)
-    ..scale(
-      expandedGeometryPreviewRasterScale.toDouble(),
-      expandedGeometryPreviewRasterScale.toDouble(),
-    );
-  canvas.drawRect(
-    Offset.zero & logicalSize,
-    Paint()..color = const Color(0xFFFDFDFE),
-  );
-
-  const outer = 20.0;
-  const leftWidth = 300.0;
-  const gap = 20.0;
-  final contentHeight = logicalSize.height - outer * 2;
-  final leftRect = RRect.fromRectAndRadius(
-    const Rect.fromLTWH(outer, outer, leftWidth, expandedGeometryPreviewHeight - outer * 2),
-    const Radius.circular(12),
-  );
-  canvas.drawRRect(
-    leftRect,
-    Paint()..color = const Color(0xFFF5F5F8),
-  );
-  canvas.drawRRect(
-    leftRect,
-    Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1
-      ..color = const Color(0xFFD5D6DB),
-  );
-
-  double weight(String key) => (weights[key] as num?)?.toDouble() ?? 0;
-  bool complete(String key) =>
-      weights[key] is bool ? weights[key] as bool : true;
-  String weightText(String valueKey, String completeKey) {
-    if (weights.isEmpty) return '—';
-    return '${weight(valueKey).toStringAsFixed(1)} kg${complete(completeKey) ? '' : '*'}';
-  }
-
-  final nonGlassComplete = complete('set_complete') &&
-      complete('accessories_complete') &&
-      complete('options_complete');
-  final nonGlassWeight =
-      weight('set_kg') + weight('accessories_kg') + weight('options_kg');
-  final totalGlassCount = calculatedModules.fold<int>(
-    0,
-    (sum, module) => sum + module.glassCount,
-  );
-  final totalBeamCount = calculatedModules.fold<int>(
-    0,
-    (sum, module) => sum + module.beamCount,
-  );
-  final totalMarkiseCount = markiseSegments.fold<int>(
-    0,
-    (sum, segment) => sum + segment.quantity,
-  );
-  final glassSummary = coveringSummary?.trim() ?? '';
-  final buyerNameValue = buyerName?.trim();
-  final b2bPartnerNameValue = b2bPartnerName?.trim();
-  final hasB2b = b2bPartnerNameValue != null && b2bPartnerNameValue.isNotEmpty;
-  final contactDetails = [buyerContactName, buyerEmail, buyerPhone]
-      .map((value) => value?.trim() ?? '')
-      .where((value) => value.isNotEmpty)
-      .join(' · ');
-  var infoY = outer + 18;
-  const infoX = outer + 18;
-  const infoWidth = leftWidth - 36;
-  void info(String label, String value) {
-    infoY += _paintExpandedInfoRow(
-      canvas,
-      infoX,
-      infoY,
-      infoWidth,
-      label,
-      value,
-    );
-  }
-
-  info(
-    hasB2b ? 'Dealer' : 'Besteller / Auftraggeber',
-    buyerNameValue == null || buyerNameValue.isEmpty ? '—' : buyerNameValue,
-  );
-  if (hasB2b) info('B2B partner', b2bPartnerNameValue);
-  if (contactDetails.isNotEmpty) {
-    info('Configurator contact', contactDetails);
-  }
-  if (colorCode?.trim().isNotEmpty == true) {
-    info(isSpecialColor ? 'Color (Sonderfarbe)' : 'Color', colorCode!.trim());
-  }
-  if (glassSummary.isNotEmpty || totalGlassCount > 0 || totalMarkiseCount > 0) {
-    info(
-      'Covering',
-      [
-        if (glassSummary.isNotEmpty)
-          'Glas: $glassSummary'
-        else if (totalGlassCount > 0)
-          'Glas: $totalGlassCount stk. · — m²',
-        if (totalMarkiseCount > 0) 'Markise: $totalMarkiseCount stk.',
-      ].join('\n'),
-    );
-  }
-  info(
-    'Set content',
-    'Pfosten: $postCount stk.\nTräger: $totalBeamCount stk.',
-  );
-  if (wallMounted) info('Montage', 'Wandmontage');
-  if (staticBeam?.enabled == true) {
-    info('Statikträger mounting', _staticBeamDetails(staticBeam!));
-  }
-  if ((deliveryName ?? '').trim().isNotEmpty || completionWeek != null) {
-    info(
-      'Delivery',
-      [
-        if ((deliveryName ?? '').trim().isNotEmpty) deliveryName!.trim(),
-        if (completionWeek != null) 'Fertigst. KW $completionWeek',
-      ].join(' · '),
-    );
-  }
-  info(
-    'Gewicht',
-    'Set+Zub.+Zus.: '
-        '${weights.isEmpty ? '—' : '${nonGlassWeight.toStringAsFixed(1)} kg${nonGlassComplete ? '' : '*'}'}\n'
-        'Glas: ${weightText('glass_kg', 'glass_complete')} / '
-        'Markise: ${weightText('markise_kg', 'markise_complete')} / '
-        'Gesamt: ${weightText('total_kg', 'total_complete')}',
-  );
-  info(
-    'Overall dimensions',
-    'B: ${_dimensionValue(widthMm)} mm × T: ${_dimensionValue(depthMm)} mm × H: ${_dimensionValue(heightMm)} mm',
-  );
-  if (roofAngleDeg != null) info('Roof angle', '$roofAngleDeg°');
-
-  final userTop = outer + contentHeight - 72;
-  canvas.drawLine(
-    Offset(infoX, userTop - 10),
-    Offset(infoX + infoWidth, userTop - 10),
-    Paint()
-      ..color = const Color(0xFFD4D5DA)
-      ..strokeWidth = 1,
-  );
-  _paintExpandedInfoRow(
-    canvas,
-    infoX,
-    userTop,
-    infoWidth,
-    'User',
-    currentUser,
-  );
-
-  final rightX = outer + leftWidth + gap;
-  final rightWidth = logicalSize.width - rightX - outer;
-  const modulesHeight = 105.0;
-  final geometryHeight = contentHeight - modulesHeight - 12;
-  final geometrySize = Size(rightWidth, geometryHeight);
-
-  canvas.save();
-  canvas.translate(rightX, outer);
-  final geometryPainter = _ModelGeometryPreviewPainter(
-    modelCode: modelCode,
-    modelLabel: modelLabel,
-    widthMm: widthMm,
-    depthMm: depthMm,
-    heightMm: heightMm,
-    geometryParams: geometryParams,
-    modules: modules,
-    colorCode: colorCode,
-    colorSwatchColor: colorSwatchColor,
-    isSpecialColor: isSpecialColor,
-    coveringName: coveringName,
-    humanImage: humanImage,
-    lineColor: Colors.black,
-    mutedLineColor: const Color(0xFF6F7478),
-    accentColor: const Color(0xFF2B77A6),
-    surfaceColor: Colors.white,
-    highlightedModuleIndex: null,
-    highlightedGlassFieldIndex: null,
-    highlightedManufacturingFieldKind: null,
-    roofAngleDeg: roofAngleDeg,
-    rearHeightMm: rearHeightMm,
-    frontHeightMm: frontHeightMm,
-    calculatedModules: calculatedModules,
-    wallMounted: wallMounted,
-    postCount: postCount,
-    hasMarkise: markiseSegments.any((segment) => segment.quantity > 0),
-    sideInfoBottomReserve: 0,
-    alignRoofTop: true,
-    showRoofTypeInSideInfo: showRoofType,
-  );
-  geometryPainter.paint(canvas, geometrySize);
-  canvas.restore();
-
-  final commissionText =
-      'Kommission${hasB2b ? ' B2B' : ''}: ${_expandedKommissionLabel(calculationNumber)}';
-  final commissionPainter = TextPainter(
-    text: const TextSpan(),
-    textDirection: TextDirection.ltr,
-  );
-  commissionPainter.text = TextSpan(
-    text: commissionText,
-    style: const TextStyle(
-      fontSize: 15,
-      fontWeight: FontWeight.w600,
-      color: Color(0xFF202124),
+  final entry = OverlayEntry(
+    builder: (_) => Positioned.fill(
+      child: IgnorePointer(
+        child: ExcludeSemantics(
+          // Opacity is quantized to an 8-bit alpha: 0.001 rounds to alpha 0 and
+          // RenderOpacity then skips painting its child, so the boundary is
+          // never painted. 1/255 is the smallest value that still paints.
+          child: Opacity(opacity: 1 / 255, child: FittedBox(child: content)),
+        ),
+      ),
     ),
   );
-  commissionPainter.layout(maxWidth: math.max(200, rightWidth * 0.55));
-  final commissionRect = RRect.fromRectAndRadius(
-    Rect.fromLTWH(
-      rightX + 8,
-      outer + 8,
-      commissionPainter.width + 20,
-      commissionPainter.height + 8,
-    ),
-    const Radius.circular(6),
-  );
-  canvas.drawRRect(commissionRect, Paint()..color = Colors.white);
-  canvas.drawRRect(
-    commissionRect,
-    Paint()
-      ..style = PaintingStyle.stroke
-      ..color = const Color(0xFFBFC1C6),
-  );
-  commissionPainter.paint(
-    canvas,
-    Offset(rightX + 18, outer + 12),
-  );
-
-  _paintExpandedText(
-    canvas,
-    'Date: ${_displaySavedDate(calculationSavedAt)}',
-    Offset(rightX + rightWidth - 210, outer + 10),
-    maxWidth: 200,
-    fontSize: 10,
-    fontWeight: FontWeight.w600,
-    color: const Color(0xFF202124),
-  );
-
-  final notesText = quoteNotes?.trim() ?? '';
-  if (notesText.isNotEmpty) {
-    final noteY = outer + geometryHeight - 55;
-    _paintExpandedText(
-      canvas,
-      'Notes',
-      Offset(rightX + rightWidth * 0.55, noteY),
-      maxWidth: rightWidth * 0.42,
-      fontSize: 9,
-      fontWeight: FontWeight.w700,
-    );
-    _paintExpandedText(
-      canvas,
-      notesText,
-      Offset(rightX + rightWidth * 0.55, noteY + 13),
-      maxWidth: rightWidth * 0.42,
-      fontSize: 9,
-      maxLines: 3,
-    );
-  }
-
-  final modulesY = outer + geometryHeight + 10;
-  canvas.drawLine(
-    Offset(rightX, modulesY),
-    Offset(rightX + rightWidth, modulesY),
-    Paint()
-      ..color = const Color(0xFFD4D5DA)
-      ..strokeWidth = 1,
-  );
-  _paintExpandedText(
-    canvas,
-    'Modules',
-    Offset(rightX + 4, modulesY + 12),
-    maxWidth: rightWidth - 8,
-    fontSize: 11,
-    fontWeight: FontWeight.w600,
-  );
-  var moduleY = modulesY + 31;
-  if (modules.isEmpty) {
-    _paintExpandedText(
-      canvas,
-      '—',
-      Offset(rightX + 4, moduleY),
-      maxWidth: rightWidth - 8,
-      fontSize: 10.5,
-    );
-  } else {
-    for (var index = 0; index < modules.length && index < 4; index++) {
-      final markise = markiseSegments
-          .where((entry) => entry.moduleIndex == index + 1)
-          .firstOrNull;
-      final calculated = calculatedModules
-          .where((entry) => entry.moduleIndex == index + 1)
-          .firstOrNull;
-      final line =
-          '${index + 1} · ${_moduleLabel(_effectiveModuleRole(modules[index], index, moduleRoles), index + 1)} · '
-          'T: ${_dimensionValue(modules[index].moduleDepthMm)} mm × '
-          'B: ${_dimensionValue(modules[index].moduleWidthMm)} mm · '
-          'Glas: ${calculated?.glassCount ?? '—'} · '
-          'Träger: ${calculated?.beamCount ?? '—'}'
-          '${markise == null ? '' : ' · Markise: ${markise.typeLabel} · ${markise.quantity} stk.'}';
-      final painted = _paintExpandedText(
-        canvas,
-        line,
-        Offset(rightX + 4, moduleY),
-        maxWidth: rightWidth - 8,
-        fontSize: 10,
-        maxLines: 1,
-      );
-      moduleY += painted.height + 5;
-    }
-  }
-
-  final picture = recorder.endRecording();
-  final image = await picture.toImage(
-    expandedGeometryPreviewRasterWidth,
-    expandedGeometryPreviewRasterHeight,
-  );
-  picture.dispose();
+  Overlay.of(context, rootOverlay: true).insert(entry);
   try {
-    final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
-    if (byteData == null) {
-      throw StateError('Expanded geometry preview PNG encoding failed.');
+    await WidgetsBinding.instance.endOfFrame;
+    final boundary = boundaryKey.currentContext?.findRenderObject();
+    if (boundary is! RenderRepaintBoundary) {
+      throw StateError('Expanded geometry preview is not ready for export.');
     }
-    return byteData.buffer.asUint8List(
-      byteData.offsetInBytes,
-      byteData.lengthInBytes,
+    final image = await boundary.toImage(
+      pixelRatio: expandedGeometryPreviewRasterScale.toDouble(),
     );
+    try {
+      final data = await image.toByteData(format: ui.ImageByteFormat.png);
+      if (data == null) {
+        throw StateError('Expanded geometry preview PNG encoding failed.');
+      }
+      return data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
+    } finally {
+      image.dispose();
+    }
   } finally {
-    image.dispose();
+    entry.remove();
+    entry.dispose();
   }
 }
 

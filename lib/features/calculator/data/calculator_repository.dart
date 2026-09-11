@@ -103,6 +103,18 @@ class CalculatorRepository {
     return SavedQuote.fromJson(response);
   }
 
+  Future<void> saveQuotePrintAssets(
+    String quoteId, {
+    required String geometryPreviewFileId,
+    required String expandedGeometryPreviewFileId,
+  }) async {
+    await _client.postJson('/api/internal/calculator/print-assets', body: {
+      'quote_id': quoteId,
+      'geometry_preview_file_id': geometryPreviewFileId,
+      'expanded_geometry_preview_file_id': expandedGeometryPreviewFileId,
+    });
+  }
+
   Future<PrintDialogData> fetchPrintDialogData(String quoteId) async {
     final response = await _client.getJson(
       '/api/internal/calculator/print',

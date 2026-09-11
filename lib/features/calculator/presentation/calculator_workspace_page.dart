@@ -695,23 +695,25 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
   Future<void> _saveQuote(BuildContext context, SaveQuoteMode mode) async {
     final loadedQuote = ref.read(loadedQuoteProvider);
 
+    SavedQuote? persistedQuote;
     setState(() => _isSavingQuote = true);
     try {
-      final draft = ref.read(calculatorDraftProvider);
-      final calculatorContext = ref.read(calculatorContextProvider).asData?.value;
+      var draft = ref.read(calculatorDraftProvider);
+      final calculatorContext = ref
+          .read(calculatorContextProvider)
+          .asData
+          ?.value;
       if (calculatorContext == null) {
         throw StateError('Calculator context is not ready.');
       }
 
-      // Save must persist exactly the calculation that is on screen. Recalculating
-      // here would re-derive Set contents from the current draft and silently
-      // discard manual composition/quantity overrides that were part of the
-      // result the user is looking at.
-      final serverResult = ref.read(calculatorResultProvider).asData?.value;
+      // Require a calculation for the current draft before saving it.
+      var serverResult = ref.read(calculatorResultProvider).asData?.value;
       if (serverResult == null) {
         throw StateError('Calculate the configuration before saving.');
       }
-      if (_priceSignature(draft) != _priceSignatureForResult(
+      if (_priceSignature(draft) !=
+          _priceSignatureForResult(
             serverResult,
             ref.read(loadedQuoteProvider),
           )) {
@@ -719,6 +721,34 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
           'The configuration changed after the last calculation. Recalculate before saving.',
         );
       }
+
+      final repository = ref.read(calculatorRepositoryProvider);
+      final savedQuote = await repository.saveQuote(
+        draft,
+        mode: mode,
+        baseQuoteId: mode == SaveQuoteMode.asOption ? loadedQuote?.id : null,
+      );
+      persistedQuote = savedQuote;
+      final persisted = await repository.loadQuoteForWorkspace(savedQuote.id);
+      if (!mounted || !context.mounted) return;
+      ref.read(loadedQuoteProvider.notifier).set(persisted);
+      ref.read(calculatorDraftProvider.notifier).loadQuote(persisted);
+      setState(() => _savedQuote = savedQuote);
+      draft = CalculatorDraft.fromCalculationJson(
+        persisted.input,
+        productFamilyId: persisted.productFamilyId,
+      );
+      serverResult = persisted.resultJson == null
+          ? null
+          : CalculatorResult.fromJson(persisted.resultJson!);
+      if (serverResult == null) {
+        throw StateError('Saved calculation has no result.');
+      }
+      // Show the saved result now, so a failed preview step below does not
+      // leave the workspace on the pre-save result (false "recalculate").
+      _calculatedResult = serverResult;
+      _calculatedPriceSignature = _priceSignature(draft);
+      ref.read(calculatorResultProvider.notifier).setData(serverResult);
 
       final selectedTemplate = calculatorContext.templates
           .where((entry) => entry.id == draft.templateId)
@@ -757,24 +787,27 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
       final previewContact = b2bOption == null
           ? dealerContact
           : _calculatorContactForOption(b2bOption);
-      final dealerPreviewName = _calculatorPartyShortCustomerLabel(dealerOption);
+      final dealerPreviewName = _calculatorPartyShortCustomerLabel(
+        dealerOption,
+      );
       final b2bPreviewName = b2bOption == null
           ? null
           : _calculatorPartyShortCustomerLabel(b2bOption);
       final handoverTypeCode = draft.handoverTypeCode?.trim();
-      final handover = (calculatorContext.references['handover_types'] ?? const [])
-          .where(
-            (option) =>
-                option.code == handoverTypeCode ||
-                option.id == handoverTypeCode,
-          )
-          .cast<CalculatorOption?>()
-          .firstOrNull;
-      final calculationNumber = loadedQuote?.quoteNo ??
-          ref.read(calculatorQuoteNumberPreviewProvider).asData?.value ??
-          draft.quoteNoExternal;
-      final previewSavedAt = DateTime.now().toIso8601String();
-      final currentUser = geometryPreviewCurrentUserLabel(ref.read(authSessionProvider));
+      final handover =
+          (calculatorContext.references['handover_types'] ?? const [])
+              .where(
+                (option) =>
+                    option.code == handoverTypeCode ||
+                    option.id == handoverTypeCode,
+              )
+              .cast<CalculatorOption?>()
+              .firstOrNull;
+      final calculationNumber = savedQuote.quoteNo;
+      final previewSavedAt = savedQuote.createdAt;
+      final currentUser = geometryPreviewCurrentUserLabel(
+        ref.read(authSessionProvider),
+      );
       final mediaRepository = ref.read(resourceRepositoryProvider);
       final humanImage = await loadGeometryPreviewHumanImage(mediaRepository);
       final geometryPng = await renderGeometryOnlyPreviewPng(
@@ -794,49 +827,61 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
         frontHeightMm: draft.roofFrontHeightMm,
         humanImage: humanImage,
       );
+      if (!mounted || !context.mounted) return;
       final expandedGeometryPng = await renderExpandedGeometryPreviewPng(
-        modelCode: draft.modelCode,
-        modelLabel: previewData.selectedModel?.label,
-        widthMm: draft.widthMm,
-        depthMm: draft.depthMm,
-        heightMm: draft.heightMm,
-        geometryParams: geometryPreviewParamsFromDraft(draft),
-        modules: draft.setContents,
-        moduleRoles: _moduleRolesFor(previewData.selectedModel),
-        calculatedModules: previewData.roofCalculation.modules,
-        calculationNumber: calculationNumber,
-        calculationSavedAt: previewSavedAt,
-        buyerName: dealerPreviewName,
-        b2bPartnerName: b2bPreviewName,
-        buyerContactName: previewContact.contactName,
-        buyerEmail: previewContact.email,
-        buyerPhone: previewContact.phone,
-        weights: serverResult.weights,
-        deliveryName: handover?.label ?? handoverTypeCode,
-        completionWeek: draft.completionWeek,
-        colorCode: colorPreview?.displayCode,
-        colorSwatchColor: colorPreview?.color,
-        isSpecialColor: colorPreview != null && !colorPreview.isStandard,
-        coveringName: previewData.coveringName,
-        coveringSummary: previewData.coveringSummary,
-        markiseSegments: markiseSegments,
-        staticBeam: previewData.roofCalculation.staticBeam,
-        wallMounted: draft.wallMounted,
-        postCount: previewData.postCount,
-        quoteNotes: draft.externalNotes,
-        roofAngleDeg: draft.roofAngleDeg,
-        rearHeightMm: draft.roofRearHeightMm ?? draft.heightMm,
-        frontHeightMm: draft.roofFrontHeightMm,
+        context: context,
         currentUser: currentUser,
-        humanImage: humanImage,
+        preview: ModelGeometryPreview(
+          mediaRepository: mediaRepository,
+          modelCode: draft.modelCode,
+          modelLabel: previewData.selectedModel?.label,
+          widthMm: draft.widthMm,
+          depthMm: draft.depthMm,
+          heightMm: draft.heightMm,
+          geometryParams: geometryPreviewParamsFromDraft(draft),
+          modules: draft.setContents,
+          moduleRoles: _moduleRolesFor(previewData.selectedModel),
+          calculatedModules: previewData.roofCalculation.modules,
+          calculationNumber: calculationNumber,
+          calculationSavedAt: previewSavedAt,
+          buyerName: dealerPreviewName,
+          b2bPartnerName: b2bPreviewName,
+          buyerContactName: previewContact.contactName,
+          buyerEmail: previewContact.email,
+          buyerPhone: previewContact.phone,
+          weights: serverResult.weights,
+          deliveryName: handover?.label ?? handoverTypeCode,
+          completionWeek: draft.completionWeek,
+          colorCode: colorPreview?.displayCode,
+          colorSwatchColor: colorPreview?.color,
+          isSpecialColor: colorPreview != null && !colorPreview.isStandard,
+          coveringName: previewData.coveringName,
+          coveringSummary: previewData.coveringSummary,
+          markiseSegments: markiseSegments,
+          staticBeam: previewData.roofCalculation.staticBeam,
+          wallMounted: draft.wallMounted,
+          postCount: previewData.postCount,
+          quoteNotes: draft.externalNotes,
+          roofAngleDeg: draft.roofAngleDeg,
+          rearHeightMm: draft.roofRearHeightMm ?? draft.heightMm,
+          frontHeightMm: draft.roofFrontHeightMm,
+          warnings: _flattenWarningMessages(
+            _calculatorWarningMessagesByStep(
+              draft: draft,
+              result: serverResult,
+            ),
+          ),
+        ),
       );
       final uploadedGeometry = await mediaRepository.uploadMediaFile(
-        filename: 'geometry_${DateTime.now().toUtc().millisecondsSinceEpoch}.png',
+        filename:
+            'geometry_${DateTime.now().toUtc().millisecondsSinceEpoch}.png',
         contentType: 'image/png',
         dataBase64: base64Encode(geometryPng),
         purpose: 'quotes/geometry-preview',
         metadata: {
           'variant': 'geometry_only',
+          'quote_id': savedQuote.id,
           'width': geometryOnlyPreviewRasterWidth,
           'height': geometryOnlyPreviewRasterHeight,
           'logical_width': geometryOnlyPreviewWidth,
@@ -851,8 +896,7 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
         throw StateError('Geometry preview upload returned no file id.');
       }
 
-      final uploadedExpandedGeometry =
-          await mediaRepository.uploadMediaFile(
+      final uploadedExpandedGeometry = await mediaRepository.uploadMediaFile(
         filename:
             'geometry_preview_${DateTime.now().toUtc().millisecondsSinceEpoch}.png',
         contentType: 'image/png',
@@ -860,15 +904,17 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
         purpose: 'quotes/geometry-preview-expanded',
         metadata: {
           'variant': 'geometry_expanded',
+          'quote_id': savedQuote.id,
+          'render_version': 2,
           'width': expandedGeometryPreviewRasterWidth,
           'height': expandedGeometryPreviewRasterHeight,
           'logical_width': expandedGeometryPreviewWidth,
           'logical_height': expandedGeometryPreviewHeight,
           'model_code': draft.modelCode,
           'quote_no_external': draft.quoteNoExternal,
-          'warnings_included': false,
-          'qr_included': false,
-          'auxiliary_images_included': false,
+          'warnings_included': true,
+          'qr_included': true,
+          'auxiliary_images_included': true,
         },
       );
       final expandedGeometryPreviewFileId =
@@ -879,15 +925,14 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
         );
       }
 
-      final repository = ref.read(calculatorRepositoryProvider);
-      final savedQuote = await repository.saveQuote(
-        draft,
-        mode: mode,
-        baseQuoteId: mode == SaveQuoteMode.asOption ? loadedQuote?.id : null,
+      await repository.saveQuotePrintAssets(
+        savedQuote.id,
         geometryPreviewFileId: geometryPreviewFileId,
         expandedGeometryPreviewFileId: expandedGeometryPreviewFileId,
       );
-      final savedLoadedQuote = await repository.loadQuoteForWorkspace(savedQuote.id);
+      final savedLoadedQuote = await repository.loadQuoteForWorkspace(
+        savedQuote.id,
+      );
 
       if (!mounted || !context.mounted) return;
 
@@ -922,7 +967,9 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
       if (!context.mounted) return;
       showTopNotification(
         context,
-        'Server calculation or quote save failed: $error',
+        persistedQuote == null
+            ? 'Server calculation or quote save failed: $error'
+            : 'Quote ${persistedQuote.quoteNo} was saved, but its print preview could not be completed: $error',
         type: TopNotificationType.error,
       );
     } finally {
