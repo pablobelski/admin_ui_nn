@@ -225,6 +225,8 @@ class ModelGeometryPreview extends ConsumerStatefulWidget {
     this.showRoofType = true,
     this.onGenerateGlb,
     this.onAwaitGlbJob,
+    this.onCheckGeneratedGlb,
+    this.glbStatusKey,
   });
 
   final String? modelCode;
@@ -267,6 +269,8 @@ class ModelGeometryPreview extends ConsumerStatefulWidget {
   final bool showRoofType;
   final Future<Map<String, dynamic>> Function()? onGenerateGlb;
   final Future<QuoteIntegrationJob?> Function(String jobId)? onAwaitGlbJob;
+  final Future<bool> Function()? onCheckGeneratedGlb;
+  final String? glbStatusKey;
 
   @override
   ConsumerState<ModelGeometryPreview> createState() => _ModelGeometryPreviewState();
@@ -276,12 +280,14 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
   late Future<ui.Image?> _humanImageFuture;
   late Future<Uint8List?> _staticBeamInstructionImageFuture;
   bool _isGeneratingGlb = false;
+  bool _hasGeneratedGlb = false;
 
   @override
   void initState() {
     super.initState();
     _humanImageFuture = _loadHumanImage();
     _staticBeamInstructionImageFuture = _loadStaticBeamInstructionImage();
+    unawaited(_refreshGlbAvailability());
   }
 
   @override
@@ -292,6 +298,24 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
     if (oldFilename != newFilename ||
         oldWidget.staticBeam?.enabled != widget.staticBeam?.enabled) {
       _staticBeamInstructionImageFuture = _loadStaticBeamInstructionImage();
+    }
+    if (oldWidget.glbStatusKey != widget.glbStatusKey) {
+      _hasGeneratedGlb = false;
+      unawaited(_refreshGlbAvailability());
+    }
+  }
+
+  Future<void> _refreshGlbAvailability() async {
+    final check = widget.onCheckGeneratedGlb;
+    final statusKey = widget.glbStatusKey;
+    if (check == null) return;
+    try {
+      final available = await check();
+      if (!mounted || widget.glbStatusKey != statusKey) return;
+      setState(() => _hasGeneratedGlb = available);
+    } catch (_) {
+      // The 3D availability indicator is optional UI state; generation itself
+      // remains available through the existing button even if this check fails.
     }
   }
 
@@ -310,6 +334,7 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
       notifyQuoteIntegrationsChanged();
       if (!mounted) return;
       if (job.statusCode == 'succeeded') {
+        setState(() => _hasGeneratedGlb = true);
         showTopNotification(
           context,
           'GLB generation completed and saved to Media Library. Open the 3D preview to view it.',
@@ -361,6 +386,7 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
       if (fileId.isEmpty) {
         throw StateError('GLB generation returned no Media Library file id.');
       }
+      if (mounted) setState(() => _hasGeneratedGlb = true);
       final response = await widget.mediaRepository.viewMediaFile(fileId);
       if (!mounted) return;
 
@@ -493,19 +519,32 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
                 IconButton(
                   tooltip: widget.onGenerateGlb == null
                       ? 'Save the current calculation to generate GLB'
-                      : 'Open 3D preview (generate GLB if needed)',
+                      : _hasGeneratedGlb
+                          ? '3D model is ready · open preview'
+                          : 'Open 3D preview (generate GLB if needed)',
                   onPressed: widget.onGenerateGlb != null && !_isGeneratingGlb
                       ? _generateGlb
                       : null,
                   padding: EdgeInsets.zero,
                   constraints: const BoxConstraints.tightFor(width: 28, height: 28),
+                  style: _hasGeneratedGlb
+                      ? IconButton.styleFrom(
+                          backgroundColor: colorScheme.primaryContainer,
+                          foregroundColor: colorScheme.onPrimaryContainer,
+                        )
+                      : null,
                   icon: _isGeneratingGlb
                       ? const SizedBox(
                           width: 16,
                           height: 16,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : const Icon(Icons.view_in_ar_outlined, size: 18),
+                      : Icon(
+                          _hasGeneratedGlb
+                              ? Icons.view_in_ar
+                              : Icons.view_in_ar_outlined,
+                          size: _hasGeneratedGlb ? 20 : 18,
+                        ),
                 ),
                 const SizedBox(width: 4),
                 IconButton(
@@ -630,13 +669,21 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
                       IconButton(
                         tooltip: widget.onGenerateGlb == null
                             ? 'Save the current calculation to generate GLB'
-                            : 'Open 3D preview (generate GLB if needed)',
+                            : _hasGeneratedGlb
+                                ? '3D model is ready · open preview'
+                                : 'Open 3D preview (generate GLB if needed)',
                         onPressed:
                             widget.onGenerateGlb != null && !_isGeneratingGlb
                             ? () async {
                                 Navigator.of(dialogContext).pop();
                                 await _generateGlb();
                               }
+                            : null,
+                        style: _hasGeneratedGlb
+                            ? IconButton.styleFrom(
+                                backgroundColor: colorScheme.primaryContainer,
+                                foregroundColor: colorScheme.onPrimaryContainer,
+                              )
                             : null,
                         icon: _isGeneratingGlb
                             ? const SizedBox(
@@ -646,7 +693,11 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
                                   strokeWidth: 2,
                                 ),
                               )
-                            : const Icon(Icons.view_in_ar_outlined),
+                            : Icon(
+                                _hasGeneratedGlb
+                                    ? Icons.view_in_ar
+                                    : Icons.view_in_ar_outlined,
+                              ),
                       ),
                       IconButton(
                         tooltip: 'Download PNG',
@@ -967,35 +1018,58 @@ class _ExpandedGeometryPreview extends StatelessWidget {
                                 ],
                               ),
                             ),
-                            if (!stablePrintTextLayout &&
-                                (warningText.isNotEmpty || notesText.isNotEmpty))
+                            if (warningText.isNotEmpty || notesText.isNotEmpty)
                               Positioned(
                                 left: 12,
                                 right: dateRightInset,
                                 bottom: 0,
-                                child: Row(
-                                  crossAxisAlignment: CrossAxisAlignment.end,
-                                  children: [
-                                    if (warningText.isNotEmpty)
-                                      Expanded(
-                                        child: _ExpandedPreviewTextBlock(
-                                          title: 'Warnings',
-                                          text: warningText,
-                                          textColor: colorScheme.error,
-                                        ),
+                                child: stablePrintTextLayout
+                                    ? Row(
+                                        crossAxisAlignment: CrossAxisAlignment.end,
+                                        children: [
+                                          Expanded(
+                                            child: warningText.isEmpty
+                                                ? const SizedBox.shrink()
+                                                : _ExpandedPreviewTextBlock(
+                                                    title: 'Warnings',
+                                                    text: warningText,
+                                                    textColor: colorScheme.error,
+                                                  ),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Expanded(
+                                            child: notesText.isEmpty
+                                                ? const SizedBox.shrink()
+                                                : _ExpandedPreviewTextBlock(
+                                                    title: 'Notes',
+                                                    text: notesText,
+                                                  ),
+                                          ),
+                                        ],
+                                      )
+                                    : Row(
+                                        crossAxisAlignment: CrossAxisAlignment.end,
+                                        children: [
+                                          if (warningText.isNotEmpty)
+                                            Expanded(
+                                              child: _ExpandedPreviewTextBlock(
+                                                title: 'Warnings',
+                                                text: warningText,
+                                                textColor: colorScheme.error,
+                                              ),
+                                            ),
+                                          if (warningText.isNotEmpty &&
+                                              notesText.isNotEmpty)
+                                            const SizedBox(width: 8),
+                                          if (notesText.isNotEmpty)
+                                            Expanded(
+                                              child: _ExpandedPreviewTextBlock(
+                                                title: 'Notes',
+                                                text: notesText,
+                                              ),
+                                            ),
+                                        ],
                                       ),
-                                    if (warningText.isNotEmpty &&
-                                        notesText.isNotEmpty)
-                                      const SizedBox(width: 8),
-                                    if (notesText.isNotEmpty)
-                                      Expanded(
-                                        child: _ExpandedPreviewTextBlock(
-                                          title: 'Notes',
-                                          text: notesText,
-                                        ),
-                                      ),
-                                  ],
-                                ),
                               ),
                             if (hasStaticBeamInstructionImage)
                               Positioned(
@@ -1050,35 +1124,6 @@ class _ExpandedGeometryPreview extends StatelessWidget {
                     moduleRoles: widget.moduleRoles,
                     markiseSegments: widget.markiseSegments,
                   ),
-                  if (stablePrintTextLayout) ...[
-                    const SizedBox(height: 8),
-                    SizedBox(
-                      height: expandedGeometryPreviewPrintTextBlockHeight,
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(
-                            child: warningText.isEmpty
-                                ? const SizedBox.shrink()
-                                : _ExpandedPreviewTextBlock(
-                                    title: 'Warnings',
-                                    text: warningText,
-                                    textColor: colorScheme.error,
-                                  ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: notesText.isEmpty
-                                ? const SizedBox.shrink()
-                                : _ExpandedPreviewTextBlock(
-                                    title: 'Notes',
-                                    text: notesText,
-                                  ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
                 ],
               ),
             ),
@@ -1715,7 +1760,6 @@ const expandedGeometryPreviewRasterWidth =
     expandedGeometryPreviewWidth * expandedGeometryPreviewRasterScale;
 const expandedGeometryPreviewRasterHeight =
     expandedGeometryPreviewHeight * expandedGeometryPreviewRasterScale;
-const expandedGeometryPreviewPrintTextBlockHeight = 104.0;
 
 // Rasterize the same widget as the enlarged UI after its images have loaded.
 Future<Uint8List> renderExpandedGeometryPreviewPng({

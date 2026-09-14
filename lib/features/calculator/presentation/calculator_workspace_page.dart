@@ -914,7 +914,7 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
         metadata: {
           'variant': 'geometry_expanded',
           'quote_id': savedQuote.id,
-          'render_version': 3,
+          'render_version': 4,
           'width': expandedGeometryPreviewRasterWidth,
           'height': expandedGeometryPreviewRasterHeight,
           'logical_width': expandedGeometryPreviewWidth,
@@ -12945,6 +12945,35 @@ class _ResultPanel extends StatelessWidget {
         );
   }
 
+  Future<bool> Function()? get _checkGeneratedGlb {
+    final quoteId = loadedQuote?.id ?? savedQuote?.id;
+    if ((quoteId ?? '').isEmpty || !isCalculationSaved || needsRecalculation) {
+      return null;
+    }
+    final quoteRevision = savedQuote?.createdAt ?? loadedQuote?.createdAt;
+    final quoteRevisionAt = quoteRevision == null
+        ? null
+        : DateTime.tryParse(quoteRevision)?.toUtc();
+    return () async {
+      final overview = await documentsRepository.fetchQuoteIntegrations(quoteId!);
+      return overview.jobs.any((job) {
+        if (job.operationCode != 'generate_glb' || job.statusCode != 'succeeded') {
+          return false;
+        }
+        final jobCreatedAt = DateTime.tryParse(job.createdAt)?.toUtc();
+        return quoteRevisionAt == null ||
+            jobCreatedAt == null ||
+            !jobCreatedAt.isBefore(quoteRevisionAt);
+      });
+    };
+  }
+
+  String? get _glbStatusKey {
+    final quoteId = loadedQuote?.id ?? savedQuote?.id;
+    if ((quoteId ?? '').isEmpty) return null;
+    return '$quoteId:${isCalculationSaved ? 1 : 0}:${needsRecalculation ? 1 : 0}';
+  }
+
   @override
   Widget build(BuildContext context) {
     final showPreviewTab = _showPreviewTab;
@@ -13016,6 +13045,8 @@ class _ResultPanel extends StatelessWidget {
                                   mediaRepository: mediaRepository,
                                   onGenerateGlb: _generateGlb,
                                   onAwaitGlbJob: _awaitGlbJob,
+                                  onCheckGeneratedGlb: _checkGeneratedGlb,
+                                  glbStatusKey: _glbStatusKey,
                                   savedInput: loadedQuote?.input,
                                   calculationNumber: calculationNumber,
                                   calculationSavedAt: savedQuote?.createdAt ?? loadedQuote?.createdAt,
@@ -13114,6 +13145,8 @@ class _ResultPanel extends StatelessWidget {
                                   mediaRepository: mediaRepository,
                                   onGenerateGlb: _generateGlb,
                                   onAwaitGlbJob: _awaitGlbJob,
+                                  onCheckGeneratedGlb: _checkGeneratedGlb,
+                                  glbStatusKey: _glbStatusKey,
                                   result: result,
                                   savedInput: loadedQuote?.input,
                                   calculationNumber: calculationNumber,
@@ -13219,6 +13252,8 @@ class _ResultPanel extends StatelessWidget {
                             mediaRepository: mediaRepository,
                             onGenerateGlb: _generateGlb,
                             onAwaitGlbJob: _awaitGlbJob,
+                            onCheckGeneratedGlb: _checkGeneratedGlb,
+                            glbStatusKey: _glbStatusKey,
                             calculationNumber: calculationNumber,
                             calculationSavedAt: savedQuote?.createdAt ?? loadedQuote?.createdAt,
                             highlightedModuleIndex: highlightedModuleIndex,
@@ -13417,6 +13452,8 @@ class _GeometryPreviewTab extends StatelessWidget {
     this.result,
     this.onGenerateGlb,
     this.onAwaitGlbJob,
+    this.onCheckGeneratedGlb,
+    this.glbStatusKey,
     this.savedInput,
     this.calculationNumber,
     this.calculationSavedAt,
@@ -13432,6 +13469,8 @@ class _GeometryPreviewTab extends StatelessWidget {
   final CalculatorResult? result;
   final Future<Map<String, dynamic>> Function()? onGenerateGlb;
   final Future<QuoteIntegrationJob?> Function(String jobId)? onAwaitGlbJob;
+  final Future<bool> Function()? onCheckGeneratedGlb;
+  final String? glbStatusKey;
   final Map<String, dynamic>? savedInput;
   final String? calculationNumber;
   final String? calculationSavedAt;
@@ -13507,6 +13546,8 @@ class _GeometryPreviewTab extends StatelessWidget {
               mediaRepository: mediaRepository,
               onGenerateGlb: onGenerateGlb,
               onAwaitGlbJob: onAwaitGlbJob,
+              onCheckGeneratedGlb: onCheckGeneratedGlb,
+              glbStatusKey: glbStatusKey,
               widthMm: draft.widthMm,
               depthMm: draft.depthMm,
               heightMm: draft.heightMm,

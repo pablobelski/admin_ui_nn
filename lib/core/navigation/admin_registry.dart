@@ -1127,6 +1127,7 @@ const adminNavGroups = <AdminNavGroup>[
           AdminField(key: 'color_code', label: 'Color code'),
           AdminField(key: 'color_name', label: 'Color name'),
           AdminField(key: 'length_mm', label: 'Length', type: AdminFieldType.number),
+          AdminField(key: 'stock_length_mm', label: 'Stock length, mm', type: AdminFieldType.number),
           AdminField(key: 'glass_type_code', label: 'Glass type'),
           AdminField(key: 'coating_type_code', label: 'Coating type'),
           AdminField(key: 'package_unit_code', label: 'Package unit', options: unitOptions),
