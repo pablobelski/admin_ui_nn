@@ -49,6 +49,8 @@ class AdminField {
     this.lookupFilterFieldKey,
     this.lookupFilterQueryKey,
     this.lookupFilters = const {},
+    this.visibleWhenFieldKey,
+    this.visibleWhenValues = const [],
   });
 
   final String key;
@@ -70,6 +72,8 @@ class AdminField {
   final String? lookupFilterFieldKey;
   final String? lookupFilterQueryKey;
   final Map<String, String> lookupFilters;
+  final String? visibleWhenFieldKey;
+  final List<String> visibleWhenValues;
 }
 
 class AdminColumn {

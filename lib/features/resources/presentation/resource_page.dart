@@ -3227,6 +3227,13 @@ class _SavedQuoteGeometryPreviewTab extends StatelessWidget {
             onGenerateGlb: quoteId.isEmpty
                 ? null
                 : () => quoteRepository.generateGlb(quoteId),
+            onAwaitGlbJob: quoteId.isEmpty
+                ? null
+                : (jobId) => quoteRepository.waitForBackgroundJob(
+                      quoteId,
+                      jobId,
+                      timeout: const Duration(minutes: 30),
+                    ),
             widthMm: draft.widthMm,
             depthMm: draft.depthMm,
             heightMm: draft.heightMm,

@@ -2275,6 +2275,33 @@ class LoadedQuote {
         input,
         productFamilyId: productFamilyId,
       ).toWorkspaceJson();
+
+  /// Status-only copy used after a background submit / status change so the
+  /// workspace does not have to reload the whole quote from the server.
+  /// The catalog lists are reused by reference on purpose: they are watched by
+  /// calculatorContextProvider, which must not refetch the calculator context
+  /// (and blank the workspace) just because the quote status changed.
+  LoadedQuote withStatusCode(String value) {
+    final normalized = value.trim();
+    if (normalized.isEmpty || normalized == statusCode) return this;
+    return LoadedQuote(
+      id: id,
+      quoteNo: quoteNo,
+      statusCode: normalized,
+      input: input,
+      productFamilyId: productFamilyId,
+      resultJson: resultJson,
+      sellerOrganizationId: sellerOrganizationId,
+      buyerOrganizationId: buyerOrganizationId,
+      shipToOrganizationId: shipToOrganizationId,
+      quoteNoExternal: quoteNoExternal,
+      externalNotes: externalNotes,
+      createdAt: createdAt,
+      catalogItems: catalogItems,
+      catalogVariants: catalogVariants,
+      catalogWarnings: catalogWarnings,
+    );
+  }
 }
 
 enum SaveQuoteMode {

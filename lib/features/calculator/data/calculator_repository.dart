@@ -107,11 +107,16 @@ class CalculatorRepository {
     String quoteId, {
     required String geometryPreviewFileId,
     required String expandedGeometryPreviewFileId,
+    required List<String> expandedGeometryPreviewWarnings,
+    required bool expandedGeometryPreviewWarningsIncluded,
   }) async {
     await _client.postJson('/api/internal/calculator/print-assets', body: {
       'quote_id': quoteId,
       'geometry_preview_file_id': geometryPreviewFileId,
       'expanded_geometry_preview_file_id': expandedGeometryPreviewFileId,
+      'expanded_geometry_preview_warnings': expandedGeometryPreviewWarnings,
+      'expanded_geometry_preview_warnings_included':
+          expandedGeometryPreviewWarningsIncluded,
     });
   }
 
@@ -123,12 +128,16 @@ class CalculatorRepository {
     return PrintDialogData.fromJson(response);
   }
 
-  Future<GeneratedDocument> printPdf({
+  Future<BackgroundOperationResult> printPdf({
     required String quoteId,
     String? documentTemplateId,
     List<String> documentTemplateIds = const [],
     String? documentBatchId,
     bool useDefaultBatch = false,
+    bool? splitOutput,
+    bool? includeGeometryPreview,
+    bool? includeGeometryWarnings,
+    bool geometryPreviewOnly = false,
   }) async {
     final response = await _client.postJson(
       '/api/internal/calculator/print',
@@ -142,9 +151,15 @@ class CalculatorRepository {
           'document_template_ids': documentTemplateIds
         else if (documentTemplateId != null && documentTemplateId.isNotEmpty)
           'document_template_id': documentTemplateId,
+        if (splitOutput != null) 'split_output': splitOutput,
+        if (includeGeometryPreview != null)
+          'include_geometry_preview': includeGeometryPreview,
+        if (includeGeometryWarnings != null)
+          'include_geometry_warnings': includeGeometryWarnings,
+        if (geometryPreviewOnly) 'geometry_preview_only': true,
       },
     );
-    return GeneratedDocument.fromJson(response);
+    return BackgroundOperationResult.fromJson(response);
   }
 
   Future<QuoteStatusTransitions> fetchQuoteStatusTransitions(
@@ -225,6 +240,31 @@ class CalculatorRepository {
       '/api/internal/calculator/glb',
       body: {'quote_id': quoteId},
     );
+  }
+
+  Future<QuoteIntegrationJob?> waitForBackgroundJob(
+    String quoteId,
+    String jobId, {
+    Duration pollInterval = const Duration(seconds: 1),
+    Duration timeout = const Duration(minutes: 10),
+    bool Function()? shouldContinue,
+  }) async {
+    final deadline = DateTime.now().add(timeout);
+    while (DateTime.now().isBefore(deadline)) {
+      if (shouldContinue != null && !shouldContinue()) return null;
+      final response = await _client.getJson(
+        '/api/internal/calculator/integration-job',
+        query: {'quote_id': quoteId, 'job_id': jobId},
+      );
+      final job = QuoteIntegrationJob.fromJson(response);
+      if (job.statusCode == 'succeeded' ||
+          job.statusCode == 'failed' ||
+          job.statusCode == 'cancelled') {
+        return job;
+      }
+      await Future<void>.delayed(pollInterval);
+    }
+    throw StateError('Background job $jobId did not finish within ${timeout.inMinutes} minutes.');
   }
 
   Future<Map<String, dynamic>> fetchMediaFileUrl(String fileId) async {
@@ -345,6 +385,10 @@ class QuoteSubmitPreview {
     required this.senderName,
     required this.senderAddress,
     required this.subject,
+    required this.attachmentMode,
+    required this.recipientTemplateLabels,
+    required this.emailTemplateLabels,
+    required this.emailSubjects,
     required this.errors,
     required this.warnings,
     this.customerContactName,
@@ -361,6 +405,22 @@ class QuoteSubmitPreview {
     final recipients = _repoMap(json['recipients']);
     final batch = _repoMap(json['document_batch'] ?? json['documentBatch']);
     final email = _repoMap(json['email']);
+    final recipientTemplates = _repoMap(json['recipient_templates'] ?? json['recipientTemplates']);
+    final emailTemplates = _repoMap(json['email_templates'] ?? json['emailTemplates']);
+    String recipientTemplateLabel(String key) {
+      final template = _repoMap(recipientTemplates[key]);
+      final name = _repoString(template['name']);
+      final code = _repoString(template['code']);
+      if (name.isNotEmpty && code.isNotEmpty) return '$name ($code)';
+      return name.isNotEmpty ? name : code;
+    }
+    String emailTemplateLabel(String key) {
+      final template = _repoMap(emailTemplates[key]);
+      final name = _repoString(template['name']);
+      final code = _repoString(template['code']);
+      if (name.isNotEmpty && code.isNotEmpty) return '$name ($code)';
+      return name.isNotEmpty ? name : code;
+    }
     List<String> emails(Object? value) => value is List
         ? value.map((entry) => _repoString(entry)).where((entry) => entry.isNotEmpty).toList(growable: false)
         : const [];
@@ -381,6 +441,22 @@ class QuoteSubmitPreview {
       senderName: _repoString(sender['name']),
       senderAddress: _repoString(sender['address']),
       subject: _repoString(email['subject']),
+      attachmentMode: _repoString(json['attachment_mode'] ?? json['attachmentMode']),
+      recipientTemplateLabels: {
+        'to': recipientTemplateLabel('to'),
+        'cc': recipientTemplateLabel('cc'),
+        'bcc': recipientTemplateLabel('bcc'),
+      },
+      emailTemplateLabels: {
+        'to': emailTemplateLabel('to'),
+        'cc': emailTemplateLabel('cc'),
+        'bcc': emailTemplateLabel('bcc'),
+      },
+      emailSubjects: {
+        'to': _repoString(_repoMap(emailTemplates['to'])['subject']),
+        'cc': _repoString(_repoMap(emailTemplates['cc'])['subject']),
+        'bcc': _repoString(_repoMap(emailTemplates['bcc'])['subject']),
+      },
       documentBatchName: _repoNullableString(batch['name']),
       documentBatchCode: _repoNullableString(batch['code']),
       documentCount: _repoIntOrNull(batch['document_count'] ?? batch['documentCount']) ?? 0,
@@ -405,6 +481,10 @@ class QuoteSubmitPreview {
   final String senderName;
   final String senderAddress;
   final String subject;
+  final String attachmentMode;
+  final Map<String, String> recipientTemplateLabels;
+  final Map<String, String> emailTemplateLabels;
+  final Map<String, String> emailSubjects;
   final String? documentBatchName;
   final String? documentBatchCode;
   final int documentCount;
@@ -420,6 +500,9 @@ class QuoteSubmitResult {
     required this.quoteNo,
     required this.statusCode,
     required this.customerDeliveryEnabled,
+    required this.queued,
+    required this.jobId,
+    required this.jobStatusCode,
   });
 
   factory QuoteSubmitResult.fromJson(Map<String, dynamic> json) => QuoteSubmitResult(
@@ -429,6 +512,9 @@ class QuoteSubmitResult {
         quoteNo: _repoString(json['quote_no'] ?? json['quoteNo']),
         statusCode: _repoString(json['status_code'] ?? json['statusCode']),
         customerDeliveryEnabled: _repoBool(json['customer_delivery_enabled'] ?? json['customerDeliveryEnabled']),
+        queued: _repoBool(json['queued']),
+        jobId: _repoString(json['integration_job_id'] ?? json['job_id'] ?? json['jobId']),
+        jobStatusCode: _repoString(json['job_status_code'] ?? json['jobStatusCode']),
       );
 
   final bool ok;
@@ -437,6 +523,34 @@ class QuoteSubmitResult {
   final String quoteNo;
   final String statusCode;
   final bool customerDeliveryEnabled;
+  final bool queued;
+  final String jobId;
+  final String jobStatusCode;
+}
+
+class BackgroundOperationResult {
+  const BackgroundOperationResult({
+    required this.ok,
+    required this.queued,
+    required this.alreadyQueued,
+    required this.jobId,
+    required this.statusCode,
+  });
+
+  factory BackgroundOperationResult.fromJson(Map<String, dynamic> json) =>
+      BackgroundOperationResult(
+        ok: _repoBool(json['ok']),
+        queued: _repoBool(json['queued']),
+        alreadyQueued: _repoBool(json['already_queued'] ?? json['alreadyQueued']),
+        jobId: _repoString(json['job_id'] ?? json['jobId']),
+        statusCode: _repoString(json['status_code'] ?? json['statusCode']),
+      );
+
+  final bool ok;
+  final bool queued;
+  final bool alreadyQueued;
+  final String jobId;
+  final String statusCode;
 }
 
 class QuoteIntegrationJob {
@@ -490,6 +604,9 @@ class QuoteIntegrationOverview {
     required this.reserveItems,
     required this.reserveWarnings,
     required this.reserveComplete,
+    required this.commissionCanCreate,
+    required this.commissionGeneratePdf,
+    required this.commissionHasExistingPdf,
     required this.payloads,
     required this.jobs,
     required this.connections,
@@ -498,12 +615,16 @@ class QuoteIntegrationOverview {
 
   factory QuoteIntegrationOverview.fromJson(Map<String, dynamic> json) {
     final reserve = _repoMap(json['reserve']);
+    final commission = _repoMap(json['commission']);
     return QuoteIntegrationOverview(
       reserveItems: _repoList(reserve['items']),
       reserveWarnings: _repoList(reserve['warnings'])
           .map((entry) => '$entry')
           .toList(growable: false),
       reserveComplete: _repoBool(reserve['complete']),
+      commissionCanCreate: _repoBool(commission['can_create'], fallback: true),
+      commissionGeneratePdf: _repoBool(commission['generate_pdf']),
+      commissionHasExistingPdf: _repoBool(commission['has_existing_pdf']),
       payloads: _repoMap(json['payloads']),
       jobs: _repoList(json['jobs'])
           .map(QuoteIntegrationJob.fromJson)
@@ -516,6 +637,9 @@ class QuoteIntegrationOverview {
   final List<Map<String, dynamic>> reserveItems;
   final List<String> reserveWarnings;
   final bool reserveComplete;
+  final bool commissionCanCreate;
+  final bool commissionGeneratePdf;
+  final bool commissionHasExistingPdf;
   final Map<String, dynamic> payloads;
   final List<QuoteIntegrationJob> jobs;
   final List<Map<String, dynamic>> connections;
@@ -533,6 +657,8 @@ class QuoteIntegrationResult {
     required this.statusCode,
     required this.prepared,
     required this.reused,
+    required this.queued,
+    required this.alreadyQueued,
   });
 
   factory QuoteIntegrationResult.fromJson(Map<String, dynamic> json) =>
@@ -543,6 +669,8 @@ class QuoteIntegrationResult {
         statusCode: _repoString(json['status_code'] ?? json['statusCode']),
         prepared: _repoBool(json['prepared']),
         reused: _repoBool(json['reused']),
+        queued: _repoBool(json['queued']),
+        alreadyQueued: _repoBool(json['already_queued'] ?? json['alreadyQueued']),
       );
 
   final bool ok;
@@ -551,6 +679,8 @@ class QuoteIntegrationResult {
   final String statusCode;
   final bool prepared;
   final bool reused;
+  final bool queued;
+  final bool alreadyQueued;
 }
 
 class PrintDialogData {
@@ -559,6 +689,7 @@ class PrintDialogData {
     required this.templates,
     required this.recentDocuments,
     required this.payloadPreview,
+    required this.geometryPreviewSettings,
     this.defaultBatch,
   });
 
@@ -581,6 +712,9 @@ class PrintDialogData {
           .where((entry) => entry.fileId.isNotEmpty || (entry.url ?? '').isNotEmpty)
           .toList(growable: false),
       payloadPreview: _repoMap(json['payload_preview'] ?? json['payloadPreview']),
+      geometryPreviewSettings: GeometryPreviewPrintSettings.fromJson(
+        _repoMap(json['geometry_preview'] ?? json['geometryPreview']),
+      ),
     );
   }
 
@@ -589,6 +723,27 @@ class PrintDialogData {
   final List<PrintTemplateOption> templates;
   final List<GeneratedDocument> recentDocuments;
   final Map<String, dynamic> payloadPreview;
+  final GeometryPreviewPrintSettings geometryPreviewSettings;
+}
+
+class GeometryPreviewPrintSettings {
+  const GeometryPreviewPrintSettings({
+    required this.pdfEnabled,
+    required this.includeWarnings,
+  });
+
+  factory GeometryPreviewPrintSettings.fromJson(Map<String, dynamic> json) {
+    return GeometryPreviewPrintSettings(
+      pdfEnabled: _repoBool(json['pdf_enabled'] ?? json['pdfEnabled'], fallback: true),
+      includeWarnings: _repoBool(
+        json['include_warnings'] ?? json['includeWarnings'],
+        fallback: true,
+      ),
+    );
+  }
+
+  final bool pdfEnabled;
+  final bool includeWarnings;
 }
 
 class DocumentBatchOption {
@@ -597,6 +752,7 @@ class DocumentBatchOption {
     required this.code,
     required this.name,
     required this.outputFilename,
+    required this.splitOutput,
     required this.isDefault,
     required this.compatible,
     required this.items,
@@ -609,6 +765,7 @@ class DocumentBatchOption {
       code: _repoString(json['code']),
       name: _repoString(json['name'] ?? json['code']),
       outputFilename: _repoString(json['batch_output_filename'] ?? json['batchOutputFilename']),
+      splitOutput: _repoBool(json['split_output'] ?? json['splitOutput']),
       isDefault: _repoBool(json['is_default'] ?? json['isDefault']),
       compatible: _repoBool(json['compatible'], fallback: true),
       compatibilityError: _repoNullableString(json['compatibility_error'] ?? json['compatibilityError']),
@@ -620,6 +777,7 @@ class DocumentBatchOption {
   final String code;
   final String name;
   final String outputFilename;
+  final bool splitOutput;
   final bool isDefault;
   final bool compatible;
   final String? compatibilityError;
@@ -629,6 +787,9 @@ class DocumentBatchOption {
       .map((entry) => entry.documentTemplate?.id ?? '')
       .where((id) => id.isNotEmpty)
       .toList(growable: false);
+
+  bool get hasGeometryPreview =>
+      items.any((entry) => entry.itemTypeCode == 'geometry_preview');
 
   String get displayName => isDefault ? '$name · Default' : name;
 }

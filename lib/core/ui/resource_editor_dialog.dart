@@ -58,7 +58,7 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
     _boolValues = {
       for (final field in widget.resource.formFields)
         if (field.type == AdminFieldType.boolType)
-          field.key: widget.initialData?[field.key] == true ||
+          field.key: _valueAtPath(widget.initialData, field.key) == true ||
               (widget.initialData == null && _defaultBoolValue(field.key)),
     };
     _lookupFutures = {
@@ -117,6 +117,24 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
       changed = true;
     }
     if (changed) setState(() {});
+  }
+
+  bool _isVisibilitySource(String key) => widget.resource.formFields.any(
+        (field) => field.visibleWhenFieldKey == key,
+      );
+
+  bool _isFieldVisible(AdminField field) {
+    final sourceKey = field.visibleWhenFieldKey;
+    if (sourceKey == null || sourceKey.isEmpty || field.visibleWhenValues.isEmpty) return true;
+    final raw = _controllers[sourceKey]?.text.trim()
+        ?? (_boolValues[sourceKey]?.toString() ?? '');
+    final normalized = raw.toLowerCase();
+    return field.visibleWhenValues.any((value) => value.toLowerCase() == normalized);
+  }
+
+  void _handleFieldChanged(String fieldKey) {
+    _handleLookupSourceChanged(fieldKey);
+    if (_isVisibilitySource(fieldKey)) setState(() {});
   }
 
   dynamic _valueAtPath(Map<String, dynamic>? source, String key) {
@@ -230,7 +248,7 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
               runSpacing: 16,
               children: [
                 for (final field in widget.resource.formFields)
-                  if (!isEditing || !field.createOnly)
+                  if ((!isEditing || !field.createOnly) && _isFieldVisible(field))
                     SizedBox(
                       width: field.type == AdminFieldType.longText ||
                               field.type == AdminFieldType.json
@@ -266,6 +284,7 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
                 setState(() {
                   _boolValues[field.key] = value ?? false;
                 });
+                _handleFieldChanged(field.key);
               },
         title: Text(field.label),
         controlAffinity: ListTileControlAffinity.leading,
@@ -305,6 +324,7 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
           if (_isReferenceDomainScopeField(field)) {
             _handleReferenceDomainScopeChanged(controller.text);
           }
+          _handleFieldChanged(field.key);
         },
       );
     }
@@ -386,7 +406,7 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
                 : field.helperText,
             onChanged: (value) {
               controller.text = value ?? '';
-              _handleLookupSourceChanged(field.key);
+              _handleFieldChanged(field.key);
             },
           );
         },
@@ -412,13 +432,12 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
           ? Theme.of(context).textTheme.bodySmall?.copyWith(fontFamily: 'monospace')
           : null,
       decoration: InputDecoration(labelText: field.label, helperText: field.helperText),
-      onChanged: field.type == AdminFieldType.json
-          ? (value) {
-              if (!value.contains('\n')) {
-                _formatJsonController(field.key);
-              }
-            }
-          : null,
+      onChanged: (value) {
+        if (field.type == AdminFieldType.json && !value.contains('\n')) {
+          _formatJsonController(field.key);
+        }
+        _handleFieldChanged(field.key);
+      },
       validator: (value) {
         final normalizedValue = value?.trim() ?? '';
         final isCreating = widget.initialData == null;
@@ -812,6 +831,7 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
 
   void _submit() {
     for (final field in widget.resource.formFields) {
+      if (!_isFieldVisible(field)) continue;
       if (field.type == AdminFieldType.json) {
         _formatJsonController(field.key);
       }
@@ -824,6 +844,7 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
     final payload = <String, dynamic>{};
 
     for (final field in widget.resource.formFields) {
+      if (!_isFieldVisible(field)) continue;
       if (!field.includeInPayload) continue;
 
       if (field.type == AdminFieldType.boolType) {

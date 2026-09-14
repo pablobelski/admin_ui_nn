@@ -114,6 +114,13 @@ const documentBatchLookup = AdminLookup(
   showIdInDropdown: false,
 );
 
+const emailTemplateLookup = AdminLookup(
+  endpoint: '/api/admin/email-templates',
+  labelKeys: ['code', 'name', 'message_type_code', 'scope_code', 'version'],
+  limit: 1000,
+  showIdInDropdown: false,
+);
+
 const roofModelLookup = AdminLookup(
   endpoint: '/api/admin/roof-models',
   labelKeys: ['code', 'name'],
@@ -344,6 +351,7 @@ const systemSettingCodeOptions = <AdminSelectOption>[
   AdminSelectOption(value: 'head_organization', label: 'Head organization'),
   AdminSelectOption(value: 'standard_ral_colors', label: 'Standard RAL colors'),
   AdminSelectOption(value: 'media_storage', label: 'Media storage / MinIO'),
+  AdminSelectOption(value: 'geometry_preview', label: 'Geometry preview'),
 ];
 
 const priceListScopeOptions = <AdminSelectOption>[
@@ -459,7 +467,7 @@ const adminNavGroups = <AdminNavGroup>[
             key: 'setting_code',
             label: 'Setting',
             options: systemSettingCodeOptions,
-            helperText: 'head_organization = head organization; standard_ral_colors = standard RAL colors; media_storage = MinIO/S3 settings.',
+            helperText: 'head_organization = head organization; standard_ral_colors = standard RAL colors; media_storage = MinIO/S3 settings; geometry_preview = geometry preview display/print settings.',
           ),
           AdminField(
             key: 'organization_id',
@@ -478,10 +486,28 @@ const adminNavGroups = <AdminNavGroup>[
             type: AdminFieldType.json,
             helperText: 'For media_storage: {"endpoint":"http://minio:9000","bucket":"configurator-media","region":"us-east-1","accessKey":"...","secretKey":"..."}',
           ),
+          AdminField(
+            key: 'value_json.pdf.enabled',
+            label: 'Geometry preview in PDF',
+            type: AdminFieldType.boolType,
+            defaultValue: 'true',
+            visibleWhenFieldKey: 'setting_code',
+            visibleWhenValues: ['geometry_preview'],
+            helperText: 'Global switch for geometry preview output in PDFs. When disabled, both the embedded small preview and the separate large geometry-preview batch item are omitted.',
+          ),
+          AdminField(
+            key: 'value_json.pdf.include_warnings',
+            label: 'Warnings in geometry preview PDF',
+            type: AdminFieldType.boolType,
+            defaultValue: 'true',
+            visibleWhenFieldKey: 'setting_code',
+            visibleWhenValues: ['geometry_preview'],
+            helperText: 'Default for the Warnings block in the large geometry preview. The Documents dialog can override it for a manual print run.',
+          ),
           AdminField(key: 'notes', label: 'Notes', type: AdminFieldType.longText),
           AdminField(key: 'is_active', label: 'Active', type: AdminFieldType.boolType),
         ],
-        description: 'Platform settings: head organization, standard RAL colors, and MinIO media storage.',
+        description: 'Platform settings: head organization, standard RAL colors, media storage, geometry preview and other global behavior.',
       ),
       AdminResourceDefinition(
         key: 'asset_files',
@@ -2608,6 +2634,7 @@ const adminNavGroups = <AdminNavGroup>[
           AdminColumn(key: 'name', label: 'Name', flex: 2),
           AdminColumn(key: 'configurator_template_id', label: 'Configurator template', flex: 2, lookup: configuratorTemplateLookup),
           AdminColumn(key: 'batch_output_filename', label: 'Output filename', flex: 2),
+          AdminColumn(key: 'split_output', label: 'Separate PDFs'),
           AdminColumn(key: 'is_default', label: 'Default'),
           AdminColumn(key: 'is_active', label: 'Active'),
         ],
@@ -2625,6 +2652,12 @@ const adminNavGroups = <AdminNavGroup>[
             label: 'Batch output filename',
             defaultValue: 'documents_{{quote_no}}.pdf',
             helperText: 'Supports {{quote_no}} and the existing filename placeholders.',
+          ),
+          AdminField(
+            key: 'split_output',
+            label: 'Print templates separately',
+            type: AdminFieldType.boolType,
+            helperText: 'When enabled, each document template in the batch is generated as its own PDF. Otherwise the batch is merged into one PDF.',
           ),
           AdminField(key: 'is_default', label: 'Default', type: AdminFieldType.boolType),
           AdminField(key: 'is_active', label: 'Active', type: AdminFieldType.boolType),
@@ -2822,6 +2855,37 @@ const adminNavGroups = <AdminNavGroup>[
           AdminField(key: 'body_html_template', label: 'Body HTML', type: AdminFieldType.longText),
           AdminField(key: 'settings_json', label: 'Settings JSON', type: AdminFieldType.json),
           AdminField(
+            key: 'settings_json.recipient_emails',
+            label: 'Recipient emails',
+            helperText: 'Optional comma-separated addresses. When recipients are configured here, they override the fallback recipients for the group where this template is assigned.',
+          ),
+          AdminField(
+            key: 'settings_json.recipient_roles.customer',
+            label: 'Recipient role: customer',
+            type: AdminFieldType.boolType,
+          ),
+          AdminField(
+            key: 'settings_json.recipient_roles.related_customer',
+            label: 'Recipient role: related customer',
+            type: AdminFieldType.boolType,
+          ),
+          AdminField(
+            key: 'settings_json.recipient_roles.creator',
+            label: 'Recipient role: creator',
+            type: AdminFieldType.boolType,
+          ),
+          AdminField(
+            key: 'settings_json.recipient_roles.submitter',
+            label: 'Recipient role: submitter',
+            type: AdminFieldType.boolType,
+          ),
+          AdminField(
+            key: 'settings_json.recipient_roles.administrator',
+            label: 'Recipient role: administrator',
+            type: AdminFieldType.boolType,
+            helperText: 'Adds all active users with global role admin.',
+          ),
+          AdminField(
             key: 'settings_json.template_asset_file_id',
             label: 'Template file',
             type: AdminFieldType.file,
@@ -2858,6 +2922,48 @@ const adminNavGroups = <AdminNavGroup>[
           AdminField(key: 'provider_code', label: 'Provider code'),
           AdminField(key: 'entity_scope_code', label: 'Entity scope code'),
           AdminField(key: 'config_json', label: 'Config JSON', type: AdminFieldType.json),
+          AdminField(
+            key: 'config_json.to_email_template',
+            label: 'Quote mail: To email template',
+            lookup: emailTemplateLookup,
+            visibleWhenFieldKey: 'code',
+            visibleWhenValues: ['quote_email', 'quote_mail'],
+          ),
+          AdminField(
+            key: 'config_json.cc_email_template',
+            label: 'Quote mail: CC email template',
+            lookup: emailTemplateLookup,
+            visibleWhenFieldKey: 'code',
+            visibleWhenValues: ['quote_email', 'quote_mail'],
+          ),
+          AdminField(
+            key: 'config_json.bcc_email_template',
+            label: 'Quote mail: BCC email template',
+            lookup: emailTemplateLookup,
+            visibleWhenFieldKey: 'code',
+            visibleWhenValues: ['quote_email', 'quote_mail'],
+          ),
+          AdminField(
+            key: 'config_json.to_recipient_template',
+            label: 'Quote mail: To PDF template',
+            lookup: documentTemplateLookup,
+            visibleWhenFieldKey: 'code',
+            visibleWhenValues: ['quote_email', 'quote_mail'],
+          ),
+          AdminField(
+            key: 'config_json.cc_recipient_template',
+            label: 'Quote mail: CC PDF template',
+            lookup: documentTemplateLookup,
+            visibleWhenFieldKey: 'code',
+            visibleWhenValues: ['quote_email', 'quote_mail'],
+          ),
+          AdminField(
+            key: 'config_json.bcc_recipient_template',
+            label: 'Quote mail: BCC PDF template',
+            lookup: documentTemplateLookup,
+            visibleWhenFieldKey: 'code',
+            visibleWhenValues: ['quote_email', 'quote_mail'],
+          ),
           AdminField(key: 'is_active', label: 'Active', type: AdminFieldType.boolType),
         ],
       ),

@@ -808,6 +808,17 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
       final currentUser = geometryPreviewCurrentUserLabel(
         ref.read(authSessionProvider),
       );
+      final geometryPreviewPrintSettings =
+          (await repository.fetchPrintDialogData(savedQuote.id))
+              .geometryPreviewSettings;
+      final includeGeometryWarnings =
+          geometryPreviewPrintSettings.includeWarnings;
+      final expandedWarnings = _flattenWarningMessages(
+        _calculatorWarningMessagesByStep(
+          draft: draft,
+          result: serverResult,
+        ),
+      );
       final mediaRepository = ref.read(resourceRepositoryProvider);
       final humanImage = await loadGeometryPreviewHumanImage(mediaRepository);
       final geometryPng = await renderGeometryOnlyPreviewPng(
@@ -828,50 +839,48 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
         humanImage: humanImage,
       );
       if (!mounted || !context.mounted) return;
+      final expandedPreview = ModelGeometryPreview(
+        mediaRepository: mediaRepository,
+        modelCode: draft.modelCode,
+        modelLabel: previewData.selectedModel?.label,
+        widthMm: draft.widthMm,
+        depthMm: draft.depthMm,
+        heightMm: draft.heightMm,
+        geometryParams: geometryPreviewParamsFromDraft(draft),
+        modules: draft.setContents,
+        moduleRoles: _moduleRolesFor(previewData.selectedModel),
+        calculatedModules: previewData.roofCalculation.modules,
+        calculationNumber: calculationNumber,
+        calculationSavedAt: previewSavedAt,
+        buyerName: dealerPreviewName,
+        b2bPartnerName: b2bPreviewName,
+        buyerContactName: previewContact.contactName,
+        buyerEmail: previewContact.email,
+        buyerPhone: previewContact.phone,
+        weights: serverResult.weights,
+        deliveryName: handover?.label ?? handoverTypeCode,
+        completionWeek: draft.completionWeek,
+        colorCode: colorPreview?.displayCode,
+        colorSwatchColor: colorPreview?.color,
+        isSpecialColor: colorPreview != null && !colorPreview.isStandard,
+        coveringName: previewData.coveringName,
+        coveringSummary: previewData.coveringSummary,
+        markiseSegments: markiseSegments,
+        staticBeam: previewData.roofCalculation.staticBeam,
+        wallMounted: draft.wallMounted,
+        postCount: previewData.postCount,
+        quoteNotes: draft.externalNotes,
+        roofAngleDeg: draft.roofAngleDeg,
+        rearHeightMm: draft.roofRearHeightMm ?? draft.heightMm,
+        frontHeightMm: draft.roofFrontHeightMm,
+        warnings: expandedWarnings,
+      );
       final expandedGeometryPng = await renderExpandedGeometryPreviewPng(
         context: context,
         currentUser: currentUser,
-        preview: ModelGeometryPreview(
-          mediaRepository: mediaRepository,
-          modelCode: draft.modelCode,
-          modelLabel: previewData.selectedModel?.label,
-          widthMm: draft.widthMm,
-          depthMm: draft.depthMm,
-          heightMm: draft.heightMm,
-          geometryParams: geometryPreviewParamsFromDraft(draft),
-          modules: draft.setContents,
-          moduleRoles: _moduleRolesFor(previewData.selectedModel),
-          calculatedModules: previewData.roofCalculation.modules,
-          calculationNumber: calculationNumber,
-          calculationSavedAt: previewSavedAt,
-          buyerName: dealerPreviewName,
-          b2bPartnerName: b2bPreviewName,
-          buyerContactName: previewContact.contactName,
-          buyerEmail: previewContact.email,
-          buyerPhone: previewContact.phone,
-          weights: serverResult.weights,
-          deliveryName: handover?.label ?? handoverTypeCode,
-          completionWeek: draft.completionWeek,
-          colorCode: colorPreview?.displayCode,
-          colorSwatchColor: colorPreview?.color,
-          isSpecialColor: colorPreview != null && !colorPreview.isStandard,
-          coveringName: previewData.coveringName,
-          coveringSummary: previewData.coveringSummary,
-          markiseSegments: markiseSegments,
-          staticBeam: previewData.roofCalculation.staticBeam,
-          wallMounted: draft.wallMounted,
-          postCount: previewData.postCount,
-          quoteNotes: draft.externalNotes,
-          roofAngleDeg: draft.roofAngleDeg,
-          rearHeightMm: draft.roofRearHeightMm ?? draft.heightMm,
-          frontHeightMm: draft.roofFrontHeightMm,
-          warnings: _flattenWarningMessages(
-            _calculatorWarningMessagesByStep(
-              draft: draft,
-              result: serverResult,
-            ),
-          ),
-        ),
+        preview: expandedPreview,
+        includeWarnings: includeGeometryWarnings,
+        stablePrintTextLayout: true,
       );
       final uploadedGeometry = await mediaRepository.uploadMediaFile(
         filename:
@@ -905,14 +914,14 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
         metadata: {
           'variant': 'geometry_expanded',
           'quote_id': savedQuote.id,
-          'render_version': 2,
+          'render_version': 3,
           'width': expandedGeometryPreviewRasterWidth,
           'height': expandedGeometryPreviewRasterHeight,
           'logical_width': expandedGeometryPreviewWidth,
           'logical_height': expandedGeometryPreviewHeight,
           'model_code': draft.modelCode,
           'quote_no_external': draft.quoteNoExternal,
-          'warnings_included': true,
+          'warnings_included': includeGeometryWarnings,
           'qr_included': true,
           'auxiliary_images_included': true,
         },
@@ -929,6 +938,8 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
         savedQuote.id,
         geometryPreviewFileId: geometryPreviewFileId,
         expandedGeometryPreviewFileId: expandedGeometryPreviewFileId,
+        expandedGeometryPreviewWarnings: expandedWarnings,
+        expandedGeometryPreviewWarningsIncluded: includeGeometryWarnings,
       );
       final savedLoadedQuote = await repository.loadQuoteForWorkspace(
         savedQuote.id,
@@ -979,34 +990,36 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
     }
   }
 
-  Future<void> _quoteSubmitted(QuoteSubmitResult result) async {
-    final repository = ref.read(calculatorRepositoryProvider);
-    final loaded = await repository.loadQuoteForWorkspace(result.quoteId);
-    if (!mounted) return;
-    ref.read(loadedQuoteProvider.notifier).set(loaded);
+  // Submit / status change only write the quote status server-side. Reloading
+  // the whole quote here would replace the loaded quote object, refetch the
+  // calculator context and rebuild the result tabs while the user is still
+  // working on the draft, so only the status is applied locally.
+  void _applyQuoteStatus(String quoteId, String statusCode) {
+    final normalized = statusCode.trim();
+    if (normalized.isEmpty) return;
+    ref.read(loadedQuoteProvider.notifier).updateStatusCode(normalized);
+    final saved = _savedQuote;
+    if (saved == null || saved.id != quoteId || saved.statusCode == normalized) {
+      return;
+    }
     setState(() {
       _savedQuote = SavedQuote(
-        id: loaded.id,
-        quoteNo: loaded.quoteNo,
-        statusCode: loaded.statusCode,
-        createdAt: loaded.createdAt,
+        id: saved.id,
+        quoteNo: saved.quoteNo,
+        statusCode: normalized,
+        createdAt: saved.createdAt,
       );
     });
   }
 
-  Future<void> _quoteStatusChanged(QuoteStatusChangeResult result) async {
-    final repository = ref.read(calculatorRepositoryProvider);
-    final loaded = await repository.loadQuoteForWorkspace(result.quoteId);
+  Future<void> _quoteSubmitted(QuoteSubmitResult result) async {
     if (!mounted) return;
-    ref.read(loadedQuoteProvider.notifier).set(loaded);
-    setState(() {
-      _savedQuote = SavedQuote(
-        id: loaded.id,
-        quoteNo: loaded.quoteNo,
-        statusCode: loaded.statusCode,
-        createdAt: loaded.createdAt,
-      );
-    });
+    _applyQuoteStatus(result.quoteId, result.statusCode);
+  }
+
+  Future<void> _quoteStatusChanged(QuoteStatusChangeResult result) async {
+    if (!mounted) return;
+    _applyQuoteStatus(result.quoteId, result.statusCode);
   }
 
 }
@@ -12922,12 +12935,28 @@ class _ResultPanel extends StatelessWidget {
     return () => documentsRepository.generateGlb(quoteId!);
   }
 
+  Future<QuoteIntegrationJob?> Function(String jobId)? get _awaitGlbJob {
+    final quoteId = loadedQuote?.id ?? savedQuote?.id;
+    if ((quoteId ?? '').isEmpty) return null;
+    return (jobId) => documentsRepository.waitForBackgroundJob(
+          quoteId!,
+          jobId,
+          timeout: const Duration(minutes: 30),
+        );
+  }
+
   @override
   Widget build(BuildContext context) {
     final showPreviewTab = _showPreviewTab;
-    final resultTabsKey = loadedQuote == null
+    // Keyed on the loaded quote identity + its server revision, not on the
+    // object instance: a background status update creates a new LoadedQuote
+    // instance for the same revision and must not reset the result tabs.
+    final keyedQuote = loadedQuote;
+    final resultTabsKey = keyedQuote == null
         ? const ValueKey<String>('calculator-result-tabs')
-        : ObjectKey(loadedQuote);
+        : ValueKey<String>(
+            'calculator-result-tabs:${keyedQuote.id}:${keyedQuote.createdAt ?? ''}',
+          );
 
     return Card(
       clipBehavior: Clip.antiAlias,
@@ -12986,6 +13015,7 @@ class _ResultPanel extends StatelessWidget {
                                   roofModelState: roofModelState,
                                   mediaRepository: mediaRepository,
                                   onGenerateGlb: _generateGlb,
+                                  onAwaitGlbJob: _awaitGlbJob,
                                   savedInput: loadedQuote?.input,
                                   calculationNumber: calculationNumber,
                                   calculationSavedAt: savedQuote?.createdAt ?? loadedQuote?.createdAt,
@@ -13083,6 +13113,7 @@ class _ResultPanel extends StatelessWidget {
                                   roofModelState: roofModelState,
                                   mediaRepository: mediaRepository,
                                   onGenerateGlb: _generateGlb,
+                                  onAwaitGlbJob: _awaitGlbJob,
                                   result: result,
                                   savedInput: loadedQuote?.input,
                                   calculationNumber: calculationNumber,
@@ -13187,6 +13218,7 @@ class _ResultPanel extends StatelessWidget {
                             roofModelState: roofModelState,
                             mediaRepository: mediaRepository,
                             onGenerateGlb: _generateGlb,
+                            onAwaitGlbJob: _awaitGlbJob,
                             calculationNumber: calculationNumber,
                             calculationSavedAt: savedQuote?.createdAt ?? loadedQuote?.createdAt,
                             highlightedModuleIndex: highlightedModuleIndex,
@@ -13384,6 +13416,7 @@ class _GeometryPreviewTab extends StatelessWidget {
     required this.mediaRepository,
     this.result,
     this.onGenerateGlb,
+    this.onAwaitGlbJob,
     this.savedInput,
     this.calculationNumber,
     this.calculationSavedAt,
@@ -13398,6 +13431,7 @@ class _GeometryPreviewTab extends StatelessWidget {
   final AdminResourceRepository mediaRepository;
   final CalculatorResult? result;
   final Future<Map<String, dynamic>> Function()? onGenerateGlb;
+  final Future<QuoteIntegrationJob?> Function(String jobId)? onAwaitGlbJob;
   final Map<String, dynamic>? savedInput;
   final String? calculationNumber;
   final String? calculationSavedAt;
@@ -13472,6 +13506,7 @@ class _GeometryPreviewTab extends StatelessWidget {
               modelLabel: previewData.selectedModel?.label,
               mediaRepository: mediaRepository,
               onGenerateGlb: onGenerateGlb,
+              onAwaitGlbJob: onAwaitGlbJob,
               widthMm: draft.widthMm,
               depthMm: draft.depthMm,
               heightMm: draft.heightMm,

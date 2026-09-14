@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
@@ -124,6 +126,8 @@ class QuoteIntegrationsTab extends StatefulWidget {
 class _QuoteIntegrationsTabState extends State<QuoteIntegrationsTab>
     with AutomaticKeepAliveClientMixin<QuoteIntegrationsTab> {
   Future<QuoteIntegrationOverview>? _future;
+  Timer? _pollTimer;
+  bool _pollReloading = false;
 
   @override
   bool get wantKeepAlive => true;
@@ -138,11 +142,16 @@ class _QuoteIntegrationsTabState extends State<QuoteIntegrationsTab>
   @override
   void didUpdateWidget(covariant QuoteIntegrationsTab oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.quoteId != widget.quoteId) _future = _fetch();
+    if (oldWidget.quoteId != widget.quoteId) {
+      _pollTimer?.cancel();
+      _pollTimer = null;
+      _future = _fetch();
+    }
   }
 
   @override
   void dispose() {
+    _pollTimer?.cancel();
     quoteIntegrationsRefreshTick.removeListener(_externalRefresh);
     super.dispose();
   }
@@ -159,9 +168,40 @@ class _QuoteIntegrationsTabState extends State<QuoteIntegrationsTab>
 
   Future<QuoteIntegrationOverview>? _fetch() {
     final quoteId = widget.quoteId?.trim() ?? '';
-    return quoteId.isEmpty
-        ? null
-        : widget.repository.fetchQuoteIntegrations(quoteId);
+    return quoteId.isEmpty ? null : _load(quoteId);
+  }
+
+  Future<QuoteIntegrationOverview> _load(String quoteId) async {
+    final overview = await widget.repository.fetchQuoteIntegrations(quoteId);
+    if (mounted && quoteId == (widget.quoteId?.trim() ?? '')) {
+      _syncPolling(overview);
+    }
+    return overview;
+  }
+
+  void _syncPolling(QuoteIntegrationOverview overview) {
+    final hasActiveJobs = overview.jobs.any(
+      (job) => job.statusCode == 'pending' || job.statusCode == 'running',
+    );
+    if (!hasActiveJobs) {
+      _pollTimer?.cancel();
+      _pollTimer = null;
+      return;
+    }
+    _pollTimer ??= Timer.periodic(const Duration(seconds: 5), (_) async {
+      if (!mounted || _pollReloading) return;
+      _pollReloading = true;
+      try {
+        final quoteId = widget.quoteId?.trim() ?? '';
+        if (quoteId.isEmpty) return;
+        final overview = await widget.repository.fetchQuoteIntegrations(quoteId);
+        if (!mounted || quoteId != (widget.quoteId?.trim() ?? '')) return;
+        setState(() => _future = Future.value(overview));
+        _syncPolling(overview);
+      } finally {
+        _pollReloading = false;
+      }
+    });
   }
 
   @override

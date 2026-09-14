@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -7,6 +8,7 @@ import 'package:intl/intl.dart';
 import '../../../core/ui/media_file_actions.dart';
 import '../../../core/ui/top_notification.dart';
 import '../data/calculator_repository.dart';
+import 'quote_integrations_panel.dart';
 
 class QuoteDocumentsButton extends StatelessWidget {
   const QuoteDocumentsButton({
@@ -29,6 +31,12 @@ class QuoteDocumentsButton extends StatelessWidget {
       builder: (_) => QuoteDocumentsOptionsDialog(
         quoteId: quoteId,
         repository: repository,
+        // The button outlives the dialog, so the background print job can still
+        // report its completion after the user closed the Documents dialog.
+        onBackgroundNotification: (message, type) {
+          if (!context.mounted) return;
+          showTopNotification(context, message, type: type);
+        },
       ),
     );
   }
@@ -54,10 +62,13 @@ class QuoteDocumentsOptionsDialog extends StatefulWidget {
     super.key,
     required this.quoteId,
     required this.repository,
+    this.onBackgroundNotification,
   });
 
   final String quoteId;
   final CalculatorRepository repository;
+  final void Function(String message, TopNotificationType type)?
+      onBackgroundNotification;
 
   @override
   State<QuoteDocumentsOptionsDialog> createState() => _QuoteDocumentsOptionsDialogState();
@@ -72,6 +83,9 @@ class _QuoteDocumentsOptionsDialogState extends State<QuoteDocumentsOptionsDialo
   String? _selectedBatchId;
   bool _initialized = false;
   bool _isPrinting = false;
+  bool _splitOutput = false;
+  bool _includeGeometryPreview = false;
+  bool _includeGeometryWarnings = true;
   bool _showPayloadPreview = false;
   String? _statusText;
   String? _errorText;
@@ -85,7 +99,7 @@ class _QuoteDocumentsOptionsDialogState extends State<QuoteDocumentsOptionsDialo
         if (!mounted) return;
         setState(() => _initialize(data));
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted || _selectedTemplateIds.isEmpty || _isPrinting) return;
+          if (!mounted || !_hasPrintSelection || _isPrinting) return;
           _printFocusNode.requestFocus();
         });
       },
@@ -118,11 +132,17 @@ class _QuoteDocumentsOptionsDialogState extends State<QuoteDocumentsOptionsDialo
 
     if (batch != null) {
       _selectedBatchId = batch.id;
+      _splitOutput = batch.splitOutput;
       _selectedTemplateIds.addAll(batch.documentTemplateIds);
+      _includeGeometryPreview = batch.hasGeometryPreview && data.geometryPreviewSettings.pdfEnabled;
+      _includeGeometryWarnings = data.geometryPreviewSettings.includeWarnings;
     } else if (data.templates.isNotEmpty) {
       _selectedTemplateIds.add(data.templates.first.id);
+      _includeGeometryWarnings = data.geometryPreviewSettings.includeWarnings;
     }
   }
+
+  bool get _hasPrintSelection => _selectedTemplateIds.isNotEmpty || _includeGeometryPreview;
 
   DocumentBatchOption? _batchById(PrintDialogData data, String? id) {
     for (final batch in data.batches) {
@@ -137,34 +157,73 @@ class _QuoteDocumentsOptionsDialogState extends State<QuoteDocumentsOptionsDialo
     return a.length == b.length && a.containsAll(b);
   }
 
-  Future<String> _documentUrl(GeneratedDocument document) async {
-    var url = document.url?.trim() ?? '';
-    if (url.isEmpty && document.fileId.trim().isNotEmpty) {
-      final media = await widget.repository.fetchMediaFileUrl(document.fileId);
-      url = '${media['url'] ?? media['download_url'] ?? ''}'.trim();
+  // Not bound to the dialog lifetime: the job keeps running in background and
+  // must report its result even when the user already closed this dialog.
+  Future<void> _watchPrintJob(String jobId) async {
+    try {
+      final job = await widget.repository.waitForBackgroundJob(
+        widget.quoteId,
+        jobId,
+        timeout: const Duration(minutes: 30),
+      );
+      if (job == null) return;
+      notifyQuoteIntegrationsChanged();
+      if (job.statusCode != 'succeeded') {
+        final message = job.errorText?.trim().isNotEmpty == true
+            ? 'Document generation failed: ${job.errorText!.trim()}'
+            : 'Document generation ${job.statusCode}.';
+        widget.onBackgroundNotification?.call(message, TopNotificationType.error);
+        if (!mounted) return;
+        setState(() {
+          _statusText = null;
+          _errorText = message;
+        });
+        return;
+      }
+
+      widget.onBackgroundNotification?.call(
+        'Document generation completed. The generated PDF is available in Documents.',
+        TopNotificationType.success,
+      );
+      if (!mounted) return;
+      final refreshed = await widget.repository.fetchPrintDialogData(widget.quoteId);
+      if (!mounted) return;
+      setState(() {
+        _documents = refreshed.recentDocuments;
+        _statusText = 'Document generation completed. The generated PDF is available below.';
+        _errorText = null;
+      });
+    } catch (error) {
+      widget.onBackgroundNotification?.call(
+        'Document generation background status failed: $error',
+        TopNotificationType.error,
+      );
+      if (!mounted) return;
+      setState(() {
+        _statusText = null;
+        _errorText = '$error';
+      });
     }
-    if (url.isEmpty) throw StateError('Generated document URL is empty');
-    return url;
   }
 
   Future<void> _print(PrintDialogData data) async {
-    if (_selectedTemplateIds.isEmpty || _isPrinting) return;
+    if (!_hasPrintSelection || _isPrinting) return;
 
-    final target = 'generated_document_${DateTime.now().microsecondsSinceEpoch}';
-    openMediaUrl(
-      'about:blank',
-      target: target,
-      keepCurrentFocus: true,
-    );
     setState(() {
       _isPrinting = true;
-      _statusText = 'Generating document…';
+      _statusText = 'Queueing document generation…';
       _errorText = null;
     });
 
     try {
       final selectedBatch = _batchById(data, _selectedBatchId);
-      final useExactBatch = selectedBatch != null
+      final geometryPreviewOnly = selectedBatch != null
+          && selectedBatch.compatible
+          && selectedBatch.hasGeometryPreview
+          && _selectedTemplateIds.isEmpty
+          && _includeGeometryPreview;
+      final useExactBatch = !geometryPreviewOnly
+          && selectedBatch != null
           && selectedBatch.compatible
           && _sameIds(selectedBatch.documentTemplateIds, _selectedTemplateIds);
       final orderedTemplateIds = data.templates
@@ -172,27 +231,38 @@ class _QuoteDocumentsOptionsDialogState extends State<QuoteDocumentsOptionsDialo
           .map((template) => template.id)
           .toList(growable: false);
 
-      final document = await widget.repository.printPdf(
+      final operation = await widget.repository.printPdf(
         quoteId: widget.quoteId,
-        documentBatchId: useExactBatch ? selectedBatch.id : null,
-        documentTemplateIds: useExactBatch ? const <String>[] : orderedTemplateIds,
+        documentBatchId: geometryPreviewOnly
+            ? selectedBatch.id
+            : useExactBatch
+                ? selectedBatch.id
+                : null,
+        documentTemplateIds: useExactBatch || geometryPreviewOnly
+            ? const <String>[]
+            : orderedTemplateIds,
+        splitOutput: _splitOutput,
+        includeGeometryPreview: selectedBatch?.hasGeometryPreview == true
+            ? _includeGeometryPreview
+            : false,
+        includeGeometryWarnings: selectedBatch?.hasGeometryPreview == true
+                && _includeGeometryPreview
+            ? _includeGeometryWarnings
+            : null,
+        geometryPreviewOnly: geometryPreviewOnly,
       );
-      final url = await _documentUrl(document);
-      if (!mounted) {
-        openMediaUrl(url, target: target);
-        return;
+      if (operation.jobId.isEmpty) {
+        throw StateError('Document generation job id is empty');
       }
-
+      notifyQuoteIntegrationsChanged();
+      if (!mounted) return;
       setState(() {
-        _documents = [
-          document,
-          ..._documents.where((entry) => entry.id != document.id),
-        ];
-        _statusText = useExactBatch
-            ? 'Document batch generated and opened in a new tab.'
-            : 'Document package generated and opened in a new tab.';
+        _statusText = operation.alreadyQueued
+            ? 'Document generation is already queued or running in background.'
+            : 'Document generation queued and continues in background.';
+        _errorText = null;
       });
-      openMediaUrl(url, target: target);
+      unawaited(_watchPrintJob(operation.jobId));
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -326,32 +396,56 @@ class _QuoteDocumentsOptionsDialogState extends State<QuoteDocumentsOptionsDialo
                                     if (batch == null) return;
                                     setState(() {
                                       _selectedBatchId = batch.id;
+                                      _splitOutput = batch.splitOutput;
                                       _selectedTemplateIds
                                         ..clear()
                                         ..addAll(batch.documentTemplateIds);
+                                      _includeGeometryPreview = batch.hasGeometryPreview
+                                          && data.geometryPreviewSettings.pdfEnabled;
+                                      _includeGeometryWarnings =
+                                          data.geometryPreviewSettings.includeWarnings;
                                     });
                                   },
                           ),
                         if (selectedBatch != null) ...[
                           const SizedBox(height: 6),
                           Text(
-                            'Output: ${selectedBatch.outputFilename}',
+                            _splitOutput
+                                ? 'Output: one PDF per selected item, named from the template / Geometry preview.'
+                                : 'Output: ${selectedBatch.outputFilename}',
                             style: Theme.of(context).textTheme.bodySmall,
                           ),
                         ],
+                        if (selectedBatch != null || _selectedTemplateIds.length > 1) ...[
+                          const SizedBox(height: 4),
+                          CheckboxListTile(
+                            contentPadding: EdgeInsets.zero,
+                            dense: true,
+                            controlAffinity: ListTileControlAffinity.leading,
+                            value: _splitOutput,
+                            title: const Text('Print templates separately'),
+                            subtitle: const Text(
+                              'Create one PDF per selected item; otherwise merge them into one PDF.',
+                            ),
+                            onChanged: _isPrinting
+                                ? null
+                                : (value) => setState(() => _splitOutput = value == true),
+                          ),
+                        ],
                         if (data.batches.isNotEmpty) const SizedBox(height: 12),
-                        if (data.templates.isEmpty)
+                        if (data.templates.isEmpty
+                            && !(selectedBatch?.hasGeometryPreview ?? false))
                           const Padding(
                             padding: EdgeInsets.symmetric(vertical: 8),
                             child: _DocumentsHint(
                               icon: Icons.print_disabled_outlined,
-                              title: 'No print templates',
-                              text: 'No accessible active document templates are available for this quote.',
+                              title: 'No print items',
+                              text: 'No accessible active document templates or Geometry preview are available for this quote.',
                             ),
                           )
                         else ...[
                           Text(
-                            'Templates',
+                            'Print items',
                             style: Theme.of(context).textTheme.titleSmall,
                           ),
                           const SizedBox(height: 4),
@@ -365,7 +459,7 @@ class _QuoteDocumentsOptionsDialogState extends State<QuoteDocumentsOptionsDialo
                           ),
                           const SizedBox(height: 6),
                           Container(
-                            constraints: const BoxConstraints(maxHeight: 210),
+                            constraints: const BoxConstraints(maxHeight: 250),
                             decoration: BoxDecoration(
                               border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
                               borderRadius: BorderRadius.circular(8),
@@ -393,6 +487,46 @@ class _QuoteDocumentsOptionsDialogState extends State<QuoteDocumentsOptionsDialo
                                               }
                                             });
                                           },
+                                  ),
+                                if (selectedBatch?.hasGeometryPreview ?? false)
+                                  CheckboxListTile(
+                                    dense: true,
+                                    controlAffinity: ListTileControlAffinity.leading,
+                                    value: data.geometryPreviewSettings.pdfEnabled
+                                        && _includeGeometryPreview,
+                                    title: const Text('Geometry preview'),
+                                    subtitle: Text(
+                                      data.geometryPreviewSettings.pdfEnabled
+                                          ? 'Large Geometry preview block from this batch.'
+                                          : 'Disabled in System Settings → geometry_preview.',
+                                    ),
+                                    onChanged: _isPrinting
+                                            || !data.geometryPreviewSettings.pdfEnabled
+                                        ? null
+                                        : (checked) => setState(
+                                              () => _includeGeometryPreview = checked == true,
+                                            ),
+                                  ),
+                                if ((selectedBatch?.hasGeometryPreview ?? false)
+                                    && data.geometryPreviewSettings.pdfEnabled
+                                    && _includeGeometryPreview)
+                                  Padding(
+                                    padding: const EdgeInsets.only(left: 32),
+                                    child: CheckboxListTile(
+                                      dense: true,
+                                      contentPadding: EdgeInsets.zero,
+                                      controlAffinity: ListTileControlAffinity.leading,
+                                      value: _includeGeometryWarnings,
+                                      title: const Text('Include warnings in Geometry preview'),
+                                      subtitle: const Text(
+                                        'Overrides the system default for this print run only.',
+                                      ),
+                                      onChanged: _isPrinting
+                                          ? null
+                                          : (checked) => setState(
+                                                () => _includeGeometryWarnings = checked == true,
+                                              ),
+                                    ),
                                   ),
                               ],
                             ),
@@ -522,7 +656,7 @@ class _QuoteDocumentsOptionsDialogState extends State<QuoteDocumentsOptionsDialo
               future: _dataFuture,
               builder: (context, snapshot) => FilledButton.icon(
                 focusNode: _printFocusNode,
-                onPressed: snapshot.hasData && _selectedTemplateIds.isNotEmpty && !_isPrinting
+                onPressed: snapshot.hasData && _hasPrintSelection && !_isPrinting
                     ? () => _print(snapshot.data!)
                     : null,
                 icon: _isPrinting

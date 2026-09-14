@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -33,17 +34,157 @@ class QuoteSubmitButton extends StatefulWidget {
 
 class _QuoteSubmitButtonState extends State<QuoteSubmitButton> {
   bool _busy = false;
+  bool _createKommissionAvailable = false;
+  int _availabilityRequest = 0;
   late String _statusCode = widget.statusCode;
+
+  @override
+  void initState() {
+    super.initState();
+    quoteIntegrationsRefreshTick.addListener(_handleIntegrationsChanged);
+    _refreshIntegrationAvailability();
+  }
 
   @override
   void didUpdateWidget(covariant QuoteSubmitButton oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.statusCode != widget.statusCode) _statusCode = widget.statusCode;
+    if (oldWidget.quoteId != widget.quoteId || oldWidget.enabled != widget.enabled) {
+      _refreshIntegrationAvailability();
+    }
+  }
+
+  @override
+  void dispose() {
+    quoteIntegrationsRefreshTick.removeListener(_handleIntegrationsChanged);
+    super.dispose();
+  }
+
+  void _handleIntegrationsChanged() {
+    _refreshIntegrationAvailability();
+  }
+
+  Future<void> _refreshIntegrationAvailability() async {
+    final request = ++_availabilityRequest;
+    final quoteId = widget.quoteId.trim();
+    if (!widget.enabled || quoteId.isEmpty) {
+      if (mounted && _createKommissionAvailable) {
+        setState(() => _createKommissionAvailable = false);
+      }
+      return;
+    }
+    try {
+      final overview = await widget.repository.fetchQuoteIntegrations(quoteId);
+      if (!mounted || request != _availabilityRequest || quoteId != widget.quoteId.trim()) return;
+      if (_createKommissionAvailable != overview.commissionCanCreate) {
+        setState(() => _createKommissionAvailable = overview.commissionCanCreate);
+      }
+    } catch (_) {
+      if (!mounted || request != _availabilityRequest || quoteId != widget.quoteId.trim()) return;
+      if (_createKommissionAvailable) {
+        setState(() => _createKommissionAvailable = false);
+      }
+    }
   }
 
   bool get _isResend => _statusCode.trim().toLowerCase() == 'sent';
   String get _operation => _isResend ? 'resend' : 'submit';
   String get _emailLabel => _isResend ? 'Resend customer email' : 'Send to customer';
+
+  Future<void> _watchSubmitJob(QuoteSubmitResult queuedResult) async {
+    try {
+      final job = await widget.repository.waitForBackgroundJob(
+        widget.quoteId,
+        queuedResult.jobId,
+        timeout: const Duration(minutes: 30),
+        shouldContinue: () => mounted,
+      );
+      if (job == null) return;
+      notifyQuoteIntegrationsChanged();
+      if (!mounted) return;
+      if (job.statusCode != 'succeeded') {
+        final errorText = job.errorText?.trim();
+        showTopNotification(
+          context,
+          errorText != null && errorText.isNotEmpty
+              ? '${queuedResult.operation == 'resend' ? 'Resend' : 'Submit'} failed: $errorText'
+              : '${queuedResult.operation == 'resend' ? 'Resend' : 'Submit'} ${job.statusCode}.',
+          type: TopNotificationType.error,
+        );
+        return;
+      }
+
+      final status = await widget.repository.fetchQuoteStatusTransitions(widget.quoteId);
+      if (!mounted) return;
+      setState(() => _statusCode = status.statusCode);
+      await widget.onCompleted?.call(QuoteSubmitResult(
+        ok: true,
+        operation: queuedResult.operation,
+        quoteId: queuedResult.quoteId,
+        quoteNo: queuedResult.quoteNo,
+        statusCode: status.statusCode,
+        customerDeliveryEnabled: queuedResult.customerDeliveryEnabled,
+        queued: false,
+        jobId: queuedResult.jobId,
+        jobStatusCode: 'succeeded',
+      ));
+      if (!mounted) return;
+      showTopNotification(
+        context,
+        queuedResult.operation == 'resend'
+            ? 'Quote email resent successfully.'
+            : queuedResult.customerDeliveryEnabled
+                ? 'Quote submitted and sent to the customer.'
+                : 'Quote submitted and sent internally only.',
+        type: TopNotificationType.success,
+      );
+    } catch (error) {
+      if (!mounted) return;
+      showTopNotification(
+        context,
+        '${queuedResult.operation == 'resend' ? 'Resend' : 'Submit'} background status failed: $error',
+        type: TopNotificationType.error,
+      );
+    }
+  }
+
+  Future<void> _watchIntegrationJob(String label, String jobId) async {
+    if (jobId.isEmpty) return;
+    try {
+      final job = await widget.repository.waitForBackgroundJob(
+        widget.quoteId,
+        jobId,
+        timeout: const Duration(minutes: 30),
+        shouldContinue: () => mounted,
+      );
+      if (job == null) return;
+      notifyQuoteIntegrationsChanged();
+      if (!mounted) return;
+      if (job.statusCode == 'succeeded') {
+        showTopNotification(
+          context,
+          '$label completed successfully.',
+          type: TopNotificationType.success,
+        );
+        return;
+      }
+      final errorText = job.errorText?.trim();
+      showTopNotification(
+        context,
+        errorText != null && errorText.isNotEmpty
+            ? '$label failed: $errorText'
+            : '$label ${job.statusCode}.',
+        type: TopNotificationType.error,
+      );
+    } catch (error) {
+      if (!mounted) return;
+      showTopNotification(
+        context,
+        '$label background status failed: $error',
+        type: TopNotificationType.error,
+      );
+    }
+  }
 
   Future<void> _sendToCustomer() async {
     if (_busy || widget.quoteId.trim().isEmpty) return;
@@ -66,6 +207,17 @@ class _QuoteSubmitButtonState extends State<QuoteSubmitButton> {
       );
       notifyQuoteIntegrationsChanged();
       if (!mounted) return;
+      if (result.queued) {
+        showTopNotification(
+          context,
+          result.operation == 'resend'
+              ? 'Quote email resend queued and continues in background.'
+              : 'Quote submit queued and continues in background.',
+          type: TopNotificationType.success,
+        );
+        unawaited(_watchSubmitJob(result));
+        return;
+      }
       setState(() => _statusCode = result.statusCode);
       await widget.onCompleted?.call(result);
       if (!mounted) return;
@@ -104,6 +256,9 @@ class _QuoteSubmitButtonState extends State<QuoteSubmitButton> {
     try {
       final overview = await widget.repository.fetchQuoteIntegrations(widget.quoteId);
       if (!mounted) return;
+      if (_createKommissionAvailable != overview.commissionCanCreate) {
+        setState(() => _createKommissionAvailable = overview.commissionCanCreate);
+      }
       if (operation == 'create_reserve' && !overview.reserveComplete) {
         final details = overview.reserveWarnings.isEmpty
             ? 'The material requirement is incomplete.'
@@ -111,6 +266,14 @@ class _QuoteSubmitButtonState extends State<QuoteSubmitButton> {
         showTopNotification(
           context,
           'Create Reserve is blocked: $details',
+          type: TopNotificationType.error,
+        );
+        return;
+      }
+      if (operation == 'create_kommission' && !overview.commissionCanCreate) {
+        showTopNotification(
+          context,
+          'Create Kommission is blocked: generate_pdf is disabled and no PDF exists in Media Library for this quote.',
           type: TopNotificationType.error,
         );
         return;
@@ -134,11 +297,18 @@ class _QuoteSubmitButtonState extends State<QuoteSubmitButton> {
       if (!mounted) return;
       showTopNotification(
         context,
-        result.reused
-            ? '$label was already completed for this data version.'
-            : '$label completed successfully.',
+        result.queued
+            ? result.alreadyQueued
+                ? '$label is already queued or running.'
+                : '$label queued and continues in background.'
+            : result.reused
+                ? '$label was already completed for this data version.'
+                : '$label completed successfully.',
         type: TopNotificationType.success,
       );
+      if (result.queued) {
+        unawaited(_watchIntegrationJob(label, result.jobId));
+      }
     } catch (error) {
       notifyQuoteIntegrationsChanged();
       if (!mounted) return;
@@ -165,7 +335,9 @@ class _QuoteSubmitButtonState extends State<QuoteSubmitButton> {
           child: const Text('Create Reserve'),
         ),
         MenuItemButton(
-          onPressed: canPress ? () => _runIntegration('create_kommission') : null,
+          onPressed: canPress && _createKommissionAvailable
+              ? () => _runIntegration('create_kommission')
+              : null,
           leadingIcon: const Icon(Icons.playlist_add_check_circle_outlined),
           child: const Text('Create Kommission'),
         ),
@@ -185,7 +357,12 @@ class _QuoteSubmitButtonState extends State<QuoteSubmitButton> {
         width: widget.prominent ? 136 : null,
         height: widget.prominent ? 36 : null,
         child: FilledButton.icon(
-          onPressed: canPress ? controller.open : null,
+          onPressed: canPress
+              ? () async {
+                  await _refreshIntegrationAvailability();
+                  if (mounted) controller.open();
+                }
+              : null,
           style: widget.prominent
               ? FilledButton.styleFrom(
                   minimumSize: Size.zero,
@@ -307,6 +484,37 @@ class _QuoteSubmitPreviewDialog extends StatelessWidget {
       if ((preview.documentBatchCode ?? '').isNotEmpty) '(${preview.documentBatchCode})',
     ].whereType<String>().where((entry) => entry.isNotEmpty).join(' ');
     final warningGroups = _submitWarningGroups(preview.warnings);
+    final recipientTemplateLabel = [
+      if ((preview.recipientTemplateLabels['to'] ?? '').isNotEmpty)
+        "To: ${preview.recipientTemplateLabels['to']}",
+      if ((preview.recipientTemplateLabels['cc'] ?? '').isNotEmpty)
+        "CC: ${preview.recipientTemplateLabels['cc']}",
+      if ((preview.recipientTemplateLabels['bcc'] ?? '').isNotEmpty)
+        "BCC: ${preview.recipientTemplateLabels['bcc']}",
+    ].join(' · ');
+    final emailTemplateLabel = [
+      if ((preview.emailTemplateLabels['to'] ?? '').isNotEmpty)
+        "To: ${preview.emailTemplateLabels['to']}",
+      if ((preview.emailTemplateLabels['cc'] ?? '').isNotEmpty)
+        "CC: ${preview.emailTemplateLabels['cc']}",
+      if ((preview.emailTemplateLabels['bcc'] ?? '').isNotEmpty)
+        "BCC: ${preview.emailTemplateLabels['bcc']}",
+    ].join(' · ');
+    final subjectValues = [
+      preview.emailSubjects['to'] ?? '',
+      preview.emailSubjects['cc'] ?? '',
+      preview.emailSubjects['bcc'] ?? '',
+    ].where((entry) => entry.isNotEmpty).toSet();
+    final subjectLabel = subjectValues.length <= 1
+        ? preview.subject
+        : [
+            if ((preview.emailSubjects['to'] ?? '').isNotEmpty)
+              "To: ${preview.emailSubjects['to']}",
+            if ((preview.emailSubjects['cc'] ?? '').isNotEmpty)
+              "CC: ${preview.emailSubjects['cc']}",
+            if ((preview.emailSubjects['bcc'] ?? '').isNotEmpty)
+              "BCC: ${preview.emailSubjects['bcc']}",
+          ].join(' · ');
 
     return AlertDialog(
       title: Text(isResend ? 'Resend quote email' : 'Submit quote'),
@@ -336,11 +544,18 @@ class _QuoteSubmitPreviewDialog extends StatelessWidget {
               ),
               _PreviewLine(
                 label: 'Documents',
-                value: batchLabel.isEmpty
-                    ? 'No batch selected'
-                    : '$batchLabel · ${preview.documentCount} template(s) · one merged PDF',
+                value: preview.attachmentMode == 'recipient_templates'
+                    ? (recipientTemplateLabel.isEmpty
+                        ? 'Separate PDF template per recipient group'
+                        : recipientTemplateLabel)
+                    : batchLabel.isEmpty
+                        ? 'No batch selected'
+                        : preview.attachmentMode == 'batch_split'
+                            ? '$batchLabel · ${preview.documentCount} item(s) · separate PDFs'
+                            : '$batchLabel · ${preview.documentCount} item(s) · one merged PDF',
               ),
-              _PreviewLine(label: 'Subject', value: preview.subject),
+              _PreviewLine(label: 'Email templates', value: emailTemplateLabel),
+              _PreviewLine(label: 'Subject', value: subjectLabel),
               if (preview.warnings.isNotEmpty) ...[
                 const SizedBox(height: 12),
                 Align(
@@ -404,6 +619,8 @@ String _submitIssueGroupLabel(QuoteSubmitIssue issue) {
     return 'Calculation';
   }
   if (field.startsWith('configurator_template.')) return 'Configurator template';
+  if (field.startsWith('integration_endpoint.')) return 'Email integration';
+  if (field.startsWith('email_template.')) return 'Recipients';
   if (field.startsWith('internal_recipient')) return 'Recipients';
   return 'Calculation';
 }

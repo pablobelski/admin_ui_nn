@@ -42,7 +42,16 @@ String _setContentItemIdentity(CalculatorSetContentItem item) =>
     '${item.catalogItemId}:${item.catalogVariantId ?? ''}:${item.articleNo ?? ''}';
 
 final calculatorContextProvider = FutureProvider<CalculatorContext>((ref) async {
-  final loadedQuote = ref.watch(loadedQuoteProvider);
+  // Depend only on the restored catalog of the loaded quote. A status-only
+  // update (background submit / status change) keeps the same list instances,
+  // so the calculator context is not refetched and the workspace is not
+  // replaced by a loading spinner while the user keeps working on the draft.
+  ref.watch(loadedQuoteProvider.select((quote) => (
+        quote?.catalogItems,
+        quote?.catalogVariants,
+        quote?.catalogWarnings,
+      )));
+  final loadedQuote = ref.read(loadedQuoteProvider);
   final context = await ref.watch(calculatorRepositoryProvider).fetchContext();
   if (loadedQuote == null) return context;
   return context.withRestoredCatalog(
@@ -138,6 +147,15 @@ class LoadedQuoteNotifier extends Notifier<LoadedQuote?> {
 
   void set(LoadedQuote quote) {
     state = quote;
+  }
+
+  /// Applies a new quote status without reloading the quote from the server.
+  void updateStatusCode(String statusCode) {
+    final current = state;
+    if (current == null) return;
+    final next = current.withStatusCode(statusCode);
+    if (identical(next, current)) return;
+    state = next;
   }
 
   void clear() {

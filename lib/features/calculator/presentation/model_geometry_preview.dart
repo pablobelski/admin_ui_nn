@@ -14,7 +14,9 @@ import '../../../core/ui/glb_viewer.dart';
 import '../../../core/ui/media_file_actions.dart';
 import '../../../core/ui/top_notification.dart';
 import '../data/calculator_models.dart';
+import '../data/calculator_repository.dart';
 import '../data/roof_geometry_calculation.dart';
+import 'quote_integrations_panel.dart';
 
 const geometryOnlyPreviewWidth = 450;
 const geometryOnlyPreviewHeight = 305;
@@ -222,6 +224,7 @@ class ModelGeometryPreview extends ConsumerStatefulWidget {
     this.frontHeightMm,
     this.showRoofType = true,
     this.onGenerateGlb,
+    this.onAwaitGlbJob,
   });
 
   final String? modelCode;
@@ -263,6 +266,7 @@ class ModelGeometryPreview extends ConsumerStatefulWidget {
   final int? frontHeightMm;
   final bool showRoofType;
   final Future<Map<String, dynamic>> Function()? onGenerateGlb;
+  final Future<QuoteIntegrationJob?> Function(String jobId)? onAwaitGlbJob;
 
   @override
   ConsumerState<ModelGeometryPreview> createState() => _ModelGeometryPreviewState();
@@ -297,6 +301,40 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
   Future<Uint8List?> _loadStaticBeamInstructionImage() =>
       _loadGeometryPreviewInstructionImage(widget);
 
+  Future<void> _watchGlbJob(String jobId) async {
+    final awaitJob = widget.onAwaitGlbJob;
+    if (awaitJob == null || jobId.isEmpty) return;
+    try {
+      final job = await awaitJob(jobId);
+      if (job == null) return;
+      notifyQuoteIntegrationsChanged();
+      if (!mounted) return;
+      if (job.statusCode == 'succeeded') {
+        showTopNotification(
+          context,
+          'GLB generation completed and saved to Media Library. Open the 3D preview to view it.',
+          type: TopNotificationType.success,
+        );
+        return;
+      }
+      final errorText = job.errorText?.trim();
+      showTopNotification(
+        context,
+        errorText != null && errorText.isNotEmpty
+            ? 'GLB generation failed: $errorText'
+            : 'GLB generation ${job.statusCode}.',
+        type: TopNotificationType.error,
+      );
+    } catch (error) {
+      if (!mounted) return;
+      showTopNotification(
+        context,
+        'GLB background status failed: $error',
+        type: TopNotificationType.error,
+      );
+    }
+  }
+
   Future<void> _generateGlb() async {
     final generate = widget.onGenerateGlb;
     if (generate == null || _isGeneratingGlb) return;
@@ -304,6 +342,21 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
     setState(() => _isGeneratingGlb = true);
     try {
       final result = await generate();
+      final queued = result['queued'] == true;
+      final statusCode = '${result['status_code'] ?? ''}'.trim().toLowerCase();
+      if (queued || statusCode == 'pending' || statusCode == 'running') {
+        notifyQuoteIntegrationsChanged();
+        if (!mounted) return;
+        showTopNotification(
+          context,
+          result['already_queued'] == true
+              ? 'GLB generation is already queued or running.'
+              : 'GLB generation queued and continues in background.',
+          type: TopNotificationType.success,
+        );
+        unawaited(_watchGlbJob('${result['job_id'] ?? ''}'.trim()));
+        return;
+      }
       final fileId = '${result['file_id'] ?? ''}'.trim();
       if (fileId.isEmpty) {
         throw StateError('GLB generation returned no Media Library file id.');
@@ -748,14 +801,26 @@ class _ExpandedGeometryPreview extends StatelessWidget {
     required this.currentUser,
     required this.humanImage,
     required this.staticBeamInstructionImage,
+    this.showWarnings = true,
+    this.stablePrintTextLayout = false,
   });
   final ModelGeometryPreview widget;
   final String currentUser;
   final ui.Image? humanImage;
   final Uint8List? staticBeamInstructionImage;
+  final bool showWarnings;
+  final bool stablePrintTextLayout;
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final warningText = showWarnings
+        ? widget.warnings
+            .map((message) => message.trim())
+            .where((message) => message.isNotEmpty)
+            .toSet()
+            .join('\n\n')
+        : '';
+    final notesText = widget.quoteNotes?.trim() ?? '';
     return ColoredBox(
       color: colorScheme.surface,
       child: Padding(
@@ -829,12 +894,6 @@ class _ExpandedGeometryPreview extends StatelessWidget {
                             (hasStaticBeamInstructionImage
                                 ? instructionImageHeight + 14
                                 : 0.0);
-                        final warningText = widget.warnings
-                            .map((message) => message.trim())
-                            .where((message) => message.isNotEmpty)
-                            .toSet()
-                            .join('\n\n');
-                        final notesText = widget.quoteNotes?.trim() ?? '';
                         return Stack(
                           fit: StackFit.expand,
                           children: [
@@ -908,7 +967,8 @@ class _ExpandedGeometryPreview extends StatelessWidget {
                                 ],
                               ),
                             ),
-                            if (warningText.isNotEmpty || notesText.isNotEmpty)
+                            if (!stablePrintTextLayout &&
+                                (warningText.isNotEmpty || notesText.isNotEmpty))
                               Positioned(
                                 left: 12,
                                 right: dateRightInset,
@@ -990,6 +1050,35 @@ class _ExpandedGeometryPreview extends StatelessWidget {
                     moduleRoles: widget.moduleRoles,
                     markiseSegments: widget.markiseSegments,
                   ),
+                  if (stablePrintTextLayout) ...[
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      height: expandedGeometryPreviewPrintTextBlockHeight,
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: warningText.isEmpty
+                                ? const SizedBox.shrink()
+                                : _ExpandedPreviewTextBlock(
+                                    title: 'Warnings',
+                                    text: warningText,
+                                    textColor: colorScheme.error,
+                                  ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: notesText.isEmpty
+                                ? const SizedBox.shrink()
+                                : _ExpandedPreviewTextBlock(
+                                    title: 'Notes',
+                                    text: notesText,
+                                  ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -1626,12 +1715,15 @@ const expandedGeometryPreviewRasterWidth =
     expandedGeometryPreviewWidth * expandedGeometryPreviewRasterScale;
 const expandedGeometryPreviewRasterHeight =
     expandedGeometryPreviewHeight * expandedGeometryPreviewRasterScale;
+const expandedGeometryPreviewPrintTextBlockHeight = 104.0;
 
 // Rasterize the same widget as the enlarged UI after its images have loaded.
 Future<Uint8List> renderExpandedGeometryPreviewPng({
   required BuildContext context,
   required ModelGeometryPreview preview,
   required String currentUser,
+  bool includeWarnings = true,
+  bool stablePrintTextLayout = false,
 }) async {
   final humanImage = await loadGeometryPreviewHumanImage(
     preview.mediaRepository,
@@ -1663,6 +1755,8 @@ Future<Uint8List> renderExpandedGeometryPreviewPng({
               currentUser: currentUser,
               humanImage: humanImage,
               staticBeamInstructionImage: instructionImage,
+              showWarnings: includeWarnings,
+              stablePrintTextLayout: stablePrintTextLayout,
             ),
           ),
         ),
