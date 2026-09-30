@@ -182,12 +182,88 @@ class GeometryPreviewMarkiseSegment {
   final int quantity;
 }
 
+// Shared by the current calculator and saved Quotes: an optional Media Library
+// image replaces only the left-hand drawing, never the calculation data.
+class TemplatePreviewImage extends StatelessWidget {
+  const TemplatePreviewImage({
+    super.key,
+    required this.mediaRepository,
+    required this.mediaFileId,
+    required this.fallback,
+  });
+
+  final AdminResourceRepository mediaRepository;
+  final String? mediaFileId;
+  final Widget fallback;
+
+  @override
+  Widget build(BuildContext context) {
+    final id = mediaFileId?.trim() ?? '';
+    if (id.isEmpty) return fallback;
+    return FutureBuilder<Uint8List?>(
+      future: _geometryPreviewMediaBytesFutureCache.putIfAbsent('template:$id', () async {
+        try {
+          final response = await mediaRepository.viewMediaFile(id);
+          return response.bytes.isEmpty ? null : response.bytes;
+        } catch (_) {
+          return null;
+        }
+      }),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
+          return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+        }
+        final bytes = snapshot.data;
+        if (bytes == null) return fallback;
+        return Image.memory(bytes, fit: BoxFit.contain,
+            errorBuilder: (_, __, ___) => fallback);
+      },
+    );
+  }
+}
+
+class TemplateGeometryPreview extends StatelessWidget {
+  const TemplateGeometryPreview({
+    super.key,
+    required this.title,
+    required this.mediaRepository,
+    this.mediaFileId,
+    this.details,
+  });
+
+  final String title;
+  final AdminResourceRepository mediaRepository;
+  final String? mediaFileId;
+  final Widget? details;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    height: 280,
+    child: Row(children: [
+      Expanded(flex: 3, child: TemplatePreviewImage(
+        mediaRepository: mediaRepository,
+        mediaFileId: mediaFileId,
+        fallback: Center(child: Text(title, textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.headlineMedium)),
+      )),
+      if (details != null) ...[
+        const VerticalDivider(),
+        Expanded(flex: 2, child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
+          child: SingleChildScrollView(child: details!),
+        )),
+      ],
+    ]),
+  );
+}
+
 class ModelGeometryPreview extends ConsumerStatefulWidget {
   const ModelGeometryPreview({
     super.key,
     required this.modelCode,
     required this.modelLabel,
     required this.mediaRepository,
+    this.customMediaFileId,
     this.widthMm,
     this.depthMm,
     this.heightMm,
@@ -232,6 +308,7 @@ class ModelGeometryPreview extends ConsumerStatefulWidget {
   final String? modelCode;
   final String? modelLabel;
   final AdminResourceRepository mediaRepository;
+  final String? customMediaFileId;
   final int? widthMm;
   final int? depthMm;
   final int? heightMm;
@@ -606,6 +683,30 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
 
   Widget _buildGeometryCanvas(
     ColorScheme colorScheme, {
+    bool clearHighlight = false,
+    double sideInfoBottomReserve = 0.0,
+    bool alignRoofTop = false,
+    bool showRoofTypeInSideInfo = false,
+  }) {
+    if (widget.customMediaFileId?.trim().isNotEmpty == true) {
+      return TemplatePreviewImage(
+        mediaRepository: widget.mediaRepository,
+        mediaFileId: widget.customMediaFileId,
+        fallback: _buildRoofCanvas(colorScheme,
+          clearHighlight: clearHighlight,
+          sideInfoBottomReserve: sideInfoBottomReserve,
+          alignRoofTop: alignRoofTop,
+          showRoofTypeInSideInfo: showRoofTypeInSideInfo),
+      );
+    }
+    return _buildRoofCanvas(colorScheme,
+      clearHighlight: clearHighlight,
+      sideInfoBottomReserve: sideInfoBottomReserve,
+      alignRoofTop: alignRoofTop,
+      showRoofTypeInSideInfo: showRoofTypeInSideInfo);
+  }
+
+  Widget _buildRoofCanvas(ColorScheme colorScheme, {
     bool clearHighlight = false,
     double sideInfoBottomReserve = 0.0,
     bool alignRoofTop = false,

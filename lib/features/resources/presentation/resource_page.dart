@@ -3069,6 +3069,50 @@ class _QuoteDetailsSummaryCard extends StatelessWidget {
   }
 }
 
+class _SavedEtPreviewDetails extends StatelessWidget {
+  const _SavedEtPreviewDetails({required this.draft, required this.contextData});
+  final CalculatorDraft draft;
+  final CalculatorContext? contextData;
+
+  @override
+  Widget build(BuildContext context) {
+    var hasCutting = false;
+    var hasCoating = false;
+    String? coatingColor;
+    for (final option in draft.options) {
+      final definitions = contextData?.additionalHandlingByParentItemId[option.catalogItemId]
+          ?? const <CalculatorAdditionalHandlingOption>[];
+      for (final handling in option.additionalHandlings) {
+        final definition = definitions.where((entry) => entry.catalogItemId == handling.catalogItemId)
+            .firstOrNull;
+        if (definition?.isCutting == true) hasCutting = true;
+        if (definition?.isCoating == true) {
+          hasCoating = true;
+          if (coatingColor == null && handling.colorCode?.trim().isNotEmpty == true) {
+            coatingColor = handling.colorCode!.trim();
+          }
+        }
+      }
+    }
+    final color = contextData == null || coatingColor == null ? null
+        : _quoteColorPreviewDataFor(contextData!, coatingColor)?.color;
+    Widget chip(String value, {Color? backgroundColor}) => Chip(
+      label: Text(value, style: backgroundColor == null ? null : TextStyle(
+        color: ThemeData.estimateBrightnessForColor(backgroundColor) == Brightness.dark
+            ? Colors.white : Colors.black)),
+      backgroundColor: backgroundColor,
+      visualDensity: VisualDensity.compact,
+    );
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      chip(draft.werk.isEmpty ? '—' : draft.werk),
+      if (hasCutting) chip('Zuschnitt'),
+      if (hasCoating) chip(coatingColor?.isNotEmpty == true
+          ? 'Sonderfarbe · $coatingColor' : 'Sonderfarbe', backgroundColor: color),
+      if (draft.reclamation) chip('Reklamation'),
+    ]);
+  }
+}
+
 class _SavedQuoteGeometryPreviewTab extends StatelessWidget {
   const _SavedQuoteGeometryPreviewTab({
     required this.data,
@@ -3219,11 +3263,23 @@ class _SavedQuoteGeometryPreviewTab extends StatelessWidget {
 
     return ListView(
       children: [
-        if (hasModel)
+        if (draft.isEinzelteile || selectedTemplate?.geometryPreviewIsRoof == false ||
+            (!hasModel && selectedTemplate?.geometryPreviewImageEnabled == true))
+          TemplateGeometryPreview(
+            title: selectedTemplate?.name ?? 'Template',
+            mediaRepository: repository,
+            mediaFileId: selectedTemplate?.geometryPreviewImageEnabled == true
+                ? selectedTemplate?.geometryPreviewMediaFileId : null,
+            details: draft.isEinzelteile ? _SavedEtPreviewDetails(
+              draft: draft, contextData: contextData) : null,
+          ),
+        if (hasModel && selectedTemplate?.geometryPreviewIsRoof != false)
           ModelGeometryPreview(
             modelCode: modelCode,
             modelLabel: modelLabel,
             mediaRepository: repository,
+            customMediaFileId: selectedTemplate?.geometryPreviewImageEnabled == true
+                ? selectedTemplate?.geometryPreviewMediaFileId : null,
             onGenerateGlb: quoteId.isEmpty
                 ? null
                 : () => quoteRepository.generateGlb(quoteId),

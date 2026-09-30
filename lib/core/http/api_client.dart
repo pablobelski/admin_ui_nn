@@ -76,11 +76,17 @@ class ApiClient {
     String path, {
     required Map<String, dynamic> body,
   }) async {
-    final response = await _httpClient.post(
-      _uri(path),
-      headers: _headers(extra: {'Content-Type': 'application/json'}),
-      body: jsonEncode(body),
-    );
+    late final http.Response response;
+    try {
+      response = await _httpClient.post(
+        _uri(path),
+        headers: _headers(extra: {'Content-Type': 'application/json'}),
+        body: jsonEncode(body),
+      );
+    } on http.ClientException catch (error) {
+      throw StateError('API request failed (${_uri(path)}). Check API reachability, '
+          'HTTPS/mixed content and server CORS_ORIGIN for the UI origin. $error');
+    }
     _ensureSuccess(response);
     return jsonDecode(response.body) as Map<String, dynamic>;
   }

@@ -77,7 +77,8 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
   }
 
   bool _defaultBoolValue(String key) {
-    return key == 'is_active' || key == 'is_default' || key == 'enabled';
+    return key == 'is_active' || key == 'is_default' || key == 'enabled' ||
+        key == 'geometry_preview_is_roof';
   }
 
   String _lookupFilterValue(AdminField field) {

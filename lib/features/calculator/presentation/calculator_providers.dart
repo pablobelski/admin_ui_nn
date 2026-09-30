@@ -80,7 +80,7 @@ final calculatorSetContentsProvider = FutureProvider.autoDispose<CalculatorSetCo
   ref.watch(calculatorSetContentsRefreshTickProvider);
   final draft = ref.read(calculatorDraftProvider);
 
-  if (draft.templateId == null || draft.templateId!.isEmpty) {
+  if (draft.isEinzelteile || draft.templateId == null || draft.templateId!.isEmpty) {
     return const CalculatorSetContentsPreview(tabs: [], source: {}, trace: [], warnings: [], raw: {});
   }
 
@@ -195,9 +195,12 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
     final normalized = value?.trim();
     final nextValue = normalized == null || normalized.isEmpty ? null : normalized;
     if (nextValue == state.productFamilyId) return;
+    final isEt = ref.read(calculatorContextProvider).asData?.value.templates
+        .any((entry) => entry.code == 'einzelteile' && entry.productFamilyId == nextValue) ?? false;
     state = state.copyWith(
       productFamilyId: nextValue,
       templateId: null,
+      isEinzelteile: isEt, reclamation: false,
       clearProductFamily: nextValue == null,
       clearTemplate: true,
       clearModel: true,
@@ -213,7 +216,14 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
     final normalized = value?.trim();
     final nextValue = normalized == null || normalized.isEmpty ? null : normalized;
     if (nextValue == state.templateId) return;
+    final template = ref.read(calculatorContextProvider).asData?.value.templates.where((entry) => entry.id == nextValue).firstOrNull;
+    final isEt = template?.code == 'einzelteile';
     state = state.copyWith(
+      isEinzelteile: isEt, reclamation: isEt && state.isEinzelteile && state.reclamation,
+      priceMode: isEt ? 'dealer_sales' : state.priceMode,
+      clearWidth: isEt, clearDepth: isEt, clearColor: isEt,
+      coveringEnabled: isEt ? false : state.coveringEnabled,
+      markiseEnabled: isEt ? false : state.markiseEnabled,
       templateId: nextValue,
       clearTemplate: nextValue == null,
       clearModel: true,
@@ -224,6 +234,10 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
       missingSetPieceAbzugArticleNos: const [],
     );
   }
+
+  void setOrderType(String value) => state = state.copyWith(orderTypeCode: value);
+
+  void setEinzelteile({bool? reclamation, String? werk, String? reason}) => state = state.copyWith(reclamation: reclamation, werk: werk, reclamationReason: reason);
 
   void setPriceMode(String? value) {
     if (value == null || value.isEmpty) return;

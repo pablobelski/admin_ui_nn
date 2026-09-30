@@ -120,18 +120,19 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
         final disabledStepKeys = <String>{
           if (!roofModelState.required) 'model',
         };
-        final activeSteps = _steps
+        final activeSteps = (draft.isEinzelteile ? _steps.where((step) => const {'product', 'template', 'options', 'delivery', 'summary'}.contains(step.key)).map((step) => step.key == 'options' ? const _StepDefinition('options', 'Positionen', Icons.tune_outlined) : step) : _steps)
             .where((step) => step.key != 'covering' || draft.coveringEnabled)
             .where((step) => step.key != 'markise' || draft.markiseEnabled)
             .toList(growable: false);
         final buyerContact = calculatorContext.buyerContactFor(draft);
         final calculationNumber = loadedQuote?.quoteNo ?? quoteNumberPreview.asData?.value;
         final isCalculationSaved = loadedQuote != null && !draft.differsFromLoadedQuote(loadedQuote);
-        final canCalculate = draft.templateId != null &&
+        final canCalculate = draft.templateId != null && (draft.isEinzelteile ? draft.options.isNotEmpty &&
+            (!draft.reclamation || (draft.reclamationReason ?? '').trim().isNotEmpty) : (
             draft.widthMm != null &&
             draft.depthMm != null &&
             roofModelState.isSelected(draft.modelCode) &&
-            (draft.colorCode ?? '').trim().isNotEmpty;
+            (draft.colorCode ?? '').trim().isNotEmpty));
         final effectiveSelectedStep =
             _selectedStep.clamp(0, activeSteps.length - 1).toInt();
         final currentStepKey = activeSteps[effectiveSelectedStep].key;
@@ -749,6 +750,10 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
       _calculatedResult = serverResult;
       _calculatedPriceSignature = _priceSignature(draft);
       ref.read(calculatorResultProvider.notifier).setData(serverResult);
+      if (draft.isEinzelteile) {
+        showTopNotification(context, 'Einzelteile gespeichert.', type: TopNotificationType.success);
+        return;
+      }
 
       final selectedTemplate = calculatorContext.templates
           .where((entry) => entry.id == draft.templateId)
@@ -2189,6 +2194,12 @@ class _ProductStepState extends State<_ProductStep> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text('Calculation context', style: Theme.of(context).textTheme.titleMedium),
+        if (widget.draft.isEinzelteile) Consumer(builder: (context, ref, _) => DropdownButtonFormField<String>(
+          initialValue: widget.draft.orderTypeCode, decoration: const InputDecoration(labelText: 'Dokumenttyp'),
+          items: const [DropdownMenuItem(value: 'offer', child: Text('Angebot')), DropdownMenuItem(value: 'order', child: Text('Auftrag')),
+            DropdownMenuItem(value: 'order_confirmation', child: Text('Auftragsbestätigung')), DropdownMenuItem(value: 'calculation', child: Text('Kalkulation')),
+            DropdownMenuItem(value: 'b2b_offer', child: Text('B2B-Angebot'))],
+          onChanged: (value) { if (value != null) ref.read(calculatorDraftProvider.notifier).setOrderType(value); })),
         const SizedBox(height: 8),
         Text(
           'Internal users may choose organization and price mode. Customer API must derive these values from the authenticated session.',
@@ -2245,7 +2256,7 @@ class _ProductStepState extends State<_ProductStep> {
         _DropdownField(
           label: 'Price mode',
           value: widget.draft.priceMode,
-          options: widget.contextData.priceModes,
+          options: widget.draft.isEinzelteile ? widget.contextData.priceModes.where((option) => const {'sales', 'dealer_sales', 'retail_sales', 'discounted_sales'}.contains(option.code)).toList() : widget.contextData.priceModes,
           idSelector: (option) => option.code,
           onChanged: widget.onPriceModeChanged,
           emptyLabel: null,
@@ -2549,6 +2560,107 @@ class _EngravingTextToggle extends StatelessWidget {
   }
 }
 
+class _EinzelteileConditions extends ConsumerWidget {
+  const _EinzelteileConditions({required this.draft});
+  final CalculatorDraft draft;
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final notifier = ref.read(calculatorDraftProvider.notifier);
+    return Padding(padding: const EdgeInsets.symmetric(vertical: 12), child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        DropdownButtonFormField<String>(key: ValueKey(draft.werk), initialValue: draft.werk,
+          decoration: const InputDecoration(labelText: 'Werk'),
+          items: [for (final value in const ['Werk 1', 'Werk 2', 'Werk 3']) DropdownMenuItem(value: value, child: Text(value))],
+          onChanged: (value) => notifier.setEinzelteile(werk: value)),
+        SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('Reklamation'),
+          subtitle: const Text('Kostenloser Ersatzauftrag; Material und Reserve bleiben erhalten.'),
+          value: draft.reclamation, onChanged: (value) => notifier.setEinzelteile(reclamation: value)),
+        if (draft.reclamation) TextFormField(initialValue: draft.reclamationReason,
+          decoration: InputDecoration(labelText: 'Reklamationsgrund *',
+            errorText: (draft.reclamationReason ?? '').trim().isEmpty ? 'Bitte Reklamationsgrund eingeben.' : null),
+          maxLines: 2, maxLength: 2000,
+          onChanged: (value) => notifier.setEinzelteile(reason: value)),
+      ],
+    ));
+  }
+}
+
+class _EinzelteilePositionFields extends StatelessWidget {
+  const _EinzelteilePositionFields({required this.option, required this.item, required this.onChanged});
+  final CalculatorSelectedOption option;
+  final CalculatorCatalogItemOption? item;
+  final ValueChanged<CalculatorSelectedOption> onChanged;
+  @override
+  Widget build(BuildContext context) {
+    final area = item?.measureTypeCode == 'sqm';
+    if (!area) return const SizedBox.shrink();
+    return Wrap(spacing: 12, runSpacing: 10, children: [
+      if (area) SizedBox(width: 135, child: _StableNumberField(value: '${option.widthMm ?? ''}', enabled: true,
+        keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Breite, mm', isDense: true),
+        onChanged: (text) => onChanged(option.copyWith(widthMm: int.tryParse(text), clearWidth: text.isEmpty, salesUnitCode: 'piece')))),
+      if (area) SizedBox(width: 175, child: DropdownButtonFormField<int>(key: ValueKey(option.schraegCount), initialValue: option.schraegCount ?? 0,
+        decoration: const InputDecoration(labelText: 'Schräg', isDense: true),
+        items: const [DropdownMenuItem(value: 0, child: Text('Standard')), DropdownMenuItem(value: 1, child: Text('1 Schräg')), DropdownMenuItem(value: 2, child: Text('2 Schräg'))],
+        onChanged: (value) => onChanged(option.copyWith(schraegCount: value)))),
+      if (area) const Text('Menge = Stückzahl; Fläche und Mindestmenge berechnet der Rechner.'),
+    ]);
+  }
+}
+
+class _EinzelteilePreview extends StatelessWidget {
+  const _EinzelteilePreview({required this.draft, required this.contextData,
+    required this.mediaRepository, required this.template});
+  final CalculatorDraft draft;
+  final CalculatorContext contextData;
+  final AdminResourceRepository mediaRepository;
+  final CalculatorTemplateOption? template;
+
+  @override
+  Widget build(BuildContext context) {
+    final selected = <CalculatorAdditionalHandlingOption>[];
+    for (final option in draft.options) {
+      final definitions = contextData.additionalHandlingByParentItemId[option.catalogItemId]
+          ?? const <CalculatorAdditionalHandlingOption>[];
+      for (final handling in option.additionalHandlings) {
+        for (final definition in definitions) {
+          if (definition.catalogItemId == handling.catalogItemId) selected.add(definition);
+        }
+      }
+    }
+    final hasCutting = selected.any((entry) => entry.isCutting);
+    final hasCoating = selected.any((entry) => entry.isCoating);
+    String? coatingColor;
+    if (hasCoating) {
+      for (final option in draft.options) {
+        for (final handling in option.additionalHandlings) {
+          if (handling.colorCode?.trim().isNotEmpty == true &&
+              selected.any((entry) => entry.isCoating && entry.catalogItemId == handling.catalogItemId)) {
+            coatingColor = handling.colorCode!.trim();
+            break;
+          }
+        }
+        if (coatingColor != null) break;
+      }
+    }
+    final color = _colorPreviewDataFor(contextData, coatingColor);
+    return _ScrollableResultCard(child: TemplateGeometryPreview(
+      title: template?.name ?? 'Einzelteile',
+      mediaRepository: mediaRepository,
+      mediaFileId: template?.geometryPreviewImageEnabled == true
+          ? template?.geometryPreviewMediaFileId : null,
+      details: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        _InfoChip(label: '', value: draft.werk.isEmpty ? '—' : draft.werk, showLabel: false),
+        if (hasCutting) const _InfoChip(label: '', value: 'Zuschnitt', showLabel: false),
+        if (hasCoating) _InfoChip(label: '', value: coatingColor?.isNotEmpty == true
+            ? 'Sonderfarbe · $coatingColor' : 'Sonderfarbe', showLabel: false,
+            backgroundColor: color?.color),
+        if (draft.reclamation) const _InfoChip(label: '', value: 'Reklamation', showLabel: false,
+            backgroundColor: Color(0xFFF3DADA)),
+      ]),
+    ));
+  }
+}
+
 class _TemplateStep extends StatelessWidget {
   const _TemplateStep({
     required this.contextData,
@@ -2586,8 +2698,17 @@ class _TemplateStep extends StatelessWidget {
         else ...[
           _TemplateInfoCard(template: selectedTemplate!),
           const SizedBox(height: 16),
-          _TemplateConstantsCard(template: selectedTemplate!),
         ],
+        if (draft.isEinzelteile) ...[
+          SizedBox(width: double.infinity, child: Card(margin: EdgeInsets.zero,
+            child: Padding(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('Parameters', style: Theme.of(context).textTheme.labelLarge),
+                _EinzelteileConditions(draft: draft),
+              ])))),
+          const SizedBox(height: 16),
+        ],
+        if (selectedTemplate != null) _TemplateConstantsCard(template: selectedTemplate!),
       ],
     );
   }
@@ -2716,7 +2837,8 @@ class _TemplateConstantEntry {
 
 List<_TemplateConstantEntry> _templateConstantEntries(CalculatorTemplateOption template) {
   final moduleData = template.parametersModuleData;
-  final nested = moduleData['tds_glass_params'] ?? moduleData['tdsGlassParams'];
+  final isEt = template.code == 'einzelteile';
+  final nested = isEt ? moduleData['einzelteile_params'] : moduleData['tds_glass_params'] ?? moduleData['tdsGlassParams'];
   final rawSource = nested is Map
       ? Map<String, dynamic>.from(nested)
       : moduleData;
@@ -2738,14 +2860,14 @@ List<_TemplateConstantEntry> _templateConstantEntries(CalculatorTemplateOption t
     if (path.isNotEmpty) values[path] = value;
   }
 
-  flatten(template.roofParameters, '');
+  if (!isEt) flatten(template.roofParameters, '');
   flatten(rawSource, '');
   return values.entries
       .map(
         (entry) => _TemplateConstantEntry(
           path: entry.key,
           value: _templateConstantValue(entry.value),
-          description: _templateConstantDescription(entry.key),
+          description: isEt ? '${(moduleData['descriptions'] as Map?)?[entry.key] ?? ''}' : _templateConstantDescription(entry.key),
         ),
       )
       .toList(growable: false)
@@ -7199,7 +7321,7 @@ class _DeliveryStepState extends State<_DeliveryStep> {
         widget.useTdsGlassRules
             ? _buildTdsCompletionWeek()
             : _buildManualCompletionWeek(),
-        if (widget.useTdsGlassRules && isDelivery) ...[
+        if ((widget.useTdsGlassRules || widget.draft.isEinzelteile) && isDelivery) ...[
           const SizedBox(height: 16),
           SizedBox(
             width: 300,
@@ -8923,17 +9045,24 @@ class _BomSummaryTrailing extends StatelessWidget {
 }
 
 class _InfoChip extends StatelessWidget {
-  const _InfoChip({required this.label, required this.value, this.onTap});
+  const _InfoChip({required this.label, required this.value, this.onTap,
+    this.showLabel = true, this.backgroundColor});
 
   final String label;
   final String value;
   final VoidCallback? onTap;
+  final bool showLabel;
+  final Color? backgroundColor;
 
   @override
   Widget build(BuildContext context) {
     final chip = Chip(
       avatar: onTap == null ? null : const Icon(Icons.open_in_new, size: 15),
-      label: Text('$label: $value', overflow: TextOverflow.ellipsis),
+      label: Text(showLabel ? '$label: $value' : value, overflow: TextOverflow.ellipsis,
+        style: backgroundColor == null ? null : TextStyle(
+          color: ThemeData.estimateBrightnessForColor(backgroundColor!) == Brightness.dark
+              ? Colors.white : Colors.black)),
+      backgroundColor: backgroundColor,
       visualDensity: VisualDensity.compact,
     );
     if (onTap == null) return chip;
@@ -10944,9 +11073,9 @@ class _OptionsStepState extends State<_OptionsStep> {
           ),
           const SizedBox(height: 12),
         ],
-        Text('Options / additional catalog positions', style: Theme.of(context).textTheme.titleMedium),
+        Text(widget.draft.isEinzelteile ? 'Positionen' : 'Options / additional catalog positions', style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 8),
-        const Text(
+        Text(widget.draft.isEinzelteile ? 'Artikel und SKU auswählen. Länge und Originalfarbe kommen aus der SKU; Beschichtung und Zuschnitt unter Behandlung. Länge bei Flächenartikeln über Bearbeiten.' :
           'Options are additional catalog positions selected only for the current calculation. They do not change the base set, but are added to price lines and option BOM.',
         ),
         if (widget.weights.isNotEmpty) ...[
@@ -11094,6 +11223,7 @@ class _OptionsStepState extends State<_OptionsStep> {
         ],
         const SizedBox(height: 20),
         _SelectedOptionsTable(
+          isEinzelteile: widget.draft.isEinzelteile,
           contextData: widget.contextData,
           mediaRepository: widget.mediaRepository,
           options: widget.draft.options,
@@ -11107,7 +11237,10 @@ class _OptionsStepState extends State<_OptionsStep> {
   }
 
   List<CalculatorCatalogItemOption> _itemsForSelectedType() {
+    final template = widget.contextData.templates.where((entry) => entry.id == widget.draft.templateId).firstOrNull;
+    final etItems = (template?.uiSchema['option_catalog_item_ids'] as List? ?? const []).map((value) => '$value').toSet();
     return widget.contextData.optionCatalogItems.where((item) {
+      if (widget.draft.isEinzelteile && etItems.isNotEmpty && !etItems.contains(item.id)) return false;
       if (!item.isSelectable) return false;
       if (_itemTypeCode != null && item.itemTypeCode != _itemTypeCode) return false;
       return true;
@@ -11636,7 +11769,7 @@ class _OptionsStepState extends State<_OptionsStep> {
                     _enabledAdditionalHandlingIds.remove(option.catalogItemId);
                     _pendingAdditionalHandlingId ??= option.catalogItemId;
                   }),
-                  icon: const Icon(Icons.close),
+                  icon: const Icon(Icons.delete_outline),
                 ),
                 child: option.isCoating || option.isCutting
                     ? _OptionHandlingFields(
@@ -11729,7 +11862,7 @@ class _OptionsStepState extends State<_OptionsStep> {
     final quantity = num.tryParse(_quantityController.text.replaceAll(',', '.')) ?? 1;
     final item = _findItem(itemId);
     final variant = _findVariant(_catalogVariantId);
-    final salesUnitCode = _effectiveSalesUnitCode(item, variant);
+    final salesUnitCode = widget.draft.isEinzelteile && item?.measureTypeCode == 'sqm' ? 'piece' : _effectiveSalesUnitCode(item, variant);
     final handlings = _selectedAdditionalHandlings(itemId);
     final error = _optionHandlingError(handlings, widget.contextData.additionalHandlingByParentItemId[itemId] ?? const [],
       salesUnitCode, variant?.lengthMm, quantity);
@@ -12008,11 +12141,12 @@ class _OptionHandlingFields extends StatelessWidget {
 }
 
 class _OptionEditDialog extends StatefulWidget {
-  const _OptionEditDialog({required this.option, required this.item, required this.variant, required this.contextData});
+  const _OptionEditDialog({required this.option, required this.item, required this.variant, required this.contextData, this.isEinzelteile = false});
   final CalculatorSelectedOption option;
   final CalculatorCatalogItemOption? item;
   final CalculatorCatalogVariantOption? variant;
   final CalculatorContext contextData;
+  final bool isEinzelteile;
 
   @override
   State<_OptionEditDialog> createState() => _OptionEditDialogState();
@@ -12043,6 +12177,14 @@ class _OptionEditDialogState extends State<_OptionEditDialog> {
         children: [
           Text(widget.variant?.displayName ?? widget.item?.displayName ?? 'Option'),
           const SizedBox(height: 12),
+          if (widget.isEinzelteile && widget.item?.measureTypeCode == 'sqm') ...[
+            _StableNumberField(value: '${_option.lengthMm ?? widget.variant?.lengthMm ?? ''}', enabled: true,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(labelText: 'Länge, mm', isDense: true),
+              onChanged: (text) => setState(() => _option = _option.copyWith(
+                lengthMm: int.tryParse(text), clearLength: text.isEmpty))),
+            const SizedBox(height: 12),
+          ],
           DropdownButtonFormField<String>(key: ValueKey(selectedUnit), initialValue: selectedUnit,
             decoration: const InputDecoration(labelText: 'Unit', isDense: true),
             items: [for (final unit in availableUnits) DropdownMenuItem(value: unit, child: Text(_formatUnitLabel(unit)))],
@@ -12391,6 +12533,7 @@ class _CatalogOptionMediaFrameState extends State<_CatalogOptionMediaFrame> {
 
 class _SelectedOptionsTable extends StatelessWidget {
   const _SelectedOptionsTable({
+    this.isEinzelteile = false,
     required this.contextData,
     required this.mediaRepository,
     required this.options,
@@ -12400,6 +12543,7 @@ class _SelectedOptionsTable extends StatelessWidget {
     required this.onRemove,
   });
 
+  final bool isEinzelteile;
   final CalculatorContext contextData;
   final AdminResourceRepository mediaRepository;
   final List<CalculatorSelectedOption> options;
@@ -12411,10 +12555,10 @@ class _SelectedOptionsTable extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (options.isEmpty) {
-      return const _HintCard(
+      return _HintCard(
         icon: Icons.tune_outlined,
         title: 'No options selected',
-        text: 'The selected base matrix will still calculate the base system price. Additional catalog positions can be added above.',
+        text: isEinzelteile ? 'Mindestens eine Position hinzufügen.' : 'The selected base matrix will still calculate the base system price. Additional catalog positions can be added above.',
       );
     }
 
@@ -12429,6 +12573,8 @@ class _SelectedOptionsTable extends StatelessWidget {
             const Divider(height: 1),
             for (var i = 0; i < options.length; i++) ...[
               _selectedOptionRow(context, i),
+              if (isEinzelteile && _findItem(options[i].catalogItemId)?.measureTypeCode == 'sqm')
+                Padding(padding: const EdgeInsets.fromLTRB(12, 0, 12, 12), child: _EinzelteilePositionFields(option: options[i], item: _findItem(options[i].catalogItemId), onChanged: (option) => onOptionChanged(i, option))),
               if (i < options.length - 1) const Divider(height: 1),
             ],
           ],
@@ -12446,10 +12592,13 @@ class _SelectedOptionsTable extends StatelessWidget {
           _cell(context, const Text('Media'), width: 48, header: true),
           _cell(context, const Text('Profile no'), width: 74, header: true),
           _cell(context, const Text('Name / additional handling'), flex: 5, header: true),
+          if (isEinzelteile) _cell(context, const Text('Length'), width: 88, header: true),
+          if (isEinzelteile) _cell(context, const Text('Original color'), width: 95, header: true),
           _cell(context, const Text('Qty'), width: 64, header: true),
           _cell(context, const Text('Unit'), width: 52, header: true),
           _cell(context, const Text('Option info'), width: 132, header: true),
           _cell(context, const Text('Price'), width: 84, header: true),
+          if (isEinzelteile) const SizedBox(width: 40),
           const SizedBox(width: 40),
         ],
       ),
@@ -12474,11 +12623,26 @@ class _SelectedOptionsTable extends StatelessWidget {
         ?? diagnostic?['unit_code']?.toString()
         ?? 'piece';
     final salesNote = diagnostic?['sales_note']?.toString();
+    final displaySalesNote = !isEinzelteile || salesNote == null
+        ? salesNote
+        : salesNote.split(' · ').where((part) {
+            final lower = part.trimLeft().toLowerCase();
+            return !lower.startsWith('zuschnitt') && !lower.startsWith('rest');
+          }).join(' · ');
     final optionTextParts = [
-      if (variant?.colorName != null) variant!.colorName!,
-      if (_formatLengthMm(variant?.lengthMm) != null) _formatLengthMm(variant?.lengthMm),
-      if (salesNote != null && salesNote.isNotEmpty) salesNote,
+      if (!isEinzelteile && variant?.colorName != null) variant!.colorName!,
+      if (!isEinzelteile && _formatLengthMm(variant?.lengthMm) != null) _formatLengthMm(variant?.lengthMm),
+      if (displaySalesNote != null && displaySalesNote.isNotEmpty) displaySalesNote,
     ].whereType<String>().where((entry) => entry.isNotEmpty).toList(growable: false);
+
+    Future<void> editUnit() async {
+      final edited = await showDialog<CalculatorSelectedOption>(
+        context: context,
+        builder: (_) => _OptionEditDialog(option: option, item: item,
+            variant: variant, contextData: contextData, isEinzelteile: isEinzelteile),
+      );
+      if (edited != null) onOptionChanged(index, edited);
+    }
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
@@ -12502,16 +12666,17 @@ class _SelectedOptionsTable extends StatelessWidget {
               availableHandlings: availableHandlings,
               selectedHandlings: option.additionalHandlings,
               catalogItems: contextData.optionCatalogItems,
-              onEdit: () async {
-                final edited = await showDialog<CalculatorSelectedOption>(
-                  context: context,
-                  builder: (_) => _OptionEditDialog(option: option, item: item, variant: variant, contextData: contextData),
-                );
-                if (edited != null) onOptionChanged(index, edited);
-              },
+              onEdit: editUnit,
+              showEditButton: !isEinzelteile,
             ),
             flex: 5,
           ),
+          if (isEinzelteile) _cell(context, Text(
+            option.lengthMm == null && variant?.lengthMm == null ? '—'
+                : '${option.lengthMm ?? variant?.lengthMm} mm'), width: 88),
+          if (isEinzelteile) _cell(context, Text(
+            variant?.colorName?.trim().isNotEmpty == true ? variant!.colorName!
+                : (variant?.colorCode ?? '—')), width: 95),
           _cell(
             context,
             _StableNumberField(
@@ -12531,6 +12696,9 @@ class _SelectedOptionsTable extends StatelessWidget {
             width: 132,
           ),
           _cell(context, _SelectedOptionPriceCell(diagnostic: diagnostic), width: 84),
+          if (isEinzelteile) SizedBox(width: 40, child: IconButton(
+            tooltip: 'Edit option', onPressed: editUnit,
+            icon: const Icon(Icons.edit_outlined))),
           SizedBox(
             width: 40,
             child: IconButton(
@@ -12571,7 +12739,7 @@ class _SelectedOptionsTable extends StatelessWidget {
     final parts = <String?>[
       item?.itemTypeCode,
       item?.name,
-      variant?.variantSku,
+      if (!isEinzelteile) variant?.variantSku,
       if (item == null && variant == null) option.optionCode ?? option.catalogVariantId ?? option.catalogItemId ?? 'Option',
     ];
     return _joinDistinctTextParts(parts);
@@ -12660,9 +12828,11 @@ class _SelectedOptionNameCell extends StatelessWidget {
     required this.selectedHandlings,
     required this.catalogItems,
     required this.onEdit,
+    this.showEditButton = true,
   });
 
   final VoidCallback onEdit;
+  final bool showEditButton;
   final String name;
   final List<CalculatorAdditionalHandlingOption> availableHandlings;
   final List<CalculatorSelectedAdditionalHandling> selectedHandlings;
@@ -12681,7 +12851,7 @@ class _SelectedOptionNameCell extends StatelessWidget {
           maxLines: 4,
           overflow: TextOverflow.ellipsis,
           )),
-          IconButton(tooltip: 'Edit unit / handling', visualDensity: VisualDensity.compact,
+          if (showEditButton) IconButton(tooltip: 'Edit unit / handling', visualDensity: VisualDensity.compact,
             onPressed: onEdit, icon: const Icon(Icons.edit_outlined, size: 16)),
         ]),
         if (selectedHandlings.isNotEmpty) ...[
@@ -12821,6 +12991,21 @@ class _SummaryStep extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (draft.isEinzelteile) {
+      return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        _SummaryRow('Template', 'Einzelteile'), _SummaryRow('Werk', draft.werk),
+        _SummaryRow('Reklamation', draft.reclamation ? 'Ja' : 'Nein'),
+        if (draft.reclamation) _SummaryRow(
+            'Reklamationsgrund', draft.reclamationReason ?? '—'),
+        _SummaryRow('Positionen', '${draft.options.length}'),
+        _SummaryRow('Delivery',
+            '${draft.handoverTypeCode ?? '—'} · KW ${draft.completionWeek ??
+                '—'}'),
+        _SummaryRow('Lieferung spätestens',
+            _deliveryLatestLabel(draft.deliveryLatestCode) ?? '—'),
+        _SummaryRow('Notizen', draft.externalNotes ?? '—'),
+      ]);
+    }
     final roofCalculation = calculateRoofGeometryForDraft(
       draft: draft,
       template: selectedTemplate,
@@ -12922,6 +13107,7 @@ class _ResultPanel extends StatelessWidget {
   final SavedQuote? savedQuote;
 
   bool get _showPreviewTab {
+    if (draft.isEinzelteile) return true;
     final modelIndex = _steps.indexWhere((step) => step.key == 'model');
     return loadedQuote != null ||
         (roofModelState.required && modelIndex >= 0 && selectedStep >= modelIndex);
@@ -13480,6 +13666,22 @@ class _GeometryPreviewTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final selectedTemplate = calculatorContext.templates
+        .where((template) => template.id == draft.templateId).firstOrNull;
+    if (draft.isEinzelteile) {
+      return _EinzelteilePreview(
+          draft: draft,
+          contextData: calculatorContext,
+          mediaRepository: mediaRepository,
+          template: selectedTemplate);
+    }
+    if (selectedTemplate?.geometryPreviewIsRoof == false) {
+      return _ScrollableResultCard(child: TemplateGeometryPreview(
+        title: selectedTemplate?.name ?? 'Template',
+        mediaRepository: mediaRepository,
+        mediaFileId: selectedTemplate?.geometryPreviewImageEnabled == true
+            ? selectedTemplate?.geometryPreviewMediaFileId : null));
+    }
     final previewData = _geometryPreviewRenderDataFor(
       draft: draft,
       calculatorContext: calculatorContext,
@@ -13533,7 +13735,14 @@ class _GeometryPreviewTab extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (!hasModel)
+          if (!hasModel && selectedTemplate?.geometryPreviewImageEnabled == true &&
+              selectedTemplate?.geometryPreviewMediaFileId != null)
+            TemplateGeometryPreview(
+              title: selectedTemplate?.name ?? 'Template',
+              mediaRepository: mediaRepository,
+              mediaFileId: selectedTemplate?.geometryPreviewMediaFileId),
+          if (!hasModel && (selectedTemplate?.geometryPreviewImageEnabled != true ||
+              selectedTemplate?.geometryPreviewMediaFileId == null))
             const _HintCard(
               icon: Icons.view_in_ar_outlined,
               title: 'No roof type selected',
@@ -13544,6 +13753,8 @@ class _GeometryPreviewTab extends StatelessWidget {
               modelCode: draft.modelCode,
               modelLabel: previewData.selectedModel?.label,
               mediaRepository: mediaRepository,
+              customMediaFileId: selectedTemplate?.geometryPreviewImageEnabled == true
+                  ? selectedTemplate?.geometryPreviewMediaFileId : null,
               onGenerateGlb: onGenerateGlb,
               onAwaitGlbJob: onAwaitGlbJob,
               onCheckGeneratedGlb: onCheckGeneratedGlb,
@@ -14036,7 +14247,9 @@ Map<String, List<String>> _calculatorAttentionMessagesByStep({
       '16912 Langmaß is enabled; from 14000 mm verify manually.',
     );
   }
-  if (draft.additionalDiscountEnabled) {
+  if (draft.isEinzelteile && draft.reclamation) {
+    _addAttentionMessage(grouped, const ['template', 'summary'], 'Reklamation discount: 100%.');
+  } else if (draft.additionalDiscountEnabled) {
     final discountPct = draft.additionalDiscountPct.toDouble();
     final discountReasonCode = draft.additionalDiscountReasonCode;
     final discountReason = (calculatorContext?.references['discount_types'] ?? const [])
@@ -14792,7 +15005,8 @@ class _PriceHeaderState extends ConsumerState<_PriceHeader> {
             .any((option) => option.code == draft.additionalDiscountReasonCode)
         ? draft.additionalDiscountReasonCode
         : null;
-    final additionalDiscountPct = draft.additionalDiscountPct.toDouble();
+    final reclamation = draft.isEinzelteile && draft.reclamation;
+    final additionalDiscountPct = reclamation ? 100.0 : draft.additionalDiscountPct.toDouble();
     final additionalDiscountPctText = additionalDiscountPct.toStringAsFixed(
       additionalDiscountPct == additionalDiscountPct.roundToDouble() ? 0 : 1,
     );
@@ -14995,7 +15209,7 @@ class _PriceHeaderState extends ConsumerState<_PriceHeader> {
                   style: Theme.of(context).textTheme.labelMedium,
                 ),
               ],
-              if (calculatorContext.additionalDiscountAvailable) ...[
+              if (reclamation || calculatorContext.additionalDiscountAvailable) ...[
                 const SizedBox(height: 10),
                 Wrap(
                   crossAxisAlignment: WrapCrossAlignment.center,
@@ -15009,21 +15223,23 @@ class _PriceHeaderState extends ConsumerState<_PriceHeader> {
                           scale: 0.82,
                           alignment: Alignment.centerLeft,
                           child: Switch(
-                            value: draft.additionalDiscountEnabled,
-                            onChanged: notifier.setAdditionalDiscountEnabled,
+                            value: reclamation || draft.additionalDiscountEnabled,
+                            onChanged: reclamation ? null : notifier.setAdditionalDiscountEnabled,
                           ),
                         ),
                         const SizedBox(width: 2),
                         Text(
-                          'Additional discount',
+                          reclamation ? 'Reklamation discount' : 'Additional discount',
                           style: Theme.of(context).textTheme.labelMedium,
                         ),
                       ],
                     ),
-                    if (draft.additionalDiscountEnabled) ...[
+                    if (reclamation || draft.additionalDiscountEnabled) ...[
                       SizedBox(
                         width: 92,
                         child: TextFormField(
+                          key: ValueKey('additional-discount-$reclamation'),
+                          enabled: !reclamation,
                           initialValue: additionalDiscountPctText,
                           keyboardType:
                               const TextInputType.numberWithOptions(decimal: true),
@@ -15035,7 +15251,7 @@ class _PriceHeaderState extends ConsumerState<_PriceHeader> {
                           onChanged: notifier.setAdditionalDiscountPct,
                         ),
                       ),
-                      SizedBox(
+                      if (!reclamation) SizedBox(
                         width: 230,
                         child: DropdownButtonFormField<String>(
                           initialValue: selectedDiscountReason,
@@ -15360,6 +15576,12 @@ class _LinesTab extends StatelessWidget {
     return widgets;
   }
 
+  // Reserve/REST dimensions are planning data, not customer line dimensions.
+  static String _withoutRestDimensions(String input) => input
+      .replaceAll(RegExp(r'(?:\s*[·;|]\s*)?\bREST\s+\d+\s*:\s*\d+(?:[.,]\d+)?\s*mm(?:\s*,\s*\d+\s*:\s*\d+(?:[.,]\d+)?\s*mm)*', caseSensitive: false), '')
+      .replaceAll(RegExp(r'(?:\s*[·;|,]\s*)?\b(?:REST|Restlänge)\s*[:=]?\s*\d+(?:[.,]\d+)?\s*(?:mm|m)?\b', caseSensitive: false), '')
+      .replaceAll(RegExp(r'\s*[·;|,]\s*$'), '').trim();
+
   static Widget _lineTile(BuildContext context, Map<String, dynamic> line) {
     final unitPrice = _num(line['unitPrice']);
     final netUnitPrice = line.containsKey('netUnitPrice') ? _num(line['netUnitPrice']) : unitPrice;
@@ -15367,7 +15589,7 @@ class _LinesTab extends StatelessWidget {
     final discountPct = _num(line['discountPct']);
     final discountAmount = _num(line['discountAmount']);
     final netAmount = line.containsKey('netAmount') ? _num(line['netAmount']) : grossAmount;
-    final note = '${line['note'] ?? ''}'.trim();
+    final note = _withoutRestDimensions('${line['note'] ?? ''}');
     final unit = _formatUnitLabel('${line['unit'] ?? ''}');
     final subtitleParts = <String>[
       'Qty ${line['quantity'] ?? 1} $unit',
@@ -15381,7 +15603,8 @@ class _LinesTab extends StatelessWidget {
     return ListTile(
       dense: true,
       contentPadding: const EdgeInsets.symmetric(horizontal: 8),
-      title: Text('${line['label'] ?? 'Line'}', maxLines: 2, overflow: TextOverflow.ellipsis),
+      title: Text(_withoutRestDimensions('${line['label'] ?? 'Line'}'),
+          maxLines: 2, overflow: TextOverflow.ellipsis),
       subtitle: Text(subtitleParts.join(' · '), maxLines: 2, overflow: TextOverflow.ellipsis),
       trailing: Column(
         mainAxisSize: MainAxisSize.min,
@@ -16017,9 +16240,9 @@ class _TemplateInfoCard extends StatelessWidget {
             const SizedBox(height: 6),
             Text('Code: ${template.code}'),
             Text('Template family: ${template.productFamilyCode} / ${template.productFamilyName}'),
-            Text('Material variant: ${template.defaultValues['material_variant'] ?? '—'}'),
+            if (template.code != 'einzelteile') Text('Material variant: ${template.defaultValues['material_variant'] ?? '—'}'),
             const SizedBox(height: 12),
-            const Text('CalculationService resolves imported pricing family codes like SKY / TD / FLT / VS when live templates are linked to legacy families.'),
+            Text(template.code == 'einzelteile' ? 'Profile, Glas, Zubehör und Dienstleistungen. Preise werden je Position berechnet.' : 'CalculationService resolves imported pricing family codes like SKY / TD / FLT / VS when live templates are linked to legacy families.'),
           ],
         ),
       ),
@@ -16340,7 +16563,8 @@ bool _isStepComplete(String key, CalculatorDraft draft) {
           draft.priceMode.trim().isNotEmpty &&
           (draft.quoteNoExternal ?? '').trim().isNotEmpty;
     case 'template':
-      return draft.templateId != null;
+      return draft.templateId != null && (!draft.isEinzelteile || !draft.reclamation ||
+          (draft.reclamationReason ?? '').trim().isNotEmpty);
     case 'model':
       return draft.modelCode != null;
     case 'dimensions':
@@ -16360,7 +16584,7 @@ bool _isStepComplete(String key, CalculatorDraft draft) {
     case 'delivery':
       return draft.handoverTypeCode != null;
     case 'summary':
-      return draft.templateId != null && draft.widthMm != null && draft.depthMm != null;
+      return draft.templateId != null && (draft.isEinzelteile ? draft.options.isNotEmpty : draft.widthMm != null && draft.depthMm != null);
     default:
       return false;
   }
@@ -16386,7 +16610,9 @@ String? _stepValidationMessage(
     case 'template':
       return (draft.templateId ?? '').trim().isEmpty
           ? 'Select a configurator template before continuing.'
-          : null;
+          : draft.isEinzelteile && draft.reclamation && (draft.reclamationReason ?? '').trim().isEmpty
+              ? 'Bitte Reklamationsgrund eingeben.'
+              : null;
     case 'model':
       if (!roofModelState.required) return null;
       return roofModelState.isSelected(draft.modelCode)

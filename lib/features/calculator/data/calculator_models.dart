@@ -283,7 +283,15 @@ class CalculatorTemplateOption {
       productFamilyId: _string(json['product_family_id']),
       productFamilyCode: _string(json['product_family_code']),
       productFamilyName: _string(json['product_family_name']),
-      defaultValues: _map(json['default_values_json']),
+      defaultValues: {
+        ..._map(json['default_values_json']),
+        if (json.containsKey('geometry_preview_media_file_id'))
+          'geometry_preview_media_file_id': json['geometry_preview_media_file_id'],
+        if (json.containsKey('geometry_preview_image_enabled'))
+          'geometry_preview_image_enabled': json['geometry_preview_image_enabled'],
+        if (json.containsKey('geometry_preview_is_roof'))
+          'geometry_preview_is_roof': json['geometry_preview_is_roof'],
+      },
       uiSchema: _map(json['ui_schema_json']),
       parametersModuleId: _nullableString(json['parameters_module_id']),
       parametersModuleData: _map(json['parameters_module_data_json']),
@@ -307,6 +315,17 @@ class CalculatorTemplateOption {
   final Map<String, dynamic> parametersModuleData;
   final Map<String, dynamic> roofParameters;
   final List<String> roofParameterMissingKeys;
+
+  String? get geometryPreviewMediaFileId =>
+      _nullableString(defaultValues['geometry_preview_media_file_id']);
+
+  bool get geometryPreviewImageEnabled =>
+      defaultValues['geometry_preview_image_enabled'] == true;
+
+  bool get geometryPreviewIsRoof =>
+      defaultValues['geometry_preview_is_roof'] is bool
+          ? defaultValues['geometry_preview_is_roof'] as bool
+          : code.trim().toLowerCase() != 'einzelteile';
 
   bool get hasCompleteRoofParameters => parametersModuleId != null && roofParameterMissingKeys.isEmpty && roofParameters.isNotEmpty;
 
@@ -1419,6 +1438,11 @@ class CalculatorMarkiseSelection {
 
 class CalculatorDraft {
   const CalculatorDraft({
+    this.orderTypeCode = 'offer',
+    this.isEinzelteile = false,
+    this.reclamation = false,
+    this.werk = 'Werk 1',
+    this.reclamationReason,
     this.organizationId,
     this.productFamilyId,
     this.templateId,
@@ -1473,6 +1497,13 @@ class CalculatorDraft {
     final additionalDiscount = _map(
       json['additional_discount'] ?? json['additionalDiscount'],
     );
+    // The forced reclamation discount is derived from the flag. Do not leave
+    // a manual 100% discount behind when a saved reclamation is switched off.
+    if (additionalDiscount['reason_code'] == 'reclamation') {
+      additionalDiscount['enabled'] = false;
+      additionalDiscount['discount_pct'] = 0;
+      additionalDiscount['reason_code'] = null;
+    }
     final options = json['options'] is List
         ? (json['options'] as List)
             .whereType<Map>()
@@ -1552,6 +1583,11 @@ class CalculatorDraft {
         : normalizedStaticBeamPositionCode;
 
     return CalculatorDraft(
+      orderTypeCode: _nullableString(json['order_type_code']) ?? 'offer',
+      isEinzelteile: json['einzelteile'] is Map,
+      reclamation: _map(json['einzelteile'])['reclamation'] == true,
+      werk: _nullableString(_map(json['einzelteile'])['werk']) ?? 'Werk 1',
+      reclamationReason: _nullableString(_map(json['einzelteile'])['reclamation_reason']),
       organizationId: _nullableString(json['organization_id']),
       productFamilyId: productFamilyId,
       templateId: _nullableString(json['template_id']),
@@ -1630,6 +1666,11 @@ class CalculatorDraft {
     );
   }
 
+  final String orderTypeCode;
+  final bool isEinzelteile;
+  final bool reclamation;
+  final String werk;
+  final String? reclamationReason;
   final String? organizationId;
   final String? productFamilyId;
   final String? templateId;
@@ -1673,6 +1714,11 @@ class CalculatorDraft {
   final String? additionalDiscountReasonCode;
 
   CalculatorDraft copyWith({
+    String? orderTypeCode,
+    bool? isEinzelteile,
+    bool? reclamation,
+    String? werk,
+    String? reclamationReason,
     String? organizationId,
     bool clearOrganization = false,
     String? productFamilyId,
@@ -1740,6 +1786,11 @@ class CalculatorDraft {
     bool clearAdditionalDiscountReasonCode = false,
   }) {
     return CalculatorDraft(
+      orderTypeCode: orderTypeCode ?? this.orderTypeCode,
+      isEinzelteile: isEinzelteile ?? this.isEinzelteile,
+      reclamation: reclamation ?? this.reclamation,
+      werk: werk ?? this.werk,
+      reclamationReason: reclamationReason ?? this.reclamationReason,
       organizationId: clearOrganization ? null : organizationId ?? this.organizationId,
       productFamilyId: clearProductFamily ? null : productFamilyId ?? this.productFamilyId,
       templateId: clearTemplate ? null : templateId ?? this.templateId,
@@ -1891,6 +1942,8 @@ class CalculatorDraft {
 
   Map<String, dynamic> _baseJson({required List<Map<String, dynamic>> setContentsJson}) {
     return {
+      if (isEinzelteile) 'order_type_code': orderTypeCode,
+      if (isEinzelteile) 'einzelteile': { 'reclamation': reclamation, 'werk': werk, 'reclamation_reason': reclamationReason },
       if (organizationId != null && organizationId!.isNotEmpty) 'organization_id': organizationId,
       if (templateId != null && templateId!.isNotEmpty) 'template_id': templateId,
       'price_mode': priceMode,
@@ -1900,9 +1953,9 @@ class CalculatorDraft {
         if (depthMm != null) 'depth_mm': depthMm,
         if (heightMm != null) 'height_mm': heightMm,
       },
-      if (_roofJson().isNotEmpty) 'roof': _roofJson(),
+      if (!isEinzelteile && _roofJson().isNotEmpty) 'roof': _roofJson(),
       'markise': {
-        'enabled': markiseEnabled,
+        'enabled': !isEinzelteile && markiseEnabled,
         'exclude_from_price': markiseExcludeFromPrice,
         'segments': markiseSelections.map((entry) => entry.toJson()).toList(),
       },
@@ -1925,9 +1978,11 @@ class CalculatorDraft {
       'set_contents': setContentsJson,
       'missing_set_piece_abzug_article_nos': missingSetPieceAbzugArticleNos,
       'additional_discount': {
-        'enabled': additionalDiscountEnabled,
-        'discount_pct': additionalDiscountPct,
-        if ((additionalDiscountReasonCode ?? '').trim().isNotEmpty)
+        'enabled': isEinzelteile && reclamation || additionalDiscountEnabled,
+        'discount_pct': isEinzelteile && reclamation ? 100 : additionalDiscountPct,
+        if (isEinzelteile && reclamation)
+          'reason_code': 'reclamation'
+        else if ((additionalDiscountReasonCode ?? '').trim().isNotEmpty)
           'reason_code': additionalDiscountReasonCode!.trim(),
       },
       'language_code': 'de',
@@ -1973,6 +2028,8 @@ class CalculatorSelectedOption {
     this.quantity = 1,
     this.salesUnitCode,
     this.lengthMm,
+    this.widthMm,
+    this.colorCode,
     this.schraegCount,
     this.additionalHandlings = const [],
   });
@@ -1984,6 +2041,8 @@ class CalculatorSelectedOption {
       catalogVariantId: _nullableString(json['catalog_variant_id']),
       salesUnitCode: _nullableString(json['sales_unit_code']),
       lengthMm: _intOrNull(json['length_mm']),
+      widthMm: _intOrNull(json['width_mm']),
+      colorCode: _nullableString(json['color_code']),
       quantity: _numOrDefault(json['quantity'], 1),
       schraegCount: _intOrNull(json['schraeg_count']),
       additionalHandlings: _list(json['additional_handlings'])
@@ -1999,6 +2058,8 @@ class CalculatorSelectedOption {
   final num quantity;
   final String? salesUnitCode;
   final int? lengthMm;
+  final int? widthMm;
+  final String? colorCode;
   final int? schraegCount;
   final List<CalculatorSelectedAdditionalHandling> additionalHandlings;
 
@@ -2013,6 +2074,10 @@ class CalculatorSelectedOption {
     num? quantity,
     String? salesUnitCode,
     bool clearSalesUnit = false,
+    int? widthMm,
+    bool clearWidth = false,
+    String? colorCode,
+    bool clearColor = false,
     int? lengthMm,
     bool clearLength = false,
     int? schraegCount,
@@ -2025,6 +2090,8 @@ class CalculatorSelectedOption {
       catalogVariantId: clearCatalogVariant ? null : catalogVariantId ?? this.catalogVariantId,
       quantity: quantity ?? this.quantity,
       salesUnitCode: clearSalesUnit ? null : salesUnitCode ?? this.salesUnitCode,
+      widthMm: clearWidth ? null : widthMm ?? this.widthMm,
+      colorCode: clearColor ? null : colorCode ?? this.colorCode,
       lengthMm: clearLength ? null : lengthMm ?? this.lengthMm,
       schraegCount: clearSchraeg ? null : schraegCount ?? this.schraegCount,
       additionalHandlings: additionalHandlings ?? this.additionalHandlings,
@@ -2038,6 +2105,8 @@ class CalculatorSelectedOption {
       if (catalogVariantId != null && catalogVariantId!.isNotEmpty) 'catalog_variant_id': catalogVariantId,
       'quantity': quantity,
       if (salesUnitCode != null && salesUnitCode!.isNotEmpty) 'sales_unit_code': salesUnitCode,
+      if (widthMm != null) 'width_mm': widthMm,
+      if (colorCode?.isNotEmpty == true) 'color_code': colorCode,
       if (lengthMm != null && lengthMm! > 0) 'length_mm': lengthMm,
       if (schraegCount != null && schraegCount! > 0) 'schraeg_count': schraegCount,
       if (additionalHandlings.isNotEmpty)
