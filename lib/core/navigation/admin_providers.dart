@@ -4,6 +4,7 @@ import '../auth/auth_session.dart';
 import '../config/app_config.dart';
 import '../http/admin_resource_repository.dart';
 import '../http/api_client.dart';
+import '../http/job_updates.dart';
 import '../models/admin_resource.dart';
 import '../models/admin_state.dart';
 import 'admin_registry.dart';
@@ -15,6 +16,14 @@ final apiClientProvider = Provider<ApiClient>((ref) {
     baseUrl: apiBaseUrl,
     tokenProvider: () => ref.read(authSessionProvider).accessToken,
   );
+});
+
+final jobUpdatesProvider = Provider<JobUpdates>((ref) {
+  final token = ref.watch(authSessionProvider.select((session) => session.accessToken));
+  final updates = JobUpdates(ref.watch(apiClientProvider));
+  if (token != null && token.isNotEmpty) updates.start();
+  ref.onDispose(updates.dispose);
+  return updates;
 });
 
 final resourceRepositoryProvider = Provider<AdminResourceRepository>((ref) {

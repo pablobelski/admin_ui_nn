@@ -114,6 +114,20 @@ const documentBatchLookup = AdminLookup(
   showIdInDropdown: false,
 );
 
+const integrationBatchLookup = AdminLookup(
+  endpoint: '/api/admin/integration-batches',
+  labelKeys: ['code', 'name', 'is_default'],
+  limit: 1000,
+  showIdInDropdown: false,
+);
+
+const integrationEndpointLookup = AdminLookup(
+  endpoint: '/api/admin/integration-endpoints',
+  labelKeys: ['code', 'name'],
+  limit: 1000,
+  showIdInDropdown: false,
+);
+
 const emailTemplateLookup = AdminLookup(
   endpoint: '/api/admin/email-templates',
   labelKeys: ['code', 'name', 'message_type_code', 'scope_code', 'version'],
@@ -1672,12 +1686,6 @@ const adminNavGroups = <AdminNavGroup>[
           AdminField(key: 'version', label: 'Version', type: AdminFieldType.number),
           AdminField(key: 'status_code', label: 'Status', options: statusOptions),
           AdminField(
-            key: 'submit_document_batch_id',
-            label: 'Submit document batch',
-            lookup: documentBatchLookup,
-            helperText: 'Merged PDF batch used by Submit/Resend. Leave empty to use the accessible default batch.',
-          ),
-          AdminField(
             key: 'submit_customer_delivery_enabled',
             label: 'Send Submit email to customer',
             type: AdminFieldType.boolType,
@@ -1701,6 +1709,13 @@ const adminNavGroups = <AdminNavGroup>[
             sourceValueKey: 'product_family_id',
             selectTargetRow: true,
             icon: Icons.category_outlined,
+          ),
+          AdminDetailAction(
+            label: 'Integration batches',
+            targetResourceKey: 'integration_batches',
+            filterKey: 'configurator_template_id',
+            sourceValueKey: 'id',
+            icon: Icons.playlist_play,
           ),
           AdminDetailAction(
             label: 'Document batches',
@@ -2912,6 +2927,105 @@ const adminNavGroups = <AdminNavGroup>[
     icon: Icons.hub_outlined,
     resources: [
       AdminResourceDefinition(
+        key: 'integration_batches',
+        title: 'Integration batches',
+        endpoint: '/api/admin/integration-batches',
+        icon: Icons.playlist_play,
+        supportsDelete: true,
+        columns: [
+          AdminColumn(key: 'code', label: 'Code', isPrimary: true),
+          AdminColumn(key: 'name', label: 'Name', flex: 2),
+          AdminColumn(key: 'configurator_template_id', label: 'Configurator template', flex: 2, lookup: configuratorTemplateLookup),
+          AdminColumn(key: 'is_default', label: 'Default Submit'),
+          AdminColumn(key: 'is_active', label: 'Active'),
+        ],
+        listFilters: [
+          AdminResourceFilter(key: 'configurator_template_id', label: 'Configurator template', lookup: configuratorTemplateLookup),
+          AdminResourceFilter(key: 'is_default', label: 'Default', options: activeFilterOptions),
+          AdminResourceFilter(key: 'is_active', label: 'Active', options: activeFilterOptions),
+        ],
+        formFields: [
+          AdminField(key: 'configurator_template_id', label: 'Configurator template', lookup: configuratorTemplateLookup),
+          AdminField(key: 'code', label: 'Code'),
+          AdminField(key: 'name', label: 'Name'),
+          AdminField(key: 'is_default', label: 'Default Submit', type: AdminFieldType.boolType,
+            helperText: 'Used by Submit for this template. One active default per template.'),
+          AdminField(key: 'is_active', label: 'Active', type: AdminFieldType.boolType, defaultValue: 'true'),
+          AdminField(
+            key: 'allowed_organization_ids',
+            label: 'Allowed organization IDs',
+            type: AdminFieldType.json,
+            defaultValue: '[]',
+            helperText: 'JSON array. Empty means unrestricted.',
+          ),
+          AdminField(
+            key: 'allowed_product_family_codes',
+            label: 'Allowed product family codes',
+            type: AdminFieldType.json,
+            defaultValue: '[]',
+            helperText: 'JSON array. Empty means unrestricted.',
+          ),
+          AdminField(
+            key: 'allowed_role_codes',
+            label: 'Allowed role codes',
+            type: AdminFieldType.json,
+            defaultValue: '[]',
+            helperText: 'JSON array of global or organization roles. Empty means unrestricted.',
+          ),
+          AdminField(
+            key: 'allowed_quote_statuses',
+            label: 'Allowed quote statuses',
+            type: AdminFieldType.json,
+            defaultValue: '[]',
+            helperText: 'JSON array. Empty means unrestricted.',
+          ),
+          AdminField(key: 'metadata_json', label: 'Metadata JSON', type: AdminFieldType.json, defaultValue: '{}'),
+        ],
+        detailActions: [
+          AdminDetailAction(label: 'Batch items', targetResourceKey: 'integration_batch_items',
+            filterKey: 'integration_batch_id', sourceValueKey: 'id', icon: Icons.format_list_numbered),
+          AdminDetailAction(label: 'Configurator template', targetResourceKey: 'configurator_templates',
+            filterKey: 'id', sourceValueKey: 'configurator_template_id', selectTargetRow: true),
+        ],
+      ),
+      AdminResourceDefinition(
+        key: 'integration_batch_items',
+        title: 'Integration batch items',
+        endpoint: '/api/admin/integration-batch-items',
+        icon: Icons.format_list_numbered,
+        supportsDelete: true,
+        columns: [
+          AdminColumn(key: 'batch_order', label: 'Order', isPrimary: true),
+          AdminColumn(key: 'integration_batch_id', label: 'Batch', flex: 2, lookup: integrationBatchLookup),
+          AdminColumn(key: 'integration_endpoint_id', label: 'Integration endpoint', flex: 2, lookup: integrationEndpointLookup),
+          AdminColumn(key: 'operation_code', label: 'Operation', flex: 2),
+          AdminColumn(key: 'is_active', label: 'Active'),
+        ],
+        listFilters: [
+          AdminResourceFilter(key: 'integration_batch_id', label: 'Batch', lookup: integrationBatchLookup),
+          AdminResourceFilter(key: 'is_active', label: 'Active', options: activeFilterOptions),
+        ],
+        formFields: [
+          AdminField(key: 'integration_batch_id', label: 'Batch', lookup: integrationBatchLookup),
+          AdminField(key: 'integration_endpoint_id', label: 'Integration endpoint', lookup: integrationEndpointLookup),
+          AdminField(key: 'operation_code', label: 'Operation', options: [
+            AdminSelectOption(value: 'quote_email', label: 'Send quote email — quote_email'),
+            AdminSelectOption(value: 'create_reserve', label: 'Create Reserve — reserve_google_queue'),
+            AdminSelectOption(value: 'create_kommission', label: 'Create Kommission — accounting_google_sheet'),
+            AdminSelectOption(value: 'send_sevdesk', label: 'Send to Sevdesk — sevdesk_quote'),
+            AdminSelectOption(value: 'print_pdf', label: 'Generate PDF — jxls_renderer'),
+            AdminSelectOption(value: 'generate_glb', label: 'Generate 3D — glb_renderer'),
+          ]),
+          AdminField(key: 'batch_order', label: 'Order', type: AdminFieldType.number, defaultValue: '100',
+            helperText: 'Steps run in ascending order. Errors are recorded; subsequent steps continue.'),
+          AdminField(key: 'is_active', label: 'Active', type: AdminFieldType.boolType, defaultValue: 'true'),
+        ],
+        detailActions: [
+          AdminDetailAction(label: 'Batch', targetResourceKey: 'integration_batches', filterKey: 'id', sourceValueKey: 'integration_batch_id', selectTargetRow: true),
+          AdminDetailAction(label: 'Integration endpoint', targetResourceKey: 'integration_endpoints', filterKey: 'id', sourceValueKey: 'integration_endpoint_id', selectTargetRow: true),
+        ],
+      ),
+      AdminResourceDefinition(
         key: 'integration_endpoints',
         title: 'Integration Endpoints',
         endpoint: '/api/admin/integration-endpoints',
@@ -2930,6 +3044,61 @@ const adminNavGroups = <AdminNavGroup>[
           AdminField(key: 'entity_scope_code', label: 'Entity scope code'),
           AdminField(key: 'config_json', label: 'Config JSON', type: AdminFieldType.json),
           AdminField(
+            key: 'config_json.templates.tds_glas.drive_upload.folder_path',
+            label: 'Google Drive base folder: TDS Glas',
+            helperText: 'Path from My Drive root. {year} is supported; buyer and commission folders are appended automatically.',
+            visibleWhenFieldKey: 'code',
+            visibleWhenValues: ['accounting_google_sheet'],
+          ),
+          AdminField(
+            key: 'config_json.templates.einzelteile.drive_upload.folder_path',
+            label: 'Google Drive base folder: Einzelteile',
+            visibleWhenFieldKey: 'code',
+            visibleWhenValues: ['accounting_google_sheet'],
+          ),
+          AdminField(
+            key: 'config_json.templates.einzelteile.exceptions.reclamation.drive_upload.folder_path',
+            label: 'Google Drive base folder: Einzelteile Reklamation',
+            visibleWhenFieldKey: 'code',
+            visibleWhenValues: ['accounting_google_sheet'],
+          ),
+          AdminField(
+            key: 'config_json.templates.velaris_live_export.drive_upload.folder_path',
+            label: 'Google Drive base folder: Velaris',
+            visibleWhenFieldKey: 'code',
+            visibleWhenValues: ['accounting_google_sheet'],
+          ),
+          AdminField(
+            key: 'config_json.templates.tds_poly_live_export.drive_upload.folder_path',
+            label: 'Google Drive base folder: TDS Poly',
+            visibleWhenFieldKey: 'code',
+            visibleWhenValues: ['accounting_google_sheet'],
+          ),
+          AdminField(
+            key: 'config_json.templates.flat_line_live_export.drive_upload.folder_path',
+            label: 'Google Drive base folder: Flat Line',
+            visibleWhenFieldKey: 'code',
+            visibleWhenValues: ['accounting_google_sheet'],
+          ),
+          AdminField(
+            key: 'config_json.templates.einzelteile_live_export.drive_upload.folder_path',
+            label: 'Google Drive base folder: Einzelteile live export',
+            visibleWhenFieldKey: 'code',
+            visibleWhenValues: ['accounting_google_sheet'],
+          ),
+          AdminField(
+            key: 'config_json.templates.skyview_glas_live_export.drive_upload.folder_path',
+            label: 'Google Drive base folder: SkyView Glas',
+            visibleWhenFieldKey: 'code',
+            visibleWhenValues: ['accounting_google_sheet'],
+          ),
+          AdminField(
+            key: 'config_json.templates.skyview_poly_live_export.drive_upload.folder_path',
+            label: 'Google Drive base folder: SkyView Poly',
+            visibleWhenFieldKey: 'code',
+            visibleWhenValues: ['accounting_google_sheet'],
+          ),
+          AdminField(
             key: 'config_json.to_email_template',
             label: 'Quote mail: To email template',
             lookup: emailTemplateLookup,
@@ -2947,27 +3116,6 @@ const adminNavGroups = <AdminNavGroup>[
             key: 'config_json.bcc_email_template',
             label: 'Quote mail: BCC email template',
             lookup: emailTemplateLookup,
-            visibleWhenFieldKey: 'code',
-            visibleWhenValues: ['quote_email', 'quote_mail'],
-          ),
-          AdminField(
-            key: 'config_json.to_recipient_template',
-            label: 'Quote mail: To PDF template',
-            lookup: documentTemplateLookup,
-            visibleWhenFieldKey: 'code',
-            visibleWhenValues: ['quote_email', 'quote_mail'],
-          ),
-          AdminField(
-            key: 'config_json.cc_recipient_template',
-            label: 'Quote mail: CC PDF template',
-            lookup: documentTemplateLookup,
-            visibleWhenFieldKey: 'code',
-            visibleWhenValues: ['quote_email', 'quote_mail'],
-          ),
-          AdminField(
-            key: 'config_json.bcc_recipient_template',
-            label: 'Quote mail: BCC PDF template',
-            lookup: documentTemplateLookup,
             visibleWhenFieldKey: 'code',
             visibleWhenValues: ['quote_email', 'quote_mail'],
           ),

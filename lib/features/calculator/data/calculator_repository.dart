@@ -1,10 +1,12 @@
 import '../../../core/http/api_client.dart';
+import '../../../core/http/job_updates.dart';
 import 'calculator_models.dart';
 
 class CalculatorRepository {
-  const CalculatorRepository(this._client);
+  const CalculatorRepository(this._client, this.jobUpdates);
 
   final ApiClient _client;
+  final JobUpdates jobUpdates;
 
   Future<CalculatorContext> fetchContext() async {
     final response = await _client.getJson('/api/internal/calculator/context');
@@ -214,6 +216,21 @@ class CalculatorRepository {
     return QuoteSubmitResult.fromJson(response);
   }
 
+  Future<Map<String, dynamic>> previewIntegrationBatch(String quoteId, {String? batchId}) =>
+      _client.getJson('/api/internal/calculator/integration-batch', query: {
+        'quote_id': quoteId,
+        if (batchId != null) 'integration_batch_id': batchId,
+      });
+
+  Future<QuoteIntegrationResult> submitIntegrationBatch(String quoteId, String batchId, String version) async {
+    final response = await _client.postJson('/api/internal/calculator/integration-batch', body: {
+      'quote_id': quoteId,
+      'integration_batch_id': batchId,
+      'batch_version': version,
+    });
+    return QuoteIntegrationResult.fromJson(response);
+  }
+
   Future<QuoteIntegrationOverview> fetchQuoteIntegrations(
     String quoteId,
   ) async {
@@ -245,26 +262,31 @@ class CalculatorRepository {
   Future<QuoteIntegrationJob?> waitForBackgroundJob(
     String quoteId,
     String jobId, {
-    Duration pollInterval = const Duration(seconds: 1),
     Duration timeout = const Duration(minutes: 10),
     bool Function()? shouldContinue,
   }) async {
     final deadline = DateTime.now().add(timeout);
-    while (DateTime.now().isBefore(deadline)) {
-      if (shouldContinue != null && !shouldContinue()) return null;
-      final response = await _client.getJson(
-        '/api/internal/calculator/integration-job',
-        query: {'quote_id': quoteId, 'job_id': jobId},
-      );
-      final job = QuoteIntegrationJob.fromJson(response);
-      if (job.statusCode == 'succeeded' ||
-          job.statusCode == 'failed' ||
-          job.statusCode == 'cancelled') {
-        return job;
+    final release = jobUpdates.watchQuote(quoteId, waiting: true);
+    try {
+      while (DateTime.now().isBefore(deadline)) {
+        if (jobUpdates.disposed || (shouldContinue != null && !shouldContinue())) return null;
+        final revision = jobUpdates.revision(quoteId);
+        final response = await _client.getJson(
+          '/api/internal/calculator/integration-job',
+          query: {'quote_id': quoteId, 'job_id': jobId},
+        );
+        final job = QuoteIntegrationJob.fromJson(response);
+        if (job.statusCode == 'succeeded' ||
+            job.statusCode == 'failed' ||
+            job.statusCode == 'cancelled') {
+          return job;
+        }
+        final remaining = deadline.difference(DateTime.now());
+        if (remaining.isNegative) break;
+        await jobUpdates.waitForChange(quoteId, revision, remaining, shouldContinue: shouldContinue);
       }
-      await Future<void>.delayed(pollInterval);
-    }
-    throw StateError('Background job $jobId did not finish within ${timeout.inMinutes} minutes.');
+      throw StateError('Background job $jobId did not finish within ${timeout.inMinutes} minutes.');
+    } finally { release(); }
   }
 
   Future<Map<String, dynamic>> fetchMediaFileUrl(String fileId) async {
@@ -567,6 +589,7 @@ class QuoteIntegrationJob {
     this.serverResponse,
     this.errorText,
     this.finishedAt,
+    this.batchOutcome,
   });
 
   factory QuoteIntegrationJob.fromJson(Map<String, dynamic> json) =>
@@ -583,6 +606,7 @@ class QuoteIntegrationJob {
         serverResponse: _repoNullableString(json['server_response'] ?? json['serverResponse']),
         errorText: _repoNullableString(json['error_text'] ?? json['errorText']),
         finishedAt: _repoNullableString(json['finished_at'] ?? json['finishedAt']),
+        batchOutcome: _repoNullableString(json['batch_outcome']),
       );
 
   final String id;
@@ -597,6 +621,7 @@ class QuoteIntegrationJob {
   final String? serverResponse;
   final String? errorText;
   final String? finishedAt;
+  final String? batchOutcome;
 }
 
 class QuoteIntegrationOverview {
@@ -611,6 +636,10 @@ class QuoteIntegrationOverview {
     required this.jobs,
     required this.connections,
     required this.permissions,
+    this.batches = const [],
+    this.defaultBatch,
+    this.allowedOperations = const [],
+    this.canManageActions = false,
   });
 
   factory QuoteIntegrationOverview.fromJson(Map<String, dynamic> json) {
@@ -631,6 +660,10 @@ class QuoteIntegrationOverview {
           .toList(growable: false),
       connections: _repoList(json['connections']),
       permissions: _repoMap(json['permissions']),
+      batches: _repoList(json['batches']),
+      defaultBatch: json['default_batch'] is Map ? _repoMap(json['default_batch']) : null,
+      allowedOperations: (json['allowed_operations'] as List? ?? const []).map((item) => '$item').toList(),
+      canManageActions: _repoBool(json['can_manage_actions']),
     );
   }
 
@@ -644,6 +677,10 @@ class QuoteIntegrationOverview {
   final List<QuoteIntegrationJob> jobs;
   final List<Map<String, dynamic>> connections;
   final Map<String, dynamic> permissions;
+  final List<Map<String, dynamic>> batches;
+  final Map<String, dynamic>? defaultBatch;
+  final List<String> allowedOperations;
+  final bool canManageActions;
 
   Map<String, dynamic> payloadFor(String operation) =>
       _repoMap(payloads[operation]);

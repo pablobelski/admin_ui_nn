@@ -17,6 +17,7 @@ import '../navigation/admin_registry.dart';
 import '../navigation/admin_route_paths.dart';
 import '../navigation/browser_navigation.dart';
 import 'top_notification.dart';
+import 'active_jobs_indicator.dart';
 
 class AdminShell extends ConsumerStatefulWidget {
   const AdminShell({super.key});
@@ -66,6 +67,7 @@ class _AdminShellState extends ConsumerState<AdminShell> {
       appBar: AppBar(
         title: const Text('Configurator Admin'),
         actions: [
+          ActiveJobsIndicator(key: ValueKey(authSession.userId)),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Center(

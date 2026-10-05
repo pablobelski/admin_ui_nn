@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../data/calculator_repository.dart';
+import '../../../core/http/job_updates.dart';
 
 final quoteIntegrationsRefreshTick = ValueNotifier<int>(0);
 
@@ -126,8 +127,9 @@ class QuoteIntegrationsTab extends StatefulWidget {
 class _QuoteIntegrationsTabState extends State<QuoteIntegrationsTab>
     with AutomaticKeepAliveClientMixin<QuoteIntegrationsTab> {
   Future<QuoteIntegrationOverview>? _future;
-  Timer? _pollTimer;
-  bool _pollReloading = false;
+  StreamSubscription<JobUpdate>? _jobSubscription;
+  void Function()? _releaseQuote;
+  Timer? _jobRefreshTimer;
 
   @override
   bool get wantKeepAlive => true;
@@ -136,22 +138,24 @@ class _QuoteIntegrationsTabState extends State<QuoteIntegrationsTab>
   void initState() {
     super.initState();
     quoteIntegrationsRefreshTick.addListener(_externalRefresh);
+    _watchJobs();
     _future = _fetch();
   }
 
   @override
   void didUpdateWidget(covariant QuoteIntegrationsTab oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.quoteId != widget.quoteId) {
-      _pollTimer?.cancel();
-      _pollTimer = null;
+    if (oldWidget.quoteId != widget.quoteId || oldWidget.repository != widget.repository) {
+      _watchJobs();
       _future = _fetch();
     }
   }
 
   @override
   void dispose() {
-    _pollTimer?.cancel();
+    _jobRefreshTimer?.cancel();
+    _jobSubscription?.cancel();
+    _releaseQuote?.call();
     quoteIntegrationsRefreshTick.removeListener(_externalRefresh);
     super.dispose();
   }
@@ -171,36 +175,24 @@ class _QuoteIntegrationsTabState extends State<QuoteIntegrationsTab>
     return quoteId.isEmpty ? null : _load(quoteId);
   }
 
-  Future<QuoteIntegrationOverview> _load(String quoteId) async {
-    final overview = await widget.repository.fetchQuoteIntegrations(quoteId);
-    if (mounted && quoteId == (widget.quoteId?.trim() ?? '')) {
-      _syncPolling(overview);
-    }
-    return overview;
-  }
+  Future<QuoteIntegrationOverview> _load(String quoteId) =>
+      widget.repository.fetchQuoteIntegrations(quoteId);
 
-  void _syncPolling(QuoteIntegrationOverview overview) {
-    final hasActiveJobs = overview.jobs.any(
-      (job) => job.statusCode == 'pending' || job.statusCode == 'running',
-    );
-    if (!hasActiveJobs) {
-      _pollTimer?.cancel();
-      _pollTimer = null;
-      return;
-    }
-    _pollTimer ??= Timer.periodic(const Duration(seconds: 5), (_) async {
-      if (!mounted || _pollReloading) return;
-      _pollReloading = true;
-      try {
-        final quoteId = widget.quoteId?.trim() ?? '';
-        if (quoteId.isEmpty) return;
-        final overview = await widget.repository.fetchQuoteIntegrations(quoteId);
-        if (!mounted || quoteId != (widget.quoteId?.trim() ?? '')) return;
-        setState(() => _future = Future.value(overview));
-        _syncPolling(overview);
-      } finally {
-        _pollReloading = false;
-      }
+  void _watchJobs() {
+    _jobRefreshTimer?.cancel();
+    _jobSubscription?.cancel();
+    _releaseQuote?.call();
+    _releaseQuote = null;
+    final quoteId = widget.quoteId?.trim() ?? '';
+    if (quoteId.isEmpty) return;
+    final updates = widget.repository.jobUpdates;
+    _releaseQuote = updates.watchQuote(quoteId);
+    _jobSubscription = updates.changes.listen((update) {
+      if (!update.affects(quoteId)) return;
+      _jobRefreshTimer?.cancel();
+      _jobRefreshTimer = Timer(const Duration(milliseconds: 350), () {
+        if (mounted && widget.quoteId == quoteId) _reload();
+      });
     });
   }
 
@@ -395,6 +387,7 @@ class _IntegrationJobCard extends StatelessWidget {
         'create_kommission' => 'Create Kommission',
         'send_sevdesk' => 'Send to Sevdesk',
         'generate_glb' => 'Generate GLB',
+        'integration_batch' => 'Integration batch',
         'quote_submit' => 'Send to customer',
         'quote_resend' => 'Resend customer email',
         _ => job.operationCode,
@@ -418,7 +411,7 @@ class _IntegrationJobCard extends StatelessWidget {
         title: Row(
           children: [
             Expanded(child: Text(_label)),
-            Text(job.statusCode, style: Theme.of(context).textTheme.labelMedium),
+            Text(job.batchOutcome == 'completed_with_errors' ? 'completed with errors' : job.statusCode, style: Theme.of(context).textTheme.labelMedium),
           ],
         ),
         subtitle: Text(

@@ -9,7 +9,7 @@ import '../data/calculator_models.dart';
 import '../data/calculator_repository.dart';
 
 final calculatorRepositoryProvider = Provider<CalculatorRepository>((ref) {
-  return CalculatorRepository(ref.watch(apiClientProvider));
+  return CalculatorRepository(ref.watch(apiClientProvider), ref.watch(jobUpdatesProvider));
 });
 
 /// One requested change for all calculated Set Contents rows that belong to the

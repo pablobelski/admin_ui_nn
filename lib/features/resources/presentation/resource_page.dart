@@ -870,11 +870,6 @@ class _QuoteIntegrationStatusCell extends StatelessWidget {
     'quote_email',
   ];
 
-  static int _jobCount(Map<String, dynamic> entry) {
-    final value = entry['job_count'];
-    return value is num ? value.toInt() : int.tryParse('$value') ?? 0;
-  }
-
   static int _orderIndex(Map<String, dynamic> entry) {
     final index = _order.indexOf('${entry['endpoint_code'] ?? ''}');
     return index < 0 ? _order.length : index;
@@ -890,7 +885,7 @@ class _QuoteIntegrationStatusCell extends StatelessWidget {
       'cancelled' => Colors.grey,
       _ => entry['has_errors'] == true
           ? Theme.of(context).colorScheme.error
-          : Colors.green,
+          : Colors.grey,
     };
   }
 
@@ -900,7 +895,6 @@ class _QuoteIntegrationStatusCell extends StatelessWidget {
         ? (statuses as List)
             .whereType<Map>()
             .map((entry) => Map<String, dynamic>.from(entry))
-            .where((entry) => _jobCount(entry) > 0)
             .toList(growable: false)
         : <Map<String, dynamic>>[];
     entries.sort((a, b) => _orderIndex(a).compareTo(_orderIndex(b)));
@@ -920,7 +914,7 @@ class _QuoteIntegrationStatusCell extends StatelessWidget {
                 final color = _statusColor(context, entry);
                 return Tooltip(
                   message: '${_labels[code] ?? code}: '
-                      '${status.isEmpty ? (entry['has_errors'] == true ? 'failed' : 'succeeded') : status}',
+                      '${status.isEmpty ? (entry['has_errors'] == true ? 'failed' : 'not started') : status}',
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [

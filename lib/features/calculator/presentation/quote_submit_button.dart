@@ -35,6 +35,7 @@ class QuoteSubmitButton extends StatefulWidget {
 class _QuoteSubmitButtonState extends State<QuoteSubmitButton> {
   bool _busy = false;
   bool _createKommissionAvailable = false;
+  QuoteIntegrationOverview? _overview;
   int _availabilityRequest = 0;
   late String _statusCode = widget.statusCode;
 
@@ -49,7 +50,7 @@ class _QuoteSubmitButtonState extends State<QuoteSubmitButton> {
   void didUpdateWidget(covariant QuoteSubmitButton oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.statusCode != widget.statusCode) _statusCode = widget.statusCode;
-    if (oldWidget.quoteId != widget.quoteId || oldWidget.enabled != widget.enabled) {
+    if (oldWidget.quoteId != widget.quoteId || oldWidget.enabled != widget.enabled || oldWidget.statusCode != widget.statusCode) {
       _refreshIntegrationAvailability();
     }
   }
@@ -68,21 +69,22 @@ class _QuoteSubmitButtonState extends State<QuoteSubmitButton> {
     final request = ++_availabilityRequest;
     final quoteId = widget.quoteId.trim();
     if (!widget.enabled || quoteId.isEmpty) {
-      if (mounted && _createKommissionAvailable) {
-        setState(() => _createKommissionAvailable = false);
+      if (mounted && (_createKommissionAvailable || _overview != null)) {
+        setState(() { _createKommissionAvailable = false; _overview = null; });
       }
       return;
     }
     try {
       final overview = await widget.repository.fetchQuoteIntegrations(quoteId);
       if (!mounted || request != _availabilityRequest || quoteId != widget.quoteId.trim()) return;
-      if (_createKommissionAvailable != overview.commissionCanCreate) {
-        setState(() => _createKommissionAvailable = overview.commissionCanCreate);
-      }
+      setState(() {
+        _createKommissionAvailable = overview.commissionCanCreate;
+        _overview = overview;
+      });
     } catch (_) {
       if (!mounted || request != _availabilityRequest || quoteId != widget.quoteId.trim()) return;
-      if (_createKommissionAvailable) {
-        setState(() => _createKommissionAvailable = false);
+      if (_createKommissionAvailable || _overview != null) {
+        setState(() { _createKommissionAvailable = false; _overview = null; });
       }
     }
   }
@@ -256,9 +258,10 @@ class _QuoteSubmitButtonState extends State<QuoteSubmitButton> {
     try {
       final overview = await widget.repository.fetchQuoteIntegrations(widget.quoteId);
       if (!mounted) return;
-      if (_createKommissionAvailable != overview.commissionCanCreate) {
-        setState(() => _createKommissionAvailable = overview.commissionCanCreate);
-      }
+      setState(() {
+        _createKommissionAvailable = overview.commissionCanCreate;
+        _overview = overview;
+      });
       if (operation == 'create_reserve' && !overview.reserveComplete) {
         final details = overview.reserveWarnings.isEmpty
             ? 'The material requirement is incomplete.'
@@ -323,30 +326,107 @@ class _QuoteSubmitButtonState extends State<QuoteSubmitButton> {
     }
   }
 
+  Future<void> _runBatch([String? batchId]) async {
+    if (_busy || widget.quoteId.trim().isEmpty) return;
+    final quoteId = widget.quoteId;
+    setState(() => _busy = true);
+    try {
+      final preview = await widget.repository.previewIntegrationBatch(quoteId, batchId: batchId);
+      if (!mounted || quoteId != widget.quoteId) return;
+      final batch = Map<String, dynamic>.from(preview['batch'] as Map);
+      final quote = Map<String, dynamic>.from(preview['quote'] as Map);
+      final steps = (batch['items'] as List? ?? const []).whereType<Map>().toList();
+      final errors = (preview['errors'] as List? ?? const []).map((item) => '$item').toList();
+      final warnings = (preview['warnings'] as List? ?? const []).map((item) => '$item').toList();
+      final email = preview['email'] is Map ? Map<String, dynamic>.from(preview['email'] as Map) : <String, dynamic>{};
+      final recipients = email['recipients'] is Map ? email['recipients'] as Map : const {};
+      final documents = email['document_batch'] is Map ? email['document_batch'] as Map : const {};
+      final confirmed = await showDialog<bool>(context: context, builder: (dialogContext) => AlertDialog(
+        title: Text('Submit · ${batch['name']}'),
+        content: SizedBox(width: 560, child: SingleChildScrollView(child: Column(
+          mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Quote: ${quote['quote_no']}'),
+            const SizedBox(height: 12),
+            for (var index = 0; index < steps.length; index++)
+              Padding(padding: const EdgeInsets.only(bottom: 6), child: Text('${index + 1}. ${steps[index]['label']}')),
+            if (email.isNotEmpty) ...[
+              const Divider(),
+              for (final group in ['to', 'cc', 'bcc'])
+                if ((recipients[group] as List? ?? const []).isNotEmpty)
+                  Text('${group.toUpperCase()}: ${(recipients[group] as List).join(', ')}'),
+              Text('Documents: ${documents['name'] ?? '—'}'),
+            ],
+            const SizedBox(height: 12),
+            const Text('The operations run in order in the background. Errors are recorded and the remaining operations continue. Successful operations are not rolled back.'),
+            for (final warning in warnings) Padding(padding: const EdgeInsets.only(top: 8),
+              child: Text(warning, style: const TextStyle(color: Colors.orange))),
+            for (final error in errors) Padding(padding: const EdgeInsets.only(top: 8),
+              child: Text(error, style: TextStyle(color: Theme.of(context).colorScheme.error))),
+          ],
+        ))),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(dialogContext).pop(false), child: const Text('Cancel')),
+          FilledButton(onPressed: preview['can_submit'] == true ? () => Navigator.of(dialogContext).pop(true) : null,
+            child: const Text('Submit')),
+        ],
+      ));
+      if (confirmed != true || !mounted || quoteId != widget.quoteId) return;
+      final result = await widget.repository.submitIntegrationBatch(quoteId, '${batch['id']}', '${preview['batch_version']}');
+      notifyQuoteIntegrationsChanged();
+      if (!mounted) return;
+      showTopNotification(context, result.alreadyQueued ? 'Integration batch is already queued or running.' : '${batch['name']} queued and continues in background.', type: TopNotificationType.success);
+      unawaited(_watchBatch(quoteId, '${quote['quote_no']}', result.jobId, '${batch['name']}'));
+    } catch (error) {
+      if (mounted) showTopNotification(context, 'Submit failed: ${error is ApiException ? error.displayMessage : error}', type: TopNotificationType.error);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _watchBatch(String quoteId, String quoteNo, String jobId, String name) async {
+    try {
+      final job = await widget.repository.waitForBackgroundJob(quoteId, jobId,
+        timeout: const Duration(minutes: 30), shouldContinue: () => mounted && widget.quoteId == quoteId);
+      if (job == null || !mounted || widget.quoteId != quoteId) return;
+      notifyQuoteIntegrationsChanged();
+      final status = await widget.repository.fetchQuoteStatusTransitions(quoteId);
+      if (!mounted || widget.quoteId != quoteId) return;
+      setState(() => _statusCode = status.statusCode);
+      await widget.onCompleted?.call(QuoteSubmitResult(ok: job.statusCode == 'succeeded', operation: 'batch',
+        quoteId: quoteId, quoteNo: quoteNo, statusCode: status.statusCode, customerDeliveryEnabled: false,
+        queued: false, jobId: jobId, jobStatusCode: job.statusCode));
+      if (!mounted) return;
+      showTopNotification(context, job.statusCode == 'succeeded' ? '$name completed.' : '$name ${job.batchOutcome == 'completed_with_errors' ? 'completed with errors' : 'failed'}: ${job.errorText ?? job.statusCode}',
+        type: job.statusCode == 'succeeded' ? TopNotificationType.success : TopNotificationType.error);
+    } catch (error) {
+      if (mounted) showTopNotification(context, 'Batch status failed: $error', type: TopNotificationType.error);
+    }
+  }
+
   List<Widget> _menuItems(bool canPress) => [
-        MenuItemButton(
-          onPressed: canPress ? _sendToCustomer : null,
-          leadingIcon: Icon(_isResend ? Icons.forward_to_inbox_outlined : Icons.send_outlined),
-          child: Text(_emailLabel),
-        ),
-        MenuItemButton(
-          onPressed: canPress ? () => _runIntegration('create_reserve') : null,
-          leadingIcon: const Icon(Icons.inventory_2_outlined),
-          child: const Text('Create Reserve'),
-        ),
-        MenuItemButton(
-          onPressed: canPress && _createKommissionAvailable
-              ? () => _runIntegration('create_kommission')
-              : null,
-          leadingIcon: const Icon(Icons.playlist_add_check_circle_outlined),
-          child: const Text('Create Kommission'),
-        ),
-        MenuItemButton(
-          onPressed: canPress ? () => _runIntegration('send_sevdesk') : null,
-          leadingIcon: const Icon(Icons.receipt_long_outlined),
-          child: const Text('Send to Sevdesk'),
-        ),
-      ];
+    if ((_overview?.batches ?? const []).isEmpty)
+      const MenuItemButton(child: Text('No integration batches available')),
+    for (final batch in _overview?.batches ?? <Map<String, dynamic>>[])
+      MenuItemButton(
+        onPressed: canPress && batch['available'] == true ? () => _runBatch('${batch['id']}') : null,
+        leadingIcon: const Icon(Icons.playlist_play),
+        child: Text('${batch['name']}${batch['is_default'] == true ? ' (default)' : ''}'),
+      ),
+    if ((_overview?.batches ?? const []).isNotEmpty) const Divider(),
+    if (_overview?.allowedOperations.contains('quote_email') == true)
+      MenuItemButton(onPressed: canPress ? _sendToCustomer : null,
+        leadingIcon: const Icon(Icons.send_outlined), child: Text(_emailLabel)),
+    for (final operation in _overview?.allowedOperations ?? <String>[])
+      if (operation != 'quote_email') MenuItemButton(
+        onPressed: canPress && (operation != 'create_kommission' || _createKommissionAvailable) ? () => _runIntegration(operation) : null,
+        leadingIcon: const Icon(Icons.play_arrow_outlined),
+        child: Text(switch (operation) {
+          'create_reserve' => 'Create Reserve', 'create_kommission' => 'Create Kommission',
+          'send_sevdesk' => 'Send to Sevdesk', 'print_pdf' => 'Generate PDF', 'generate_glb' => 'Generate 3D', _ => operation,
+        }),
+      ),
+  ];
 
   @override
   Widget build(BuildContext context) {
@@ -360,7 +440,12 @@ class _QuoteSubmitButtonState extends State<QuoteSubmitButton> {
           onPressed: canPress
               ? () async {
                   await _refreshIntegrationAvailability();
-                  if (mounted) controller.open();
+                  if (!mounted) return;
+                  if (_overview?.canManageActions == true) {
+                    controller.open();
+                  } else {
+                    await _runBatch();
+                  }
                 }
               : null,
           style: widget.prominent
@@ -377,7 +462,7 @@ class _QuoteSubmitButtonState extends State<QuoteSubmitButton> {
                   height: 16,
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
-              : const Icon(Icons.arrow_drop_down, size: 18),
+              : Icon(_overview?.canManageActions == true ? Icons.arrow_drop_down : Icons.send_outlined, size: 18),
           label: const Text('Submit'),
         ),
       ),
@@ -619,6 +704,7 @@ String _submitIssueGroupLabel(QuoteSubmitIssue issue) {
     return 'Calculation';
   }
   if (field.startsWith('configurator_template.')) return 'Configurator template';
+  if (field.startsWith('document_batches.')) return 'Documents';
   if (field.startsWith('integration_endpoint.')) return 'Email integration';
   if (field.startsWith('email_template.')) return 'Recipients';
   if (field.startsWith('internal_recipient')) return 'Recipients';
