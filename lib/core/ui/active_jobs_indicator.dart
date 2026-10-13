@@ -26,10 +26,15 @@ class ActiveJobsIndicator extends ConsumerWidget {
       'print_pdf' => 'PDF',
       'generate_glb' => '3D',
       'integration_batch' => '${job['batch_name'] ?? 'Submit'}',
+      'sync_customer' => 'Customer sync',
+      'sync_master_data' => 'Master data sync',
       _ => code,
     };
     return job['status_code'] == 'pending' ? '$label (queued)' : label;
   }
+
+  // Quote number, or organization / endpoint name for jobs without a quote.
+  String _title(Map<String, dynamic> job) => '${job['title'] ?? job['quote_no']}';
 
   Widget _content(BuildContext context, JobUpdates updates) {
     final jobs = updates.jobs;
@@ -37,7 +42,7 @@ class ActiveJobsIndicator extends ConsumerWidget {
     if (jobs.isEmpty) return const SizedBox.shrink();
     final groups = <String, Set<String>>{};
     for (final job in jobs) {
-      groups.putIfAbsent('${job['quote_no']}', () => <String>{}).add(_operation(job));
+      groups.putIfAbsent(_title(job), () => <String>{}).add(_operation(job));
     }
     final labels = groups.entries.map((entry) => '${entry.key} · ${entry.value.join(', ')}').toList();
     final compact = MediaQuery.sizeOf(context).width < 900;
@@ -53,7 +58,7 @@ class ActiveJobsIndicator extends ConsumerWidget {
               SizedBox(width: 420, child: ListTile(
                 dense: true,
                 leading: Icon(job['status_code'] == 'pending' ? Icons.schedule : Icons.sync, size: 18),
-                title: Text('${job['quote_no']} · ${_operation(job)}'),
+                title: Text('${_title(job)} · ${_operation(job)}'),
                 subtitle: Text('${job['message'] ?? job['batch_name'] ?? ''}', maxLines: 3, overflow: TextOverflow.ellipsis),
               )),
           ],
