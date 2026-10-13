@@ -33,6 +33,7 @@ import '../../calculator/presentation/quote_integrations_panel.dart';
 import '../../calculator/presentation/quote_status_button.dart';
 import 'catalog_item_dependency_tree.dart';
 import 'document_batch_items_panel.dart';
+import 'master_data_sync_dialog.dart';
 import 'organization_relation_tree.dart';
 
 final _uiDateTimeFormat = DateFormat('dd.MM.yy HH:mm');
@@ -1365,6 +1366,14 @@ class _DetailsCardState extends ConsumerState<_DetailsCard> {
                                 onPressed: () => loadQuoteToWorkspace(context, ref, data),
                                 icon: const Icon(Icons.upload_file_outlined, size: 18),
                                 label: const Text('Load'),
+                              ),
+                            ),
+                          if (resource.key == 'integration_endpoints' && data['entity_scope_code'] == 'master_data')
+                            Padding(
+                              padding: const EdgeInsets.only(right: 8),
+                              child: MasterDataSyncButton(
+                                endpointCode: data['code']?.toString() ?? '',
+                                repository: repository,
                               ),
                             ),
                           if (resource.key == 'users')

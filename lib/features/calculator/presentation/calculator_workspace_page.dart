@@ -20,6 +20,7 @@ import '../data/calculator_repository.dart';
 import '../data/roof_geometry_calculation.dart';
 import 'calculator_providers.dart';
 import 'calculator_message_dropdown.dart';
+import 'customer_sync_status_button.dart';
 import 'model_geometry_preview.dart';
 import 'quote_documents_button.dart';
 import 'quote_submit_button.dart';
@@ -354,6 +355,16 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
     final key = steps[target].key;
     if (target == 0) {
       ref.invalidate(calculatorQuoteNumberPreviewProvider);
+    }
+    final current = _selectedStep.clamp(0, steps.length - 1).toInt();
+    if (target > current) {
+      // Background integrations configured for leaving this step (calculator_auto_integrations).
+      final draft = ref.read(calculatorDraftProvider);
+      ref.read(customerSyncProvider.notifier).leaveStep(
+            steps[current].key,
+            templateId: draft.templateId,
+            organizationId: draft.organizationId,
+          );
     }
     setState(() {
       _selectedStep = target;
@@ -2223,12 +2234,22 @@ class _ProductStepState extends State<_ProductStep> {
         ),
         if (parentContact.hasOrganization || parentContact.hasContact) ...[
           const SizedBox(height: 8),
-          _OrganizationLinkPlaque(
-            roleLabel: b2bMode ? 'Parent dealer' : 'Organization',
-            contact: parentContact,
-            onTap: (widget.draft.organizationId?.trim() ?? '').isEmpty
-                ? null
-                : () => widget.onOpenOrganization(widget.draft.organizationId!),
+          IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
+                  child: _OrganizationLinkPlaque(
+                    roleLabel: b2bMode ? 'Parent dealer' : 'Organization',
+                    contact: parentContact,
+                    onTap: (widget.draft.organizationId?.trim() ?? '').isEmpty
+                        ? null
+                        : () => widget.onOpenOrganization(widget.draft.organizationId!),
+                  ),
+                ),
+                CustomerSyncStatusButton(organizationId: widget.draft.organizationId),
+              ],
+            ),
           ),
         ],
         if (b2bMode &&

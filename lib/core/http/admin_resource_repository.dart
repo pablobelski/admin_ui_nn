@@ -152,6 +152,12 @@ class AdminResourceRepository {
     );
   }
 
+  Future<Map<String, dynamic>> fetchMasterDataSync(String endpointCode) =>
+      _client.getJson('/api/admin/master-data-sync', query: {'endpoint_code': endpointCode});
+
+  Future<Map<String, dynamic>> runMasterDataSync(String endpointCode, List<String> blocks) =>
+      _client.postJson('/api/admin/master-data-sync', body: {'endpoint_code': endpointCode, 'blocks': blocks});
+
   Future<Map<String, dynamic>> setUserPasswordChangeRequired({
     required String userId,
     required bool mustChangePassword,

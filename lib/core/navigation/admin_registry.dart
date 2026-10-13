@@ -3099,6 +3099,13 @@ const adminNavGroups = <AdminNavGroup>[
             visibleWhenValues: ['accounting_google_sheet'],
           ),
           AdminField(
+            key: 'config_json.spreadsheet_id',
+            label: 'Master data: Google Sheet ID',
+            helperText: 'Anfang Daten Tabelle14. The Apps Script bridge account needs read access. Run it with "Run sync" in the details.',
+            visibleWhenFieldKey: 'code',
+            visibleWhenValues: ['master_data_sync'],
+          ),
+          AdminField(
             key: 'config_json.to_email_template',
             label: 'Quote mail: To email template',
             lookup: emailTemplateLookup,

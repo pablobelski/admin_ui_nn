@@ -252,6 +252,23 @@ class CalculatorRepository {
     return QuoteIntegrationResult.fromJson(response);
   }
 
+  Future<Map<String, dynamic>> fetchCustomerSyncStatus(String organizationId) =>
+      _client.getJson('/api/internal/calculator/customer-sync', query: {'organization_id': organizationId});
+
+  Future<Map<String, dynamic>> runCustomerSync(String organizationId) =>
+      _client.postJson('/api/internal/calculator/customer-sync', body: {'organization_id': organizationId});
+
+  Future<Map<String, dynamic>> runStepIntegrations({
+    required String step,
+    String? templateId,
+    String? organizationId,
+  }) =>
+      _client.postJson('/api/internal/calculator/step-integrations', body: {
+        'step': step,
+        if (templateId != null && templateId.isNotEmpty) 'template_id': templateId,
+        if (organizationId != null && organizationId.isNotEmpty) 'organization_id': organizationId,
+      });
+
   Future<Map<String, dynamic>> generateGlb(String quoteId) {
     return _client.postJson(
       '/api/internal/calculator/glb',
