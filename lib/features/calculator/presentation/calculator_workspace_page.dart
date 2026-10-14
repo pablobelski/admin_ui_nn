@@ -11858,7 +11858,7 @@ class _OptionHandlingFields extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            'L1 = Breite, B1 = Länge der Position. L2 → 1 Schräg, L2 und L3 → 2 Schräg. "Handling 30 min" wird als Position ergänzt.',
+            'L1 = Länge, B1 = Breite der Position. L2 → 1 Schräg, L2 und L3 → 2 Schräg. "Handling 30 min" wird als Position ergänzt.',
             style: Theme.of(context).textTheme.bodySmall,
           ),
         ],
