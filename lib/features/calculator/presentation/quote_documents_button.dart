@@ -83,6 +83,7 @@ class _QuoteDocumentsOptionsDialogState extends State<QuoteDocumentsOptionsDialo
   String? _selectedBatchId;
   bool _initialized = false;
   bool _isPrinting = false;
+  String? _printJobId;
   bool _splitOutput = false;
   bool _includeGeometryPreview = false;
   bool _includeGeometryWarnings = true;
@@ -144,6 +145,10 @@ class _QuoteDocumentsOptionsDialogState extends State<QuoteDocumentsOptionsDialo
 
   bool get _hasPrintSelection => _selectedTemplateIds.isNotEmpty || _includeGeometryPreview;
 
+  // A print job of this quote is queued or running, also one started before this dialog was opened.
+  bool get _printJobActive => _printJobId != null || widget.repository.jobUpdates.jobs.any(
+      (job) => job['operation_code'] == 'print_pdf' && job['quote_id'] == widget.quoteId);
+
   DocumentBatchOption? _batchById(PrintDialogData data, String? id) {
     for (final batch in data.batches) {
       if (batch.id == id) return batch;
@@ -203,11 +208,13 @@ class _QuoteDocumentsOptionsDialogState extends State<QuoteDocumentsOptionsDialo
         _statusText = null;
         _errorText = '$error';
       });
+    } finally {
+      if (mounted && _printJobId == jobId) setState(() => _printJobId = null);
     }
   }
 
   Future<void> _print(PrintDialogData data) async {
-    if (!_hasPrintSelection || _isPrinting) return;
+    if (!_hasPrintSelection || _isPrinting || _printJobActive) return;
 
     setState(() {
       _isPrinting = true;
@@ -257,6 +264,7 @@ class _QuoteDocumentsOptionsDialogState extends State<QuoteDocumentsOptionsDialo
       notifyQuoteIntegrationsChanged();
       if (!mounted) return;
       setState(() {
+        _printJobId = operation.jobId;
         _statusText = operation.alreadyQueued
             ? 'Document generation is already queued or running in background.'
             : 'Document generation queued and continues in background.';
@@ -654,18 +662,22 @@ class _QuoteDocumentsOptionsDialogState extends State<QuoteDocumentsOptionsDialo
             const SizedBox(width: 8),
             FutureBuilder<PrintDialogData>(
               future: _dataFuture,
-              builder: (context, snapshot) => FilledButton.icon(
-                focusNode: _printFocusNode,
-                onPressed: snapshot.hasData && _hasPrintSelection && !_isPrinting
-                    ? () => _print(snapshot.data!)
-                    : null,
-                icon: _isPrinting
-                    ? const SizedBox.square(
-                        dimension: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.print_outlined),
-                label: const Text('Print'),
+              // Rebuilt by the job stream, so Print is enabled again when the print job ends.
+              builder: (context, snapshot) => StreamBuilder(
+                stream: widget.repository.jobUpdates.changes,
+                builder: (context, _) => FilledButton.icon(
+                  focusNode: _printFocusNode,
+                  onPressed: snapshot.hasData && _hasPrintSelection && !_isPrinting && !_printJobActive
+                      ? () => _print(snapshot.data!)
+                      : null,
+                  icon: _isPrinting || _printJobActive
+                      ? const SizedBox.square(
+                          dimension: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.print_outlined),
+                  label: const Text('Print'),
+                ),
               ),
             ),
           ],

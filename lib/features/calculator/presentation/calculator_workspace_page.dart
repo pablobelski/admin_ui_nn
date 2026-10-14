@@ -1916,7 +1916,7 @@ class _ProductStepState extends State<_ProductStep> {
     _quoteNoExternal = TextEditingController(text: widget.draft.quoteNoExternal ?? '');
     _submissionDate = TextEditingController(text: widget.draft.submissionDate ?? '');
     _externalNotes = TextEditingController(text: widget.draft.externalNotes ?? '');
-    _organizationSearch = TextEditingController(text: _organizationById(widget.draft.organizationId)?.label ?? '');
+    _organizationSearch = TextEditingController(text: _organizationLabel(widget.draft.organizationId) ?? '');
     _organizationFocus = FocusNode();
     _relatedCustomerSearch = TextEditingController();
     _relatedCustomerFocus = FocusNode();
@@ -1933,7 +1933,7 @@ class _ProductStepState extends State<_ProductStep> {
     _sync(_submissionDate, widget.draft.submissionDate);
     _sync(_externalNotes, widget.draft.externalNotes);
     if (oldWidget.draft.organizationId != widget.draft.organizationId) {
-      _sync(_organizationSearch, _organizationById(widget.draft.organizationId)?.label);
+      _sync(_organizationSearch, _organizationLabel(widget.draft.organizationId));
       _byRelatedCustomer = false;
       _selectedRelatedCustomerId = null;
       _relatedCustomerSearch.clear();
@@ -1986,6 +1986,12 @@ class _ProductStepState extends State<_ProductStep> {
     final id = organizationId?.trim() ?? '';
     if (id.isEmpty) return null;
     return widget.contextData.organizations.where((entry) => entry.id == id).firstOrNull;
+  }
+
+  // Organization field text: "Name - Kundennummer".
+  String? _organizationLabel(String? organizationId) {
+    final option = _organizationById(organizationId);
+    return option == null ? null : _calculatorPartyShortCustomerLabel(option);
   }
 
   CalculatorBranding? _brandingFromOrganization(CalculatorOption? organization) {
@@ -2127,7 +2133,7 @@ class _ProductStepState extends State<_ProductStep> {
   }
 
   void _selectOrganization(CalculatorOption option) {
-    final label = option.label;
+    final label = _calculatorPartyShortCustomerLabel(option);
     setState(() {
       _organizationSearch.value = TextEditingValue(
         text: label,
@@ -2143,7 +2149,7 @@ class _ProductStepState extends State<_ProductStep> {
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || widget.draft.organizationId != option.id) return;
-      _sync(_organizationSearch, option.label);
+      _sync(_organizationSearch, label);
       _applyBranding(byRelatedCustomer: false, engravingEnabled: false);
     });
   }
@@ -2222,9 +2228,10 @@ class _ProductStepState extends State<_ProductStep> {
           controller: _organizationSearch,
           focusNode: _organizationFocus,
           options: widget.contextData.organizations,
-          displayStringForOption: (option) => option.label,
+          displayStringForOption: _calculatorPartyShortCustomerLabel,
           searchStringForOption: (option) => [
             option.label,
+            option.raw['customer_number'],
             option.code,
             option.raw['legal_name'],
             option.raw['display_name'],
@@ -12720,7 +12727,7 @@ class _SelectedOptionNameCell extends StatelessWidget {
                   Icon(
                     Icons.subdirectory_arrow_right,
                     size: 14,
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    color: Theme.of(context).colorScheme.primary,
                   ),
                   const SizedBox(width: 4),
                   Expanded(
@@ -12737,7 +12744,7 @@ class _SelectedOptionNameCell extends StatelessWidget {
                       maxLines: 6,
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: Theme.of(context).colorScheme.onSurfaceVariant,
+                            color: Theme.of(context).colorScheme.primary,
                           ),
                     ),
                   ),
