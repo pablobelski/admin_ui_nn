@@ -2843,6 +2843,12 @@ const adminNavGroups = <AdminNavGroup>[
             type: AdminFieldType.json,
             defaultValue: '{}',
           ),
+          AdminField(
+            key: 'settings_json.print.requiredOptionBomSourcePath',
+            label: 'Print only when option BOM has',
+            helperText: 'Optional path in result.optionBom[].source, e.g. glass_cut.schraeg_count. '
+                'The template is offered/printed only when a position has a non-empty, non-zero value there.',
+          ),
           AdminField(key: 'is_active', label: 'Active', type: AdminFieldType.boolType),
         ],
         detailActions: [

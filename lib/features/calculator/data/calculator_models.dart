@@ -677,6 +677,10 @@ class CalculatorAdditionalHandlingOption {
 
   bool get isCoating => baseCode?.trim().toUpperCase() == 'ZLK';
   bool get isCutting => baseCode?.trim().toUpperCase() == 'PZSO';
+  /// GZO: rectangular glass cut into pieces (quantity × length × width), like PZSO; also of a whole plate.
+  bool get isGlassCutting => baseCode?.trim().toUpperCase() == 'GZO';
+  /// SRGH: slanted glass cut, entered as L2 / L3 like the legacy VSG Schräg sheets; sets Schräg 1 / 2.
+  bool get isGlassSchraegCutting => baseCode?.trim().toUpperCase() == 'SRGH';
 
   String get displayName {
     final parts = [
@@ -694,14 +698,19 @@ class CalculatorSelectedAdditionalHandling {
     required this.quantity,
     this.colorCode,
     this.cuts = const [],
+    this.glassL2Mm,
+    this.glassL3Mm,
   });
 
   factory CalculatorSelectedAdditionalHandling.fromJson(Map<String, dynamic> json) {
+    final glassCut = json['glass_cut'] is Map ? Map<String, dynamic>.from(json['glass_cut'] as Map) : const <String, dynamic>{};
     return CalculatorSelectedAdditionalHandling(
       catalogItemId: _string(json['catalog_item_id']),
       quantity: _numOrDefault(json['quantity'], 0),
       colorCode: _nullableString(json['color_code']),
       cuts: _list(json['cuts']).map(CalculatorOptionCut.fromJson).toList(),
+      glassL2Mm: _intOrNull(glassCut['l2_mm']),
+      glassL3Mm: _intOrNull(glassCut['l3_mm']),
     );
   }
 
@@ -709,13 +718,18 @@ class CalculatorSelectedAdditionalHandling {
   final num quantity;
   final String? colorCode;
   final List<CalculatorOptionCut> cuts;
+  final int? glassL2Mm;
+  final int? glassL3Mm;
 
-  CalculatorSelectedAdditionalHandling copyWith({num? quantity, String? colorCode, List<CalculatorOptionCut>? cuts}) {
+  CalculatorSelectedAdditionalHandling copyWith({num? quantity, String? colorCode, List<CalculatorOptionCut>? cuts,
+      int? glassL2Mm, int? glassL3Mm}) {
     return CalculatorSelectedAdditionalHandling(
       catalogItemId: catalogItemId,
       quantity: quantity ?? this.quantity,
       colorCode: colorCode ?? this.colorCode,
       cuts: cuts ?? this.cuts,
+      glassL2Mm: glassL2Mm ?? this.glassL2Mm,
+      glassL3Mm: glassL3Mm ?? this.glassL3Mm,
     );
   }
 
@@ -725,22 +739,27 @@ class CalculatorSelectedAdditionalHandling {
       'quantity': quantity,
       if (colorCode?.trim().isNotEmpty == true) 'color_code': colorCode!.trim(),
       if (cuts.isNotEmpty) 'cuts': cuts.map((cut) => cut.toJson()).toList(),
+      if (glassL2Mm != null || glassL3Mm != null)
+        'glass_cut': {'l2_mm': glassL2Mm, 'l3_mm': glassL3Mm},
     };
   }
 }
 
 class CalculatorOptionCut {
-  const CalculatorOptionCut({required this.lengthMm, required this.quantity});
+  const CalculatorOptionCut({required this.lengthMm, required this.quantity, this.widthMm});
 
   factory CalculatorOptionCut.fromJson(Map<String, dynamic> json) => CalculatorOptionCut(
     lengthMm: _intOrNull(json['length_mm']) ?? 0,
     quantity: _intOrNull(json['quantity']) ?? 1,
+    widthMm: _intOrNull(json['width_mm']),
   );
 
   final int lengthMm;
   final int quantity;
+  /// GZO glass pieces only; PZSO cuts have no width.
+  final int? widthMm;
 
-  Map<String, dynamic> toJson() => {'length_mm': lengthMm, 'quantity': quantity};
+  Map<String, dynamic> toJson() => {'length_mm': lengthMm, 'quantity': quantity, if (widthMm != null) 'width_mm': widthMm};
 }
 
 class CalculatorCoveringAllocation {

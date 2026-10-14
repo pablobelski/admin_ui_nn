@@ -2606,28 +2606,6 @@ class _EinzelteileConditions extends ConsumerWidget {
   }
 }
 
-class _EinzelteilePositionFields extends StatelessWidget {
-  const _EinzelteilePositionFields({required this.option, required this.item, required this.onChanged});
-  final CalculatorSelectedOption option;
-  final CalculatorCatalogItemOption? item;
-  final ValueChanged<CalculatorSelectedOption> onChanged;
-  @override
-  Widget build(BuildContext context) {
-    final area = item?.measureTypeCode == 'sqm';
-    if (!area) return const SizedBox.shrink();
-    return Wrap(spacing: 12, runSpacing: 10, children: [
-      if (area) SizedBox(width: 135, child: _StableNumberField(value: '${option.widthMm ?? ''}', enabled: true,
-        keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Breite, mm', isDense: true),
-        onChanged: (text) => onChanged(option.copyWith(widthMm: int.tryParse(text), clearWidth: text.isEmpty, salesUnitCode: 'piece')))),
-      if (area) SizedBox(width: 175, child: DropdownButtonFormField<int>(key: ValueKey(option.schraegCount), initialValue: option.schraegCount ?? 0,
-        decoration: const InputDecoration(labelText: 'Schräg', isDense: true),
-        items: const [DropdownMenuItem(value: 0, child: Text('Standard')), DropdownMenuItem(value: 1, child: Text('1 Schräg')), DropdownMenuItem(value: 2, child: Text('2 Schräg'))],
-        onChanged: (value) => onChanged(option.copyWith(schraegCount: value)))),
-      if (area) const Text('Menge = Stückzahl; Fläche und Mindestmenge berechnet der Rechner.'),
-    ]);
-  }
-}
-
 class _EinzelteilePreview extends StatelessWidget {
   const _EinzelteilePreview({required this.draft, required this.contextData,
     required this.mediaRepository, required this.template});
@@ -11044,26 +11022,17 @@ class _OptionsStepState extends State<_OptionsStep> {
   final _quantityController = TextEditingController(text: '1');
   final _catalogItemFocusNode = FocusNode();
   final _catalogVariantFocusNode = FocusNode();
-  final Map<String, TextEditingController> _additionalHandlingControllers = {};
-  final Set<String> _enabledAdditionalHandlingIds = <String>{};
-  final Map<String, CalculatorSelectedAdditionalHandling> _additionalHandlingDetails = {};
-  var _additionalHandlingInputEnabled = false;
 
-  String? _pendingAdditionalHandlingId;
   String? _itemTypeCode;
   String? _catalogItemId;
   String? _catalogVariantId;
   String? _salesUnitCode;
-  String? _addOptionError;
 
   @override
   void dispose() {
     _catalogItemController.dispose();
     _catalogVariantController.dispose();
     _quantityController.dispose();
-    for (final controller in _additionalHandlingControllers.values) {
-      controller.dispose();
-    }
     _catalogItemFocusNode.dispose();
     _catalogVariantFocusNode.dispose();
     super.dispose();
@@ -11075,29 +11044,17 @@ class _OptionsStepState extends State<_OptionsStep> {
     final selectedItem = _findItem(_catalogItemId);
     final variantsForItem = _allVariantsForSelectedItem();
     final selectedVariant = _findVariant(_catalogVariantId);
-    final additionalHandlingOptions = selectedItem == null
-        ? const <CalculatorAdditionalHandlingOption>[]
-        : widget.contextData.additionalHandlingByParentItemId[selectedItem.id] ?? const <CalculatorAdditionalHandlingOption>[];
     final addRequiresVariant = selectedItem != null && variantsForItem.isNotEmpty;
     final canAdd = selectedItem != null && (!addRequiresVariant || selectedVariant != null);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (_addOptionError != null) ...[
-          SizedBox(
-            width: double.infinity,
-            child: _ErrorCard(
-              title: 'Cannot add option',
-              message: _addOptionError!,
-            ),
-          ),
-          const SizedBox(height: 12),
-        ],
         Text(widget.draft.isEinzelteile ? 'Positionen' : 'Options / additional catalog positions', style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 8),
-        Text(widget.draft.isEinzelteile ? 'Artikel und SKU auswählen. Länge und Originalfarbe kommen aus der SKU; Beschichtung und Zuschnitt unter Behandlung. Länge bei Flächenartikeln über Bearbeiten.' :
-          'Options are additional catalog positions selected only for the current calculation. They do not change the base set, but are added to price lines and option BOM.',
+        Text(widget.draft.isEinzelteile ? 'Artikel und SKU auswählen. Länge und Originalfarbe kommen aus der SKU. Behandlungen (Beschichtung, Zuschnitt, Glaszuschnitt) sowie Länge, Breite und Schräg bei Flächenartikeln über Bearbeiten (✎).' :
+          'Options are additional catalog positions selected only for the current calculation. They do not change the base set, but are added to price lines and option BOM. '
+          'Additional handling (cutting, coating, glass cut) and length, width and Schräg of glass per m² are set in the position dialog (✎).',
         ),
         if (widget.weights.isNotEmpty) ...[
           const SizedBox(height: 8),
@@ -11133,7 +11090,6 @@ class _OptionsStepState extends State<_OptionsStep> {
                     _salesUnitCode = null;
                     _catalogItemController.clear();
                     _catalogVariantController.clear();
-                    _resetAdditionalHandlingInputs();
                   }),
                 ),
               ),
@@ -11161,7 +11117,6 @@ class _OptionsStepState extends State<_OptionsStep> {
                       _salesUnitCode = _defaultSalesUnitCode(item, onlyVariant);
                       _catalogItemController.text = _itemLabel(item);
                       _catalogVariantController.text = onlyVariant == null ? '' : _variantLabel(onlyVariant);
-                      _resetAdditionalHandlingInputs();
                     });
                     if (onlyVariant == null && variants.isNotEmpty) {
                       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -11230,7 +11185,6 @@ class _OptionsStepState extends State<_OptionsStep> {
                     ),
                     const SizedBox(height: 12),
                     _optionAddPanel(
-                      additionalHandlingOptions: additionalHandlingOptions,
                       canAdd: canAdd,
                       addRequiresVariant: addRequiresVariant,
                       selectedItem: selectedItem,
@@ -11250,7 +11204,7 @@ class _OptionsStepState extends State<_OptionsStep> {
           options: widget.draft.options,
           optionDiagnostics: widget.optionDiagnostics,
           onQuantityChanged: widget.notifier.updateOptionQuantity,
-          onOptionChanged: widget.notifier.updateOption,
+          onEdit: (index) => _editOption(index, widget.draft.options[index]),
           onRemove: widget.notifier.removeOptionAt,
         ),
       ],
@@ -11364,28 +11318,16 @@ class _OptionsStepState extends State<_OptionsStep> {
     return '$count SKUs found';
   }
 
-  TextEditingController _handlingQuantityController(CalculatorAdditionalHandlingOption option) {
-    return _additionalHandlingControllers.putIfAbsent(
-      option.catalogItemId,
-      () => TextEditingController(text: '1'),
-    );
-  }
-
   Widget _optionAddPanel({
-    required List<CalculatorAdditionalHandlingOption> additionalHandlingOptions,
     required bool canAdd,
     required bool addRequiresVariant,
     required CalculatorCatalogItemOption? selectedItem,
     required CalculatorCatalogVariantOption? selectedVariant,
   }) {
-    final unselectedHandlings = _unselectedAdditionalHandlingOptions(additionalHandlingOptions);
-    final pendingHandlingId = _effectivePendingAdditionalHandlingId(unselectedHandlings);
-    final selectedHandlings = additionalHandlingOptions
-        .where((entry) => _enabledAdditionalHandlingIds.contains(entry.catalogItemId))
-        .toList(growable: false);
-    final canUseHandlingInput = _additionalHandlingInputEnabled && unselectedHandlings.isNotEmpty;
-    final salesUnitOptions = _salesUnitOptions(selectedItem, selectedVariant);
-    final salesUnitCode = _effectiveSalesUnitCode(selectedItem, selectedVariant);
+    // Glass per m² is ordered in pieces (width × length follow in the position dialog).
+    final isArea = selectedItem?.measureTypeCode == 'sqm';
+    final salesUnitOptions = isArea ? const ['piece'] : _salesUnitOptions(selectedItem, selectedVariant);
+    final salesUnitCode = isArea ? 'piece' : _effectiveSalesUnitCode(selectedItem, selectedVariant);
     final packageInfoLabel = _packageInfoLabel(selectedItem, selectedVariant);
 
     return Container(
@@ -11406,28 +11348,6 @@ class _OptionsStepState extends State<_OptionsStep> {
             salesUnitCode: salesUnitCode,
             packageInfoLabel: packageInfoLabel,
           ),
-          if (additionalHandlingOptions.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            Text(
-              unselectedHandlings.isEmpty && selectedHandlings.isEmpty
-                  ? 'No additional handling available for this option.'
-                  : 'Add handling only when this option needs extra production work.',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
-            ),
-            const SizedBox(height: 6),
-            _additionalHandlingInputRow(
-              unselectedHandlings: unselectedHandlings,
-              pendingHandlingId: pendingHandlingId,
-              inputEnabled: canUseHandlingInput,
-              allHandlingOptions: additionalHandlingOptions,
-            ),
-          ],
-          if (selectedHandlings.isNotEmpty) ...[
-            const SizedBox(height: 10),
-            _selectedAdditionalHandlingFrame(selectedHandlings),
-          ],
         ],
       ),
     );
@@ -11517,74 +11437,6 @@ class _OptionsStepState extends State<_OptionsStep> {
         ),
       ],
     );
-  }
-
-  Widget _additionalHandlingInputRow({
-    required List<CalculatorAdditionalHandlingOption> unselectedHandlings,
-    required String? pendingHandlingId,
-    required bool inputEnabled,
-    required List<CalculatorAdditionalHandlingOption> allHandlingOptions,
-  }) {
-    final hasChoices = unselectedHandlings.isNotEmpty;
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        SizedBox(
-          width: 34,
-          child: Checkbox(
-            value: _additionalHandlingInputEnabled && hasChoices,
-            visualDensity: VisualDensity.compact,
-            onChanged: hasChoices ? _toggleAdditionalHandlingInput : null,
-          ),
-        ),
-        const SizedBox(width: 4),
-        Expanded(
-          child: DropdownButtonFormField<String>(
-            key: ValueKey('additional-handling-$pendingHandlingId-${unselectedHandlings.length}-$_additionalHandlingInputEnabled'),
-            initialValue: pendingHandlingId,
-            isExpanded: true,
-            decoration: const InputDecoration(
-              labelText: 'Possible handling',
-              isDense: true,
-            ),
-            items: [
-              for (final option in unselectedHandlings)
-                DropdownMenuItem(
-                  value: option.catalogItemId,
-                  child: Text(
-                    '${option.displayName} · max ${_formatInputQuantity(option.maxQuantity)}',
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-            ],
-            onChanged: inputEnabled ? (value) => setState(() => _pendingAdditionalHandlingId = value) : null,
-          ),
-        ),
-        const SizedBox(width: 8),
-        FilledButton.tonalIcon(
-          onPressed: inputEnabled ? () => _addPendingAdditionalHandling(allHandlingOptions) : null,
-          style: FilledButton.styleFrom(
-            minimumSize: const Size(150, 42),
-            padding: const EdgeInsets.symmetric(horizontal: 18),
-          ),
-          icon: const Icon(Icons.add_task_outlined),
-          label: const Text('Add handling'),
-        ),
-      ],
-    );
-  }
-
-  void _toggleAdditionalHandlingInput(bool? enabled) {
-    setState(() {
-      _additionalHandlingInputEnabled = enabled ?? false;
-      if (!_additionalHandlingInputEnabled) return;
-      final unselected = _unselectedAdditionalHandlingOptions(
-        _catalogItemId == null
-            ? const <CalculatorAdditionalHandlingOption>[]
-            : widget.contextData.additionalHandlingByParentItemId[_catalogItemId!] ?? const <CalculatorAdditionalHandlingOption>[],
-      );
-      _pendingAdditionalHandlingId = _effectivePendingAdditionalHandlingId(unselected);
-    });
   }
 
   List<String> _salesUnitOptions(
@@ -11717,164 +11569,51 @@ class _OptionsStepState extends State<_OptionsStep> {
     }
   }
 
-  List<CalculatorAdditionalHandlingOption> _unselectedAdditionalHandlingOptions(List<CalculatorAdditionalHandlingOption> options) {
-    return options
-        .where((entry) => !_enabledAdditionalHandlingIds.contains(entry.catalogItemId))
-        .toList(growable: false);
-  }
-
-  String? _effectivePendingAdditionalHandlingId(List<CalculatorAdditionalHandlingOption> unselectedOptions) {
-    final pendingId = _pendingAdditionalHandlingId;
-    if (pendingId != null && unselectedOptions.any((entry) => entry.catalogItemId == pendingId)) {
-      return pendingId;
-    }
-    return unselectedOptions.isEmpty ? null : unselectedOptions.first.catalogItemId;
-  }
-
-  void _addPendingAdditionalHandling(List<CalculatorAdditionalHandlingOption> options) {
-    final unselected = _unselectedAdditionalHandlingOptions(options);
-    if (unselected.isEmpty) return;
-    final pendingId = _effectivePendingAdditionalHandlingId(unselected) ?? unselected.first.catalogItemId;
-    final option = unselected.firstWhere(
-      (entry) => entry.catalogItemId == pendingId,
-      orElse: () => unselected.first,
-    );
-
-    setState(() {
-      _enabledAdditionalHandlingIds.add(option.catalogItemId);
-      _additionalHandlingDetails[option.catalogItemId] = CalculatorSelectedAdditionalHandling(
-        catalogItemId: option.catalogItemId,
-        quantity: 1,
-        cuts: option.isCutting ? const [CalculatorOptionCut(lengthMm: 0, quantity: 1)] : const [],
-      );
-      if (option.isCutting && _salesUnitOptions(_findItem(_catalogItemId), _findVariant(_catalogVariantId)).contains('piece')) {
-        _salesUnitCode = 'piece';
-      }
-      final controller = _handlingQuantityController(option);
-      final currentQuantity = num.tryParse(controller.text.replaceAll(',', '.')) ?? 0;
-      if (currentQuantity <= 0) controller.text = '1';
-      final nextUnselected = options
-          .where((entry) => !_enabledAdditionalHandlingIds.contains(entry.catalogItemId))
-          .cast<CalculatorAdditionalHandlingOption?>()
-          .firstOrNull;
-      //_additionalHandlingInputEnabled = nextUnselected != null;
-      _pendingAdditionalHandlingId = nextUnselected?.catalogItemId;
-    });
-  }
-
-  Widget _selectedAdditionalHandlingFrame(List<CalculatorAdditionalHandlingOption> selectedHandlings) {
-    return Container(
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(
-            'Selected handling',
-            style: Theme.of(context).textTheme.labelMedium,
-          ),
-          const SizedBox(height: 6),
-          for (final option in selectedHandlings)
-            Padding(
-              key: ValueKey(option.catalogItemId),
-              padding: const EdgeInsets.only(top: 4),
-              child: _OptionHandlingRow(
-                label: option.displayName,
-                trailing: IconButton(
-                  tooltip: 'Remove handling',
-                  onPressed: () => setState(() {
-                    _enabledAdditionalHandlingIds.remove(option.catalogItemId);
-                    _pendingAdditionalHandlingId ??= option.catalogItemId;
-                  }),
-                  icon: const Icon(Icons.delete_outline),
-                ),
-                child: option.isCoating || option.isCutting
-                    ? _OptionHandlingFields(
-                        definition: option,
-                        value: _additionalHandlingDetails[option.catalogItemId]!,
-                        contextData: widget.contextData,
-                        onChanged: (value) => setState(() => _additionalHandlingDetails[option.catalogItemId] = value),
-                      )
-                    : Row(
-                        children: [
-                          Expanded(
-                            child: TextField(
-                              controller: _handlingQuantityController(option),
-                              keyboardType: TextInputType.number,
-                              decoration: InputDecoration(
-                                isDense: true,
-                                labelText: 'Qty',
-                                helperText: 'max ${_formatInputQuantity(option.maxQuantity)}',
-                              ),
-                              onEditingComplete: () => _clampHandlingQuantity(option),
-                              onSubmitted: (_) => _clampHandlingQuantity(option),
-                            ),
-                          ),
-                          const SizedBox(width: 80),
-                        ],
-                      ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  void _clampHandlingQuantity(CalculatorAdditionalHandlingOption option) {
-    final controller = _handlingQuantityController(option);
-    var quantity = num.tryParse(controller.text.replaceAll(',', '.')) ?? 1;
-    if (quantity <= 0) quantity = 1;
-    if (option.maxQuantity > 0 && quantity > option.maxQuantity) {
-      quantity = option.maxQuantity;
-    }
-    controller.text = _formatInputQuantity(quantity);
-  }
-
-  void _resetAdditionalHandlingInputs() {
-    _enabledAdditionalHandlingIds.clear();
-    _additionalHandlingDetails.clear();
-    _additionalHandlingInputEnabled = false;
-    _pendingAdditionalHandlingId = null;
-    for (final controller in _additionalHandlingControllers.values) {
-      controller.text = '1';
-    }
-  }
-
-  List<CalculatorSelectedAdditionalHandling> _selectedAdditionalHandlings(String parentItemId) {
-    final options = widget.contextData.additionalHandlingByParentItemId[parentItemId] ?? const <CalculatorAdditionalHandlingOption>[];
-    final result = <CalculatorSelectedAdditionalHandling>[];
-    for (final option in options) {
-      if (!_enabledAdditionalHandlingIds.contains(option.catalogItemId)) continue;
-      final controller = _handlingQuantityController(option);
-      var quantity = num.tryParse(controller.text.replaceAll(',', '.')) ?? 0;
-      if (quantity <= 0) continue;
-      if (option.maxQuantity > 0 && quantity > option.maxQuantity) {
-        quantity = option.maxQuantity;
-        controller.text = option.maxQuantity.toString();
-      }
-      result.add((_additionalHandlingDetails[option.catalogItemId]
-        ?? CalculatorSelectedAdditionalHandling(catalogItemId: option.catalogItemId, quantity: quantity))
-        .copyWith(quantity: option.isCoating || option.isCutting ? 1 : quantity));
-    }
-    return result;
-  }
-
   void _clearOptionSelection() {
     setState(() {
       _itemTypeCode = null;
       _catalogItemId = null;
       _catalogVariantId = null;
       _salesUnitCode = null;
-      _addOptionError = null;
       _catalogItemController.clear();
       _catalogVariantController.clear();
       _quantityController.text = '1';
-      _resetAdditionalHandlingInputs();
     });
+  }
+
+  /// Glass cuts (GZO, SRGH) are charged with "Handling 30 min" (art. 30). It is added once with quantity 1;
+  /// the real quantity is set after the work, see the Attention message.
+  void _addGlassCutHandlingPosition(String? parentItemId, List<CalculatorSelectedAdditionalHandling> handlings) {
+    final definitions = widget.contextData.additionalHandlingByParentItemId[parentItemId] ?? const <CalculatorAdditionalHandlingOption>[];
+    final hasGlassCut = handlings.any((handling) => definitions.any((definition) =>
+        _isGlassCutHandling(definition) && definition.catalogItemId == handling.catalogItemId));
+    final handlingItem = widget.contextData.optionCatalogItems
+        .where((item) => item.baseCode.trim() == _glassCutHandlingArticleNo)
+        .firstOrNull;
+    if (!hasGlassCut || handlingItem == null
+        || widget.draft.options.any((option) => option.catalogItemId == handlingItem.id)) {
+      return;
+    }
+    widget.notifier.addCatalogOption(
+      catalogItemId: handlingItem.id,
+      catalogVariantId: _variantsForItem(handlingItem.id).firstOrNull?.id,
+      quantity: 1,
+      salesUnitCode: _defaultSalesUnitCode(handlingItem, _variantsForItem(handlingItem.id).firstOrNull),
+    );
+  }
+
+  /// Position dialog (✎): length and width of glass per m² and all additional handlings (Schräg from SRGH).
+  Future<void> _editOption(int index, CalculatorSelectedOption option) async {
+    final edited = await showDialog<CalculatorSelectedOption>(
+      context: context,
+      builder: (_) => _OptionEditDialog(option: option, item: _findItem(option.catalogItemId),
+          variant: _findVariant(option.catalogVariantId), contextData: widget.contextData),
+    );
+    if (edited == null || !mounted) return;
+    widget.notifier.updateOption(index, edited);
+    _addGlassCutHandlingPosition(edited.catalogItemId, edited.additionalHandlings
+        .where((handling) => !option.additionalHandlings.any((entry) => entry.catalogItemId == handling.catalogItemId))
+        .toList());
   }
 
   void _addSelectedOption() {
@@ -11883,39 +11622,50 @@ class _OptionsStepState extends State<_OptionsStep> {
     final quantity = num.tryParse(_quantityController.text.replaceAll(',', '.')) ?? 1;
     final item = _findItem(itemId);
     final variant = _findVariant(_catalogVariantId);
-    final salesUnitCode = widget.draft.isEinzelteile && item?.measureTypeCode == 'sqm' ? 'piece' : _effectiveSalesUnitCode(item, variant);
-    final handlings = _selectedAdditionalHandlings(itemId);
-    final error = _optionHandlingError(handlings, widget.contextData.additionalHandlingByParentItemId[itemId] ?? const [],
-      salesUnitCode, variant?.lengthMm, quantity);
-    if (error != null) {
-      if (error.startsWith('PZSO: cuts do not fit into ')) {
-        showTopNotification(
-          context,
-          error,
-          type: TopNotificationType.error,
-        );
-        setState(() => _addOptionError = null);
-      } else {
-        setState(() => _addOptionError = error);
-      }
-      return;
-    }
-    widget.notifier.addCatalogOption(
+    // Glass per m² is ordered in pieces; its width and length are entered in the position dialog.
+    final isArea = item?.measureTypeCode == 'sqm';
+    final option = CalculatorSelectedOption(
       catalogItemId: itemId,
       catalogVariantId: _catalogVariantId,
-      quantity: quantity,
-      salesUnitCode: salesUnitCode,
-      additionalHandlings: handlings,
+      quantity: quantity <= 0 ? 1 : quantity,
+      salesUnitCode: isArea ? 'piece' : _effectiveSalesUnitCode(item, variant),
+    );
+    final index = widget.draft.options.length;
+    widget.notifier.addCatalogOption(
+      catalogItemId: itemId,
+      catalogVariantId: option.catalogVariantId,
+      quantity: option.quantity,
+      salesUnitCode: option.salesUnitCode,
     );
     setState(() {
-      _addOptionError = null;
       _catalogVariantId = null;
       _salesUnitCode = _defaultSalesUnitCode(_findItem(itemId), null);
       _catalogVariantController.clear();
       _quantityController.text = '1';
-      _resetAdditionalHandlingInputs();
     });
+    if (isArea) _editOption(index, option);
   }
+}
+
+const _glassCutHandlingArticleNo = '30';
+
+/// Handlings entered once per option with their own fields (ZLK colour, PZSO cuts, GZO / SRGH glass cuts).
+bool _isParameterizedHandling(CalculatorAdditionalHandlingOption definition) =>
+    definition.isCoating || definition.isCutting || _isGlassCutHandling(definition);
+
+/// Glass cuts: GZO rectangular pieces, SRGH slanted cut. Both add "Handling 30 min".
+bool _isGlassCutHandling(CalculatorAdditionalHandlingOption definition) =>
+    definition.isGlassCutting || definition.isGlassSchraegCutting;
+
+/// Schräg of a glass position follows its SRGH cut: L2 → 1 Schräg, L2 and L3 → 2 Schräg, no SRGH → Standard.
+int _schraegCountFromHandlings(
+  List<CalculatorSelectedAdditionalHandling> handlings,
+  List<CalculatorAdditionalHandlingOption> definitions,
+) {
+  final schraegCut = handlings.where((handling) => definitions.any((definition) =>
+      definition.isGlassSchraegCutting && definition.catalogItemId == handling.catalogItemId)).firstOrNull;
+  if (schraegCut == null) return 0;
+  return (schraegCut.glassL3Mm ?? 0) >= 1 ? 2 : 1;
 }
 
 String? _optionHandlingError(
@@ -11933,6 +11683,13 @@ String? _optionHandlingError(
     }
     if (definition.isCoating && handling.colorCode?.trim().isNotEmpty != true) {
       return 'ZLK: select the desired color.';
+    }
+    if (definition.isGlassSchraegCutting && (handling.glassL2Mm ?? 0) < 1) {
+      return 'SRGH: L2 (mm) eingeben; L3 nur bei 2 Schräg.';
+    }
+    if (definition.isGlassCutting && (handling.cuts.isEmpty || handling.cuts.any((cut) =>
+        cut.quantity < 1 || cut.lengthMm < 1 || (cut.widthMm ?? 0) < 1))) {
+      return 'GZO: Anzahl, Länge und Breite (mm) der Zuschnitte eingeben.';
     }
     if (definition.isCutting) {
       if (_formatUnitLabel(unit) != 'Stk' || stockLength == null || stockLength <= 1 || quantity % 1 != 0 || quantity < 1 || quantity > 200) {
@@ -11995,11 +11752,10 @@ bool _optionCutsFitStockBars(
 }
 
 class _OptionHandlingRow extends StatelessWidget {
-  const _OptionHandlingRow({required this.label, required this.child, this.trailing});
+  const _OptionHandlingRow({required this.label, required this.child});
 
   final String label;
   final Widget child;
-  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
@@ -12020,10 +11776,6 @@ class _OptionHandlingRow extends StatelessWidget {
         ),
         const SizedBox(width: 10),
         Expanded(child: child),
-        if (trailing != null) ...[
-          const SizedBox(width: 4),
-          trailing!,
-        ],
       ],
     );
   }
@@ -12074,11 +11826,50 @@ class _OptionHandlingFields extends StatelessWidget {
         ],
       );
     }
-    if (!definition.isCutting) return const SizedBox.shrink();
+    if (definition.isGlassSchraegCutting) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: _StableNumberField(
+                  key: ValueKey('${value.catalogItemId}-glass-l2'),
+                  value: '${value.glassL2Mm ?? ''}',
+                  enabled: true,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: 'L2, mm', isDense: true),
+                  onChanged: (text) => onChanged(value.copyWith(glassL2Mm: int.tryParse(text) ?? 0)),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _StableNumberField(
+                  key: ValueKey('${value.catalogItemId}-glass-l3'),
+                  value: '${value.glassL3Mm ?? ''}',
+                  enabled: true,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: 'L3, mm (2 Schräg)', isDense: true),
+                  onChanged: (text) => onChanged(value.copyWith(glassL3Mm: int.tryParse(text) ?? 0)),
+                ),
+              ),
+              const SizedBox(width: 80),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'L1 = Breite, B1 = Länge der Position. L2 → 1 Schräg, L2 und L3 → 2 Schräg. "Handling 30 min" wird als Position ergänzt.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ],
+      );
+    }
+    if (!definition.isCutting && !definition.isGlassCutting) return const SizedBox.shrink();
+    final isGlass = definition.isGlassCutting;
 
-    final cuts = value.cuts.isEmpty
-        ? const [CalculatorOptionCut(lengthMm: 0, quantity: 1)]
-        : value.cuts;
+    // GZO glass pieces carry a width; PZSO cuts have none.
+    final emptyCut = CalculatorOptionCut(lengthMm: 0, quantity: 1, widthMm: isGlass ? 0 : null);
+    final cuts = value.cuts.isEmpty ? [emptyCut] : value.cuts;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -12100,6 +11891,7 @@ class _OptionHandlingFields extends StatelessWidget {
                       nextCuts[index] = CalculatorOptionCut(
                         lengthMm: nextCuts[index].lengthMm,
                         quantity: int.tryParse(text) ?? 0,
+                        widthMm: nextCuts[index].widthMm,
                       );
                       onChanged(value.copyWith(cuts: nextCuts));
                     },
@@ -12112,17 +11904,39 @@ class _OptionHandlingFields extends StatelessWidget {
                     value: '${cuts[index].lengthMm}',
                     enabled: true,
                     keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(labelText: 'Length, mm', isDense: true),
+                    decoration: InputDecoration(labelText: isGlass ? 'Länge, mm' : 'Length, mm', isDense: true),
                     onChanged: (text) {
                       final nextCuts = value.cuts.isEmpty ? [...cuts] : [...value.cuts];
                       nextCuts[index] = CalculatorOptionCut(
                         lengthMm: int.tryParse(text) ?? 0,
                         quantity: nextCuts[index].quantity,
+                        widthMm: nextCuts[index].widthMm,
                       );
                       onChanged(value.copyWith(cuts: nextCuts));
                     },
                   ),
                 ),
+                if (isGlass) ...[
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _StableNumberField(
+                      key: ValueKey('${value.catalogItemId}-cut-width-$index'),
+                      value: '${cuts[index].widthMm ?? 0}',
+                      enabled: true,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(labelText: 'Breite, mm', isDense: true),
+                      onChanged: (text) {
+                        final nextCuts = value.cuts.isEmpty ? [...cuts] : [...value.cuts];
+                        nextCuts[index] = CalculatorOptionCut(
+                          lengthMm: nextCuts[index].lengthMm,
+                          quantity: nextCuts[index].quantity,
+                          widthMm: int.tryParse(text) ?? 0,
+                        );
+                        onChanged(value.copyWith(cuts: nextCuts));
+                      },
+                    ),
+                  ),
+                ],
                 if (index == 0)
                   IconButton(
                     tooltip: 'Add cut',
@@ -12132,7 +11946,7 @@ class _OptionHandlingFields extends StatelessWidget {
                               cuts: [
                                 ...value.cuts,
                                 if (value.cuts.isEmpty) cuts.first,
-                                const CalculatorOptionCut(lengthMm: 0, quantity: 1),
+                                emptyCut,
                               ],
                             ))
                         : null,
@@ -12153,7 +11967,9 @@ class _OptionHandlingFields extends StatelessWidget {
           ),
         const SizedBox(height: 4),
         Text(
-          'Stock bars remain charged in full. REST is calculated with a 3 mm saw kerf.',
+          isGlass
+              ? 'Zuschnitt in Stücke (Anzahl × Länge × Breite); das Glas bleibt voll berechnet. "Handling 30 min" wird als Position ergänzt.'
+              : 'Stock bars remain charged in full. REST is calculated with a 3 mm saw kerf.',
           style: Theme.of(context).textTheme.bodySmall,
         ),
       ],
@@ -12162,12 +11978,11 @@ class _OptionHandlingFields extends StatelessWidget {
 }
 
 class _OptionEditDialog extends StatefulWidget {
-  const _OptionEditDialog({required this.option, required this.item, required this.variant, required this.contextData, this.isEinzelteile = false});
+  const _OptionEditDialog({required this.option, required this.item, required this.variant, required this.contextData});
   final CalculatorSelectedOption option;
   final CalculatorCatalogItemOption? item;
   final CalculatorCatalogVariantOption? variant;
   final CalculatorContext contextData;
-  final bool isEinzelteile;
 
   @override
   State<_OptionEditDialog> createState() => _OptionEditDialogState();
@@ -12185,11 +12000,18 @@ class _OptionEditDialogState extends State<_OptionEditDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final definitions = widget.contextData.additionalHandlingByParentItemId[widget.item?.id] ?? const <CalculatorAdditionalHandlingOption>[];
+    // Glass per m² is ordered in pieces of width × length (area, minimum and Schräg are calculated).
+    final isArea = widget.item?.measureTypeCode == 'sqm';
+    // The slanted cut (SRGH) needs the width × length of the position: not offered for glass sold per piece (plates).
+    final definitions = (widget.contextData.additionalHandlingByParentItemId[widget.item?.id] ?? const <CalculatorAdditionalHandlingOption>[])
+        .where((definition) => isArea || !definition.isGlassSchraegCutting)
+        .toList();
+    final schraegCount = _schraegCountFromHandlings(_option.additionalHandlings, definitions);
     final units = widget.variant?.allowedSalesUnitCodes.isNotEmpty == true
       ? widget.variant!.allowedSalesUnitCodes
       : widget.item?.allowedSalesUnitCodes ?? const <String>[];
-    final selectedUnit = _option.salesUnitCode ?? widget.variant?.defaultSalesUnitCode ?? widget.item?.defaultSalesUnitCode ?? 'piece';
+    final selectedUnit = isArea ? 'piece'
+        : _option.salesUnitCode ?? widget.variant?.defaultSalesUnitCode ?? widget.item?.defaultSalesUnitCode ?? 'piece';
     final availableUnits = {...units, selectedUnit};
     return AlertDialog(
       title: const Text('Option · unit / handling'),
@@ -12198,18 +12020,32 @@ class _OptionEditDialogState extends State<_OptionEditDialog> {
         children: [
           Text(widget.variant?.displayName ?? widget.item?.displayName ?? 'Option'),
           const SizedBox(height: 12),
-          if (widget.isEinzelteile && widget.item?.measureTypeCode == 'sqm') ...[
-            _StableNumberField(value: '${_option.lengthMm ?? widget.variant?.lengthMm ?? ''}', enabled: true,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: 'Länge, mm', isDense: true),
-              onChanged: (text) => setState(() => _option = _option.copyWith(
-                lengthMm: int.tryParse(text), clearLength: text.isEmpty))),
-            const SizedBox(height: 12),
-          ],
-          DropdownButtonFormField<String>(key: ValueKey(selectedUnit), initialValue: selectedUnit,
-            decoration: const InputDecoration(labelText: 'Unit', isDense: true),
-            items: [for (final unit in availableUnits) DropdownMenuItem(value: unit, child: Text(_formatUnitLabel(unit)))],
-            onChanged: (unit) => setState(() => _option = _option.copyWith(salesUnitCode: unit))),
+          if (isArea) ...[
+            Row(children: [
+              Expanded(child: _StableNumberField(value: '${_option.lengthMm ?? ''}', enabled: true,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: 'Länge, mm', isDense: true),
+                onChanged: (text) => setState(() => _option = _option.copyWith(
+                  lengthMm: int.tryParse(text), clearLength: text.isEmpty)))),
+              const SizedBox(width: 8),
+              Expanded(child: _StableNumberField(value: '${_option.widthMm ?? ''}', enabled: true,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: 'Breite, mm', isDense: true),
+                onChanged: (text) => setState(() => _option = _option.copyWith(
+                  widthMm: int.tryParse(text), clearWidth: text.isEmpty)))),
+              const SizedBox(width: 8),
+              Expanded(child: InputDecorator(
+                decoration: const InputDecoration(labelText: 'Schräg', isDense: true),
+                child: Text(schraegCount == 0 ? 'Standard (GZO)' : '$schraegCount Schräg (SRGH)'))),
+            ]),
+            const SizedBox(height: 4),
+            Text('Menge = Stückzahl; Fläche und Mindestmenge berechnet der Rechner. Schräg ergibt sich aus dem Schrägschnitt (SRGH).',
+              style: Theme.of(context).textTheme.bodySmall),
+          ] else
+            DropdownButtonFormField<String>(key: ValueKey(selectedUnit), initialValue: selectedUnit,
+              decoration: const InputDecoration(labelText: 'Unit', isDense: true),
+              items: [for (final unit in availableUnits) DropdownMenuItem(value: unit, child: Text(_formatUnitLabel(unit)))],
+              onChanged: (unit) => setState(() => _option = _option.copyWith(salesUnitCode: unit))),
           for (final definition in definitions)
             Builder(
               builder: (context) {
@@ -12234,8 +12070,8 @@ class _OptionEditDialogState extends State<_OptionEditDialog> {
                               selected.add(CalculatorSelectedAdditionalHandling(
                                 catalogItemId: definition.catalogItemId,
                                 quantity: 1,
-                                cuts: definition.isCutting
-                                    ? const [CalculatorOptionCut(lengthMm: 0, quantity: 1)]
+                                cuts: definition.isCutting || definition.isGlassCutting
+                                    ? [CalculatorOptionCut(lengthMm: 0, quantity: 1, widthMm: definition.isGlassCutting ? 0 : null)]
                                     : const [],
                               ));
                             }
@@ -12253,7 +12089,7 @@ class _OptionEditDialogState extends State<_OptionEditDialog> {
                           label: definition.displayName,
                           child: handling == null
                               ? const SizedBox(height: 40)
-                              : definition.isCoating || definition.isCutting
+                              : _isParameterizedHandling(definition)
                                   ? _OptionHandlingFields(
                                       key: ValueKey(definition.catalogItemId),
                                       definition: definition,
@@ -12294,8 +12130,10 @@ class _OptionEditDialogState extends State<_OptionEditDialog> {
       actions: [
         TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
         FilledButton(onPressed: () {
-          final error = _optionHandlingError(_option.additionalHandlings, definitions,
-            selectedUnit, widget.variant?.lengthMm, _option.quantity);
+          final error = isArea && ((_option.lengthMm ?? 0) < 1 || (_option.widthMm ?? 0) < 1 || _option.quantity % 1 != 0)
+              ? 'Länge und Breite (mm) sowie ganze Stückzahl eingeben.'
+              : _optionHandlingError(_option.additionalHandlings, definitions,
+                  selectedUnit, widget.variant?.lengthMm, _option.quantity);
           if (error != null) {
             if (error.startsWith('PZSO: cuts do not fit into ')) {
               showTopNotification(
@@ -12309,7 +12147,12 @@ class _OptionEditDialogState extends State<_OptionEditDialog> {
             }
             return;
           }
-          Navigator.of(context).pop(_option.copyWith(salesUnitCode: selectedUnit));
+          Navigator.of(context).pop(_option.copyWith(salesUnitCode: selectedUnit,
+              schraegCount: isArea ? schraegCount : null, additionalHandlings: [
+            for (final handling in _option.additionalHandlings)
+              definitions.any((definition) => definition.catalogItemId == handling.catalogItemId && _isParameterizedHandling(definition))
+                  ? handling.copyWith(quantity: 1) : handling,
+          ]));
         }, child: const Text('Save')),
       ],
     );
@@ -12560,7 +12403,7 @@ class _SelectedOptionsTable extends StatelessWidget {
     required this.options,
     required this.optionDiagnostics,
     required this.onQuantityChanged,
-    required this.onOptionChanged,
+    required this.onEdit,
     required this.onRemove,
   });
 
@@ -12570,7 +12413,7 @@ class _SelectedOptionsTable extends StatelessWidget {
   final List<CalculatorSelectedOption> options;
   final List<Map<String, dynamic>> optionDiagnostics;
   final void Function(int index, num quantity) onQuantityChanged;
-  final void Function(int index, CalculatorSelectedOption option) onOptionChanged;
+  final ValueChanged<int> onEdit;
   final ValueChanged<int> onRemove;
 
   @override
@@ -12594,8 +12437,6 @@ class _SelectedOptionsTable extends StatelessWidget {
             const Divider(height: 1),
             for (var i = 0; i < options.length; i++) ...[
               _selectedOptionRow(context, i),
-              if (isEinzelteile && _findItem(options[i].catalogItemId)?.measureTypeCode == 'sqm')
-                Padding(padding: const EdgeInsets.fromLTRB(12, 0, 12, 12), child: _EinzelteilePositionFields(option: options[i], item: _findItem(options[i].catalogItemId), onChanged: (option) => onOptionChanged(i, option))),
               if (i < options.length - 1) const Divider(height: 1),
             ],
           ],
@@ -12656,14 +12497,7 @@ class _SelectedOptionsTable extends StatelessWidget {
       if (displaySalesNote != null && displaySalesNote.isNotEmpty) displaySalesNote,
     ].whereType<String>().where((entry) => entry.isNotEmpty).toList(growable: false);
 
-    Future<void> editUnit() async {
-      final edited = await showDialog<CalculatorSelectedOption>(
-        context: context,
-        builder: (_) => _OptionEditDialog(option: option, item: item,
-            variant: variant, contextData: contextData, isEinzelteile: isEinzelteile),
-      );
-      if (edited != null) onOptionChanged(index, edited);
-    }
+    void editUnit() => onEdit(index);
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
@@ -12894,7 +12728,10 @@ class _SelectedOptionNameCell extends StatelessWidget {
                       [
                         '${_handlingLabel(entry)} × ${_formatInputQuantity(entry.quantity)}',
                         if (entry.colorCode?.isNotEmpty == true) '→ ${entry.colorCode}',
-                        for (final cut in entry.cuts) '${cut.quantity} × ${cut.lengthMm} mm',
+                        for (final cut in entry.cuts)
+                          '${cut.quantity} × ${cut.lengthMm}${cut.widthMm == null ? '' : ' × ${cut.widthMm}'} mm',
+                        if (entry.glassL2Mm != null) 'L2 ${entry.glassL2Mm} mm',
+                        if ((entry.glassL3Mm ?? 0) > 0) 'L3 ${entry.glassL3Mm} mm',
                       ].join(' · '),
                       softWrap: true,
                       maxLines: 6,
@@ -14267,6 +14104,28 @@ Map<String, List<String>> _calculatorAttentionMessagesByStep({
       const ['set_contents'],
       '16912 Langmaß is enabled; from 14000 mm verify manually.',
     );
+  }
+  if (calculatorContext != null) {
+    final glassCutIds = {
+      for (final definitions in calculatorContext.additionalHandlingByParentItemId.values)
+        for (final definition in definitions)
+          if (_isGlassCutHandling(definition)) definition.catalogItemId,
+    };
+    if (draft.options.any((option) =>
+        option.additionalHandlings.any((handling) => glassCutIds.contains(handling.catalogItemId)))) {
+      final handlingItemIds = calculatorContext.optionCatalogItems
+          .where((item) => item.baseCode.trim() == _glassCutHandlingArticleNo)
+          .map((item) => item.id)
+          .toSet();
+      final quantity = draft.options
+          .where((option) => handlingItemIds.contains(option.catalogItemId))
+          .fold<num>(0, (sum, option) => sum + option.quantity);
+      _addAttentionMessage(
+        grouped,
+        const ['options', 'summary'],
+        'Glaszuschnitt (GZO / SRGH): Anzahl "Handling 30 min" nach tatsächlichem Aufwand prüfen – aktuell ${_formatInputQuantity(quantity)} Stk.',
+      );
+    }
   }
   if (draft.isEinzelteile && draft.reclamation) {
     _addAttentionMessage(grouped, const ['template', 'summary'], 'Reklamation discount: 100%.');
