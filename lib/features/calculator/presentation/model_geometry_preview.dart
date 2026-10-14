@@ -10,6 +10,8 @@ import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../../core/auth/auth_session.dart';
 import '../../../core/http/admin_resource_repository.dart';
+import '../../../core/http/job_updates.dart';
+import '../../../core/navigation/admin_providers.dart';
 import '../../../core/ui/glb_viewer.dart';
 import '../../../core/ui/media_file_actions.dart';
 import '../../../core/ui/top_notification.dart';
@@ -358,6 +360,8 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
   late Future<Uint8List?> _staticBeamInstructionImageFuture;
   bool _isGeneratingGlb = false;
   bool _hasGeneratedGlb = false;
+  bool _showDrawing = false;
+  StreamSubscription<JobUpdate>? _jobUpdates;
 
   @override
   void initState() {
@@ -365,6 +369,16 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
     _humanImageFuture = _loadHumanImage();
     _staticBeamInstructionImageFuture = _loadStaticBeamInstructionImage();
     unawaited(_refreshGlbAvailability());
+    // A GLB queued after saving (system setting quote_save_integrations) finishes in the background.
+    _jobUpdates = ref.read(jobUpdatesProvider).changes.listen((_) {
+      if (!_hasGeneratedGlb) unawaited(_refreshGlbAvailability());
+    });
+  }
+
+  @override
+  void dispose() {
+    _jobUpdates?.cancel();
+    super.dispose();
   }
 
   @override
@@ -625,8 +639,12 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
                 ),
                 const SizedBox(width: 4),
                 IconButton(
-                  tooltip: 'Open enlarged geometry preview',
-                  onPressed: hasSelection ? () => _showExpandedPreview(context, currentUser) : null,
+                  tooltip: _showDrawing ? 'Open enlarged technical drawing' : 'Open enlarged geometry preview',
+                  onPressed: hasSelection
+                      ? () => _showDrawing
+                          ? _showExpandedDrawing(context)
+                          : _showExpandedPreview(context, currentUser)
+                      : null,
                   padding: EdgeInsets.zero,
                   constraints: const BoxConstraints.tightFor(width: 28, height: 28),
                   icon: const Icon(Icons.zoom_in, size: 18),
@@ -656,9 +674,34 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
             ],
             const SizedBox(height: 12),
             SizedBox(
-              height: 318,
+              height: 380,
               width: double.infinity,
-              child: _buildGeometryCanvas(colorScheme),
+              child: Stack(
+                children: [
+                  Positioned.fill(
+                    child: _showDrawing
+                        ? _buildGeometryCanvasFor(widget, null, colorScheme, drawing: true)
+                        : _buildGeometryCanvas(colorScheme),
+                  ),
+                  Positioned(
+                    left: 6,
+                    bottom: 6,
+                    child: IconButton(
+                      tooltip: _showDrawing ? 'Show roof schematic' : 'Show technical drawing (3 views)',
+                      onPressed: hasSelection ? () => setState(() => _showDrawing = !_showDrawing) : null,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints.tightFor(width: 28, height: 28),
+                      style: _showDrawing
+                          ? IconButton.styleFrom(
+                              backgroundColor: colorScheme.primaryContainer,
+                              foregroundColor: colorScheme.onPrimaryContainer,
+                            )
+                          : null,
+                      icon: const Icon(Icons.architecture, size: 18),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
@@ -846,7 +889,119 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
     );
   }
 
-  Future<void> _downloadExpandedPreview(GlobalKey repaintBoundaryKey, DateTime exportDate) async {
+  // Large technical drawing with the Kommission QR code and name at the bottom right, downloadable as PNG.
+  Future<void> _showExpandedDrawing(BuildContext context) async {
+    final repaintBoundaryKey = GlobalKey();
+    final colorScheme = Theme.of(context).colorScheme;
+    final exportDate = DateTime.now();
+    final calculationNumber = widget.calculationNumber?.trim() ?? '';
+    const qrSize = 112.0;
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return Dialog(
+          insetPadding: const EdgeInsets.all(28),
+          clipBehavior: Clip.antiAlias,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 1280, maxHeight: 860),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 14, 12, 12),
+                  child: Row(
+                    children: [
+                      Icon(Icons.architecture, color: colorScheme.primary),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Technical drawing · $_previewHeaderReference',
+                          style: Theme.of(dialogContext).textTheme.titleLarge,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Download PNG',
+                        onPressed: () => _downloadExpandedPreview(
+                          repaintBoundaryKey,
+                          exportDate,
+                          suffix: '_zeichnung',
+                        ),
+                        icon: const Icon(Icons.download_outlined),
+                      ),
+                      IconButton(
+                        tooltip: 'Close',
+                        onPressed: () => Navigator.of(dialogContext).pop(),
+                        icon: const Icon(Icons.close),
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.all(18),
+                    child: FittedBox(
+                      fit: BoxFit.contain,
+                      child: RepaintBoundary(
+                        key: repaintBoundaryKey,
+                        child: SizedBox(
+                          width: expandedGeometryPreviewWidth.toDouble(),
+                          height: expandedGeometryPreviewHeight.toDouble(),
+                          child: Stack(
+                            children: [
+                              Positioned.fill(
+                                child: _buildGeometryCanvasFor(
+                                  widget,
+                                  null,
+                                  colorScheme,
+                                  drawing: true,
+                                  geometryOnly: true,
+                                  drawingBottomRightReserve: qrSize + 40,
+                                ),
+                              ),
+                              Positioned(
+                                right: 20,
+                                bottom: 16,
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  children: [
+                                    if (calculationNumber.isNotEmpty)
+                                      QrImageView(
+                                        data: calculationNumber,
+                                        version: QrVersions.auto,
+                                        size: qrSize,
+                                        padding: const EdgeInsets.all(8),
+                                        backgroundColor: Colors.white,
+                                      ),
+                                    Text(
+                                      'Kommission: ${_expandedKommissionLabel(widget.calculationNumber)}',
+                                      style: Theme.of(dialogContext).textTheme.titleSmall?.copyWith(
+                                            color: Colors.black87,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _downloadExpandedPreview(GlobalKey repaintBoundaryKey, DateTime exportDate, {String suffix = ''}) async {
     try {
       await WidgetsBinding.instance.endOfFrame;
       final renderObject = repaintBoundaryKey.currentContext?.findRenderObject();
@@ -863,7 +1018,7 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
       final baseName = calculation == null || calculation.isEmpty ? 'roof_geometry' : calculation;
       downloadMediaBytes(
         byteData.buffer.asUint8List(),
-        filename: '${_safeFilename(baseName)}_${_fileDate(exportDate)}.png',
+        filename: '${_safeFilename(baseName)}${suffix}_${_fileDate(exportDate)}.png',
         contentType: 'image/png',
       );
     } catch (error) {
@@ -905,6 +1060,9 @@ Widget _buildGeometryCanvasFor(
   double sideInfoBottomReserve = 0,
   bool alignRoofTop = false,
   bool showRoofTypeInSideInfo = false,
+  bool drawing = false,
+  bool geometryOnly = false,
+  double drawingBottomRightReserve = 0,
 }) {
   return CustomPaint(
     painter: _ModelGeometryPreviewPainter(
@@ -943,6 +1101,9 @@ Widget _buildGeometryCanvasFor(
       sideInfoBottomReserve: sideInfoBottomReserve,
       alignRoofTop: alignRoofTop,
       showRoofTypeInSideInfo: showRoofTypeInSideInfo,
+      geometryOnly: geometryOnly,
+      drawing: drawing,
+      drawingBottomRightReserve: drawingBottomRightReserve,
     ),
   );
 }
@@ -1977,6 +2138,8 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     required this.alignRoofTop,
     this.showRoofTypeInSideInfo = false,
     this.geometryOnly = false,
+    this.drawing = false,
+    this.drawingBottomRightReserve = 0,
   });
 
   final String? modelCode;
@@ -2009,6 +2172,10 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
   final bool alignRoofTop;
   final bool showRoofTypeInSideInfo;
   final bool geometryOnly;
+  // Technical drawing (three views) instead of the roof schematic.
+  final bool drawing;
+  // Space kept free under the drawing legend (QR code of the large drawing).
+  final double drawingBottomRightReserve;
 
   static const double _ddx = 0.52;
   static const double _ddy = 0.73;
@@ -2048,6 +2215,15 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
         : _previewSideRect(size, pad);
     if (!geometryOnly) {
       _drawPreviewSideBackground(canvas, sideRect);
+    }
+    if (drawing) {
+      _drawRoofDrawing(
+        canvas,
+        geometryOnly ? Offset.zero & size : Rect.fromLTRB(0, 0, sideRect.left - sideGap, size.height),
+        layout,
+      );
+      if (!geometryOnly) _drawPlanInset(canvas, sideRect, layout, profile, params);
+      return;
     }
 
     final projDx = (profile.shape == _RoofShape.lFront ? (profile.mirrorView ? -0.42 : 0.58) : _ddx)
@@ -3828,6 +4004,283 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     return candidates.reduce((a, b) => math.max(a, b).toDouble());
   }
 
+  // Technische Zeichnung on white: Vorderansicht, Seitenansicht (wall left, gutter right) and Draufsicht (wall on
+  // top) in one scale, from the same layout, beams and posts as the roof schematic. Gutter, beam and profile
+  // cross-sections are schematic sizes; the red dashed line is the post length of the set contents.
+  void _drawRoofDrawing(Canvas canvas, Rect area, _RoofLayout layout) {
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(area, Radius.circular(geometryOnly ? 0.0 : 10.0)),
+      Paint()..color = Colors.white,
+    );
+    const gutterH = 180.0, gutterD = 116.0, beamH = 150.0, glassT = 30.0, profileT = 80.0;
+    const postW = 110.0, wallT = 250.0, wallOver = 300.0, beamW = 61.0;
+    const wallColor = Color(0xFFB9BDC1);
+    const postSetColor = Color(0xFFE24B4A);
+    final w = layout.widthMm;
+    final d = layout.depthMm;
+    if (w <= postW || d <= postW) return;
+
+    final u = (area.height / 380).clamp(1.0, 2.0).toDouble();
+    final pad = 10 * u, titleH = 16 * u, frontDimH = 36 * u, gapY = 12 * u, gapX = 22 * u, topDimH = 22 * u;
+    final rightDimW = 46 * u, sideLeftW = 46 * u, sideRightW = 50 * u;
+    final fs = 9.5 * u, ts = 11 * u, legendLine = 15 * u, legendSwatch = 10 * u;
+
+    final rear = (rearHeightMm ?? heightMm)?.toDouble() ?? layout.heightMm;
+    if (rear <= gutterH) return;
+    final angle = roofAngleDeg;
+    final front = (frontHeightMm?.toDouble() ??
+            (angle == null ? rear : rear - d * math.tan(angle * math.pi / 180)))
+        .clamp(gutterH, rear)
+        .toDouble();
+    final wallMm = wallMounted ? wallT : 0.0;
+    final profileColor = colorSwatchColor ?? const Color(0xFFA7ABAF);
+    final glassColor = _roofCoveringFillColor();
+    final rafters = _effectiveRafterX(layout);
+    final posts = _effectivePostPoints(layout);
+    final postSetLength = _postSetLengthMm();
+    final code = colorCode?.trim() ?? '';
+    final covering = coveringName?.trim() ?? '';
+    final legend = <(String, String)>[
+      ('profile', code.isEmpty ? 'Profile' : 'Profile, ${RegExp(r'^\d{4}$').hasMatch(code) ? 'RAL $code' : code}'),
+      ('glass', covering.isEmpty ? 'Eindeckung' : 'Eindeckung: $covering'),
+      if (wallMounted) ('wall', 'Wand'),
+      if (postSetLength != null) ('post', 'Pfostenlänge im Set'),
+      ('text', 'Alle Maße in mm, einheitlicher Maßstab'),
+    ];
+    final legendWidth = legend
+        .map((row) => _textWidth(row.$2, fs) + (row.$1 == 'text' ? 0.0 : legendSwatch + 6 * u))
+        .reduce(_max);
+    final legendHeight = legend.length * legendLine;
+
+    // One scale for all views: front + top view stacked in the left column, side view and legend on the right.
+    final fixedV = 2 * pad + 2 * titleH + frontDimH + gapY;
+    final k = [
+      (area.width - 2 * pad - rightDimW - gapX - sideLeftW - sideRightW) / (w + wallMm + d),
+      (area.width - 2 * pad - rightDimW - gapX - legendWidth) / w,
+      (area.height - fixedV - topDimH) / (rear + wallOver + wallMm + d),
+      (area.height - fixedV - legendHeight - drawingBottomRightReserve) / (rear + wallOver),
+    ].reduce(_min);
+    if (k <= 0) return;
+    final contentW = w * k + rightDimW + gapX + _max(sideLeftW + (wallMm + d) * k + sideRightW, legendWidth);
+    final contentH = fixedV - 2 * pad + (rear + wallOver) * k +
+        _max((wallMm + d) * k + topDimH, legendHeight + drawingBottomRightReserve);
+    final x0 = area.left + pad + _max(0.0, (area.width - 2 * pad - contentW) / 2);
+    final y1 = area.top + pad + _max(0.0, (area.height - 2 * pad - contentH) / 2);
+    final x2 = x0 + w * k + rightDimW + gapX;
+    final ground = y1 + titleH + (rear + wallOver) * k;
+    double zy(double z) => ground - z * k;
+
+    final outline = Paint()
+      ..color = lineColor.withValues(alpha: 0.55)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 0.6;
+    final groundPaint = Paint()
+      ..color = lineColor
+      ..strokeWidth = 1.0;
+    final dimensionPaint = Paint()
+      ..color = lineColor.withValues(alpha: 0.82)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.0
+      ..strokeCap = StrokeCap.round;
+    final postSetPaint = Paint()
+      ..color = postSetColor
+      ..strokeWidth = 1.0;
+    void part(Rect rect, Color color) {
+      canvas.drawRect(rect, Paint()..color = color);
+      canvas.drawRect(rect, outline);
+    }
+
+    void shape(List<Offset> points, Color color) {
+      final path = Path()..addPolygon(points, true);
+      canvas.drawPath(path, Paint()..color = color);
+      canvas.drawPath(path, outline);
+    }
+
+    void label(String text, Offset at, {double hAlign = 0.5, bool isBold = true, Color? color, double? size}) =>
+        _drawText(canvas, text, at, color ?? lineColor, size ?? fs,
+            isBold: isBold, hAlign: hAlign, maxWidth: area.width);
+
+    // Vorderansicht: roof slope seen from the front (rear - front height), gutter, posts.
+    label('Vorderansicht', Offset(x0, y1 + titleH * 0.4), hAlign: 0, size: ts);
+    final beamPx = _max(1.2, beamW * k);
+    if ((rear - front) * k >= 0.5) {
+      part(Rect.fromLTRB(x0, zy(rear), x0 + w * k, zy(front)), glassColor);
+      for (final x in rafters) {
+        part(Rect.fromLTRB(x0 + x * k - beamPx / 2, zy(rear), x0 + x * k + beamPx / 2, zy(front)), profileColor);
+      }
+    }
+    part(Rect.fromLTWH(x0, zy(rear), w * k, _max(1.5, profileT * k)), profileColor);
+    part(Rect.fromLTRB(x0, zy(front), x0 + w * k, zy(front - gutterH)), profileColor);
+    final postX = <double>{
+      for (final point in posts) point.dx.clamp(postW / 2, w - postW / 2).toDouble().roundToDouble(),
+    }.toList()
+      ..sort();
+    for (final x in postX) {
+      final left = x0 + (x - postW / 2) * k;
+      part(Rect.fromLTRB(left, zy(front - gutterH), left + _max(2, postW * k), ground), profileColor);
+    }
+    canvas.drawLine(Offset(x0 - 6 * u, ground), Offset(x0 + w * k + 6 * u, ground), groundPaint);
+    if (postSetLength != null) {
+      final y = zy(postSetLength);
+      _drawDashedLine(canvas, Offset(x0, y), Offset(x0 + w * k, y), postSetPaint, dashLength: 4 * u, gapLength: 3 * u);
+      label('Pfosten im Set ${postSetLength.round()}', Offset(x0 + 8 * u, y - 7 * u),
+          hAlign: 0, isBold: false, color: postSetColor);
+    }
+    for (var i = 0; i + 1 < postX.length; i++) {
+      final a = Offset(x0 + postX[i] * k, ground + 12 * u);
+      final b = Offset(x0 + postX[i + 1] * k, ground + 12 * u);
+      _dimLine(canvas, a, b, dimensionPaint);
+      label('${(postX[i + 1] - postX[i]).round()}', _lerp(a, b, 0.5) + Offset(0, 8 * u));
+    }
+    final widthStart = Offset(x0, ground + 28 * u);
+    final widthEnd = Offset(x0 + w * k, ground + 28 * u);
+    _dimLine(canvas, widthStart, widthEnd, dimensionPaint);
+    label('${w.round()}', _lerp(widthStart, widthEnd, 0.5) + Offset(0, 8 * u));
+
+    // Seitenansicht: v = distance from the wall (back edge) towards the gutter.
+    label('Seitenansicht', Offset(x2, y1 + titleH * 0.4), hAlign: 0, size: ts);
+    final wallFace = x2 + sideLeftW + wallMm * k;
+    double sx(double v) => wallFace + v * k;
+    double roofZ(double v) => rear + (front - rear) * v / d;
+    if (wallMounted) {
+      part(Rect.fromLTRB(x2 + sideLeftW, zy(rear + wallOver), wallFace, ground), wallColor);
+    }
+    shape([
+      Offset(sx(0), zy(rear + glassT)),
+      Offset(sx(d), zy(front + glassT)),
+      Offset(sx(d), zy(front)),
+      Offset(sx(0), zy(rear)),
+    ], glassColor);
+    shape([
+      Offset(sx(0), zy(rear)),
+      Offset(sx(d), zy(front)),
+      Offset(sx(d), zy(front - beamH)),
+      Offset(sx(0), zy(rear - beamH)),
+    ], profileColor);
+    part(Rect.fromLTRB(sx(d - gutterD), zy(front), sx(d), zy(front - gutterH)), profileColor);
+    final postV = <double>{
+      for (final point in posts) (d - point.dy).clamp(postW / 2, d - postW / 2).toDouble().roundToDouble(),
+    };
+    for (final v in postV) {
+      final top = roofZ(v) - (v > d - 2 * gutterD ? gutterH : beamH);
+      part(Rect.fromLTRB(sx(v - postW / 2), zy(top), sx(v - postW / 2) + _max(2, postW * k), ground), profileColor);
+    }
+    canvas.drawLine(Offset(x2 + sideLeftW - 6 * u, ground), Offset(sx(d) + 10 * u, ground), groundPaint);
+    final rearDimX = x2 + sideLeftW - 10 * u;
+    _dimLine(canvas, Offset(rearDimX, ground), Offset(rearDimX, zy(rear)), dimensionPaint);
+    label('${rear.round()}', Offset(rearDimX - 4 * u, (ground + zy(rear)) / 2), hAlign: 1);
+    final frontDimX = sx(d) + 14 * u;
+    _dimLine(canvas, Offset(frontDimX, ground), Offset(frontDimX, zy(front)), dimensionPaint);
+    label('${front.round()}', Offset(frontDimX + 4 * u, (ground + zy(front)) / 2), hAlign: 0);
+    _dimLine(canvas, Offset(sx(0), ground + 12 * u), Offset(sx(d), ground + 12 * u), dimensionPaint);
+    label('${d.round()}', Offset(sx(d / 2), ground + 20 * u));
+    if (angle != null) {
+      label('$angle°', Offset(sx(d / 2), zy((rear + front) / 2 + glassT) - 10 * u));
+    }
+
+    // Draufsicht: wall on top, gutter at the bottom.
+    final y2 = ground + frontDimH + gapY;
+    label('Draufsicht', Offset(x0, y2 + titleH * 0.4), hAlign: 0, size: ts);
+    final planTop = y2 + titleH + wallMm * k;
+    Offset pp(double x, double y) => Offset(x0 + x * k, planTop + (d - y) * k);
+    Path polyline(List<Offset> points) => Path()..addPolygon([for (final p in points) pp(p.dx, p.dy)], false);
+    if (wallMounted) {
+      final back = [for (final p in layout.back) pp(p.dx, p.dy)];
+      final wallLine = Path()..moveTo(back.first.dx - 300 * k, back.first.dy);
+      for (final p in back) {
+        wallLine.lineTo(p.dx, p.dy);
+      }
+      wallLine.lineTo(back.last.dx + 300 * k, back.last.dy);
+      canvas.drawPath(
+        wallLine,
+        Paint()
+          ..color = wallColor
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2 * wallT * k,
+      );
+    }
+    final footprint = Path()
+      ..addPolygon([
+        for (final p in layout.back) pp(p.dx, p.dy),
+        for (final p in layout.front.reversed) pp(p.dx, p.dy),
+      ], true);
+    canvas.drawPath(footprint, Paint()..color = Colors.white);
+    canvas.drawPath(footprint, Paint()..color = glassColor);
+    canvas.save();
+    canvas.clipPath(footprint);
+    for (final x in rafters) {
+      final yBack = _usesSharedModuleBeams ? _sharedModuleBackY(layout, x) : _yAt(layout.back, x);
+      part(Rect.fromPoints(pp(x, yBack) - Offset(beamPx / 2, 0), pp(x, _yAt(layout.front, x)) + Offset(beamPx / 2, 0)),
+          profileColor);
+    }
+    canvas.drawPath(
+      polyline(layout.front),
+      Paint()
+        ..color = profileColor
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2 * gutterD * k,
+    );
+    canvas.drawPath(
+      polyline(layout.back),
+      Paint()
+        ..color = profileColor
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = _max(3, 2 * profileT * k),
+    );
+    canvas.restore();
+    canvas.drawPath(footprint, outline);
+    final depthDimX = x0 + w * k + 12 * u;
+    _dimLine(canvas, Offset(depthDimX, planTop), Offset(depthDimX, planTop + d * k), dimensionPaint);
+    label('${d.round()}', Offset(depthDimX + 4 * u, planTop + d * k / 2), hAlign: 0);
+    if (rafters.length > 1) {
+      final y = planTop + d * k + 12 * u;
+      final a = Offset(x0 + rafters[0] * k, y);
+      final b = Offset(x0 + rafters[1] * k, y);
+      _dimLine(canvas, a, b, dimensionPaint);
+      label('Achsabstand Sparren ${(rafters[1] - rafters[0]).round()}', b + Offset(8 * u, 0),
+          hAlign: 0, isBold: false);
+    }
+
+    // Legend next to the top view.
+    var legendY = y2 + titleH;
+    for (final (kind, text) in legend) {
+      final center = legendY + legendLine / 2;
+      final swatch = Rect.fromLTWH(x2, center - legendSwatch / 2, legendSwatch, legendSwatch);
+      switch (kind) {
+        case 'profile':
+          part(swatch, profileColor);
+        case 'glass':
+          part(swatch, glassColor);
+        case 'wall':
+          part(swatch, wallColor);
+        case 'post':
+          _drawDashedLine(canvas, Offset(x2, center), Offset(x2 + legendSwatch, center), postSetPaint,
+              dashLength: 4 * u, gapLength: 3 * u);
+      }
+      label(text, Offset(kind == 'text' ? x2 : x2 + legendSwatch + 6 * u, center), hAlign: 0, isBold: false);
+      legendY += legendLine;
+    }
+  }
+
+  // Longest enabled post (Pfosten 15190) of the set contents, null when the set has no post length.
+  double? _postSetLengthMm() {
+    double? length;
+    for (final module in modules) {
+      for (final item in module.items) {
+        final value = item.lengthMm?.toDouble();
+        if (!item.enabled || value == null || value <= 0 || !_isGeometryPreviewPostItem(item)) continue;
+        length = length == null ? value : _max(length, value);
+      }
+    }
+    return length;
+  }
+
+  double _textWidth(String text, double fontSize) => (TextPainter(
+        text: TextSpan(text: text, style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.w500)),
+        textDirection: ui.TextDirection.ltr,
+      )..layout())
+          .width;
+
   List<double> _effectiveRafterX(_RoofLayout layout) {
     if (calculatedModules.isEmpty || layout.moduleAreas.isEmpty) return layout.rafterX;
     final values = <double>[];
@@ -4739,6 +5192,8 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
         oldDelegate.sideInfoBottomReserve != sideInfoBottomReserve ||
         oldDelegate.alignRoofTop != alignRoofTop ||
         oldDelegate.showRoofTypeInSideInfo != showRoofTypeInSideInfo ||
-        oldDelegate.geometryOnly != geometryOnly;
+        oldDelegate.geometryOnly != geometryOnly ||
+        oldDelegate.drawing != drawing ||
+        oldDelegate.drawingBottomRightReserve != drawingBottomRightReserve;
   }
 }
