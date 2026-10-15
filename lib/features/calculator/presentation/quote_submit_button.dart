@@ -197,15 +197,16 @@ class _QuoteSubmitButtonState extends State<QuoteSubmitButton> {
         operation: _operation,
       );
       if (!mounted) return;
-      final confirmed = await showDialog<bool>(
+      final delivery = await showDialog<QuoteDeliveryChoice>(
         context: context,
         builder: (_) => _QuoteSubmitPreviewDialog(preview: preview),
       );
-      if (confirmed != true) return;
+      if (delivery == null) return;
 
       final result = await widget.repository.submitQuoteEmail(
         widget.quoteId,
         operation: _operation,
+        delivery: delivery,
       );
       notifyQuoteIntegrationsChanged();
       if (!mounted) return;
@@ -341,38 +342,62 @@ class _QuoteSubmitButtonState extends State<QuoteSubmitButton> {
       final email = preview['email'] is Map ? Map<String, dynamic>.from(preview['email'] as Map) : <String, dynamic>{};
       final recipients = email['recipients'] is Map ? email['recipients'] as Map : const {};
       final documents = email['document_batch'] is Map ? email['document_batch'] as Map : const {};
-      final confirmed = await showDialog<bool>(context: context, builder: (dialogContext) => AlertDialog(
-        title: Text('Submit · ${batch['name']}'),
-        content: SizedBox(width: 560, child: SingleChildScrollView(child: Column(
-          mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Quote: ${quote['quote_no']}'),
-            const SizedBox(height: 12),
-            for (var index = 0; index < steps.length; index++)
-              Padding(padding: const EdgeInsets.only(bottom: 6), child: Text('${index + 1}. ${steps[index]['label']}')),
-            if (email.isNotEmpty) ...[
-              const Divider(),
-              for (final group in ['to', 'cc', 'bcc'])
-                if ((recipients[group] as List? ?? const []).isNotEmpty)
-                  Text('${group.toUpperCase()}: ${(recipients[group] as List).join(', ')}'),
-              Text('Documents: ${documents['name'] ?? '—'}'),
+      final deliveryOptions = QuoteDeliveryOptions.fromJson(
+        email['delivery_options'] is Map
+            ? Map<String, dynamic>.from(email['delivery_options'] as Map)
+            : const <String, dynamic>{},
+      );
+      List<String> groupRecipients(String group, QuoteDeliveryChoice delivery) => deliveryOptions.recipients(
+        (recipients[group] as List? ?? const []).map((entry) => '$entry').toList(growable: false), delivery);
+      var delivery = const QuoteDeliveryChoice();
+      final confirmed = await showDialog<bool>(context: context, builder: (_) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) {
+          final hasRecipients = email.isEmpty
+              || ['to', 'cc', 'bcc'].any((group) => groupRecipients(group, delivery).isNotEmpty);
+          return AlertDialog(
+            title: Text('Submit · ${batch['name']}'),
+            content: SizedBox(width: 560, child: SingleChildScrollView(child: Column(
+              mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Quote: ${quote['quote_no']}'),
+                const SizedBox(height: 12),
+                for (var index = 0; index < steps.length; index++)
+                  Padding(padding: const EdgeInsets.only(bottom: 6), child: Text('${index + 1}. ${steps[index]['label']}')),
+                if (email.isNotEmpty) ...[
+                  const Divider(),
+                  for (final group in ['to', 'cc', 'bcc'])
+                    if (groupRecipients(group, delivery).isNotEmpty)
+                      Text('${group.toUpperCase()}: ${groupRecipients(group, delivery).join(', ')}'),
+                  Text('Documents: ${documents['name'] ?? '—'}'),
+                  const SizedBox(height: 4),
+                  _DeliveryChoiceFields(
+                    options: deliveryOptions,
+                    choice: delivery,
+                    onChanged: (value) => setDialogState(() => delivery = value),
+                  ),
+                  if (!hasRecipients)
+                    Text('No email recipient remains.', style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                ],
+                const SizedBox(height: 12),
+                const Text('The operations run in order in the background. Errors are recorded and the remaining operations continue. Successful operations are not rolled back.'),
+                for (final warning in warnings) Padding(padding: const EdgeInsets.only(top: 8),
+                  child: Text(warning, style: const TextStyle(color: Colors.orange))),
+                for (final error in errors) Padding(padding: const EdgeInsets.only(top: 8),
+                  child: Text(error, style: TextStyle(color: Theme.of(context).colorScheme.error))),
+              ],
+            ))),
+            actions: [
+              TextButton(onPressed: () => Navigator.of(dialogContext).pop(false), child: const Text('Cancel')),
+              FilledButton(
+                onPressed: preview['can_submit'] == true && hasRecipients ? () => Navigator.of(dialogContext).pop(true) : null,
+                child: const Text('Submit')),
             ],
-            const SizedBox(height: 12),
-            const Text('The operations run in order in the background. Errors are recorded and the remaining operations continue. Successful operations are not rolled back.'),
-            for (final warning in warnings) Padding(padding: const EdgeInsets.only(top: 8),
-              child: Text(warning, style: const TextStyle(color: Colors.orange))),
-            for (final error in errors) Padding(padding: const EdgeInsets.only(top: 8),
-              child: Text(error, style: TextStyle(color: Theme.of(context).colorScheme.error))),
-          ],
-        ))),
-        actions: [
-          TextButton(onPressed: () => Navigator.of(dialogContext).pop(false), child: const Text('Cancel')),
-          FilledButton(onPressed: preview['can_submit'] == true ? () => Navigator.of(dialogContext).pop(true) : null,
-            child: const Text('Submit')),
-        ],
+          );
+        },
       ));
       if (confirmed != true || !mounted || quoteId != widget.quoteId) return;
-      final result = await widget.repository.submitIntegrationBatch(quoteId, '${batch['id']}', '${preview['batch_version']}');
+      final result = await widget.repository.submitIntegrationBatch(
+        quoteId, '${batch['id']}', '${preview['batch_version']}', delivery: delivery);
       notifyQuoteIntegrationsChanged();
       if (!mounted) return;
       showTopNotification(context, result.alreadyQueued ? 'Integration batch is already queued or running.' : '${batch['name']} queued and continues in background.', type: TopNotificationType.success);
@@ -554,16 +579,31 @@ class _IntegrationConfirmationDialog extends StatelessWidget {
   }
 }
 
-class _QuoteSubmitPreviewDialog extends StatelessWidget {
+class _QuoteSubmitPreviewDialog extends StatefulWidget {
   const _QuoteSubmitPreviewDialog({required this.preview});
 
   final QuoteSubmitPreview preview;
 
-  String _emails(List<String> values) => values.isEmpty ? '—' : values.join(', ');
+  @override
+  State<_QuoteSubmitPreviewDialog> createState() => _QuoteSubmitPreviewDialogState();
+}
+
+class _QuoteSubmitPreviewDialogState extends State<_QuoteSubmitPreviewDialog> {
+  QuoteDeliveryChoice _delivery = const QuoteDeliveryChoice();
+
+  QuoteSubmitPreview get preview => widget.preview;
+
+  String _emails(List<String> values) {
+    final sent = preview.deliveryOptions.recipients(values, _delivery);
+    return sent.isEmpty ? '—' : sent.join(', ');
+  }
 
   @override
   Widget build(BuildContext context) {
     final isResend = preview.operation == 'resend';
+    final customerDelivery = preview.customerDeliveryEnabled && _delivery.includeCustomer;
+    final hasRecipients = [preview.to, preview.cc, preview.bcc]
+        .any((emails) => preview.deliveryOptions.recipients(emails, _delivery).isNotEmpty);
     final batchLabel = [
       preview.documentBatchName,
       if ((preview.documentBatchCode ?? '').isNotEmpty) '(${preview.documentBatchCode})',
@@ -616,9 +656,11 @@ class _QuoteSubmitPreviewDialog extends StatelessWidget {
                 _PreviewLine(label: 'Contact', value: preview.customerContactName!),
               _PreviewLine(
                 label: 'Customer delivery',
-                value: preview.customerDeliveryEnabled
+                value: customerDelivery
                     ? 'Enabled for status ${preview.targetStatus}'
-                    : 'Disabled for status ${preview.targetStatus} · internal recipients only',
+                    : preview.deliveryOptions.customerAllowed
+                        ? 'Left out · internal recipients only'
+                        : 'Disabled for status ${preview.targetStatus} · internal recipients only',
               ),
               _PreviewLine(label: 'To', value: _emails(preview.to)),
               _PreviewLine(label: 'CC', value: _emails(preview.cc)),
@@ -641,6 +683,13 @@ class _QuoteSubmitPreviewDialog extends StatelessWidget {
               ),
               _PreviewLine(label: 'Email templates', value: emailTemplateLabel),
               _PreviewLine(label: 'Subject', value: subjectLabel),
+              _DeliveryChoiceFields(
+                options: preview.deliveryOptions,
+                choice: _delivery,
+                onChanged: (value) => setState(() => _delivery = value),
+              ),
+              if (!hasRecipients)
+                Text('No email recipient remains.', style: TextStyle(color: Theme.of(context).colorScheme.error)),
               if (preview.warnings.isNotEmpty) ...[
                 const SizedBox(height: 12),
                 Align(
@@ -664,14 +713,66 @@ class _QuoteSubmitPreviewDialog extends StatelessWidget {
       ),
       actions: [
         TextButton(
-          onPressed: () => Navigator.of(context).pop(false),
+          onPressed: () => Navigator.of(context).pop(),
           child: const Text('Cancel'),
         ),
         FilledButton.icon(
-          onPressed: preview.canSubmit ? () => Navigator.of(context).pop(true) : null,
+          onPressed: preview.canSubmit && hasRecipients ? () => Navigator.of(context).pop(_delivery) : null,
           icon: Icon(isResend ? Icons.forward_to_inbox_outlined : Icons.send_outlined),
           label: Text(isResend ? 'Resend email' : 'Submit'),
         ),
+      ],
+    );
+  }
+}
+
+// Send options: customer recipients (only where the system allows external delivery) and the preview items of
+// the document batch (off by default, only when saved for the quote).
+class _DeliveryChoiceFields extends StatelessWidget {
+  const _DeliveryChoiceFields({required this.options, required this.choice, required this.onChanged});
+
+  final QuoteDeliveryOptions options;
+  final QuoteDeliveryChoice choice;
+  final ValueChanged<QuoteDeliveryChoice> onChanged;
+
+  Widget _option(String title, String subtitle, bool value, ValueChanged<bool>? onSelect) => CheckboxListTile(
+        dense: true,
+        contentPadding: EdgeInsets.zero,
+        controlAffinity: ListTileControlAffinity.leading,
+        value: value,
+        title: Text(title),
+        subtitle: Text(subtitle),
+        onChanged: onSelect == null ? null : (checked) => onSelect(checked == true),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _option(
+          'Send to customer',
+          options.customerAllowed
+              ? options.externalEmails.join(', ')
+              : 'External delivery is not allowed by system settings · internal recipients only',
+          options.customerAllowed && choice.includeCustomer,
+          options.customerAllowed ? (value) => onChanged(choice.copyWith(includeCustomer: value)) : null,
+        ),
+        if (options.geometryInBatch)
+          _option(
+            'Geometry preview',
+            options.geometryAvailable ? 'Add the large Geometry preview to the documents.' : 'Not saved for this quote · save the quote again.',
+            options.geometryAvailable && choice.includeGeometryPreview,
+            options.geometryAvailable ? (value) => onChanged(choice.copyWith(includeGeometryPreview: value)) : null,
+          ),
+        if (options.schematicInBatch)
+          _option(
+            'Schematic preview',
+            options.schematicAvailable ? 'Add the technical drawing to the documents.' : 'Not saved for this quote · save the quote again.',
+            options.schematicAvailable && choice.includeSchematicPreview,
+            options.schematicAvailable ? (value) => onChanged(choice.copyWith(includeSchematicPreview: value)) : null,
+          ),
       ],
     );
   }

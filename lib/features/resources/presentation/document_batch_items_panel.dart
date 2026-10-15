@@ -213,6 +213,9 @@ class _DocumentBatchItemsPanelState
     if (type == 'geometry_preview' || type == 'quote_media') {
       return 'Geometry preview';
     }
+    if (type == 'schematic_preview') {
+      return 'Schematic preview';
+    }
     if (type == 'media_file') {
       final filename = row['media_original_filename']?.toString().trim() ?? '';
       final mediaFileId = row['media_file_id']?.toString().trim() ?? '';
@@ -360,6 +363,13 @@ class _DocumentBatchItemsPanelState
                       ),
                     ),
                     DropdownMenuItem(
+                      value: 'schematic_preview',
+                      child: Text(
+                        'Schematic preview',
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    DropdownMenuItem(
                       value: 'media_file',
                       child: Text(
                         'Media library file',
@@ -483,7 +493,9 @@ class _DocumentBatchItemsPanelState
                       subtitle: Text(
                         type == 'geometry_preview' || type == 'quote_media'
                             ? 'Geometry preview'
-                            : type == 'media_file'
+                            : type == 'schematic_preview'
+                                ? 'Schematic preview'
+                                : type == 'media_file'
                                 ? 'Media library file'
                                 : 'XLS document template',
                       ),

@@ -87,6 +87,7 @@ class _QuoteDocumentsOptionsDialogState extends State<QuoteDocumentsOptionsDialo
   bool _splitOutput = false;
   bool _includeGeometryPreview = false;
   bool _includeGeometryWarnings = true;
+  bool _includeSchematicPreview = false;
   bool _showPayloadPreview = false;
   String? _statusText;
   String? _errorText;
@@ -135,15 +136,17 @@ class _QuoteDocumentsOptionsDialogState extends State<QuoteDocumentsOptionsDialo
       _selectedBatchId = batch.id;
       _splitOutput = batch.splitOutput;
       _selectedTemplateIds.addAll(batch.documentTemplateIds);
-      _includeGeometryPreview = batch.hasGeometryPreview && data.geometryPreviewSettings.pdfEnabled;
+      _includeGeometryPreview = batch.hasGeometryPreview && data.geometryPreviewSettings.printable;
       _includeGeometryWarnings = data.geometryPreviewSettings.includeWarnings;
+      _includeSchematicPreview = batch.hasSchematicPreview && data.schematicPreviewSettings.printable;
     } else if (data.templates.isNotEmpty) {
       _selectedTemplateIds.add(data.templates.first.id);
       _includeGeometryWarnings = data.geometryPreviewSettings.includeWarnings;
     }
   }
 
-  bool get _hasPrintSelection => _selectedTemplateIds.isNotEmpty || _includeGeometryPreview;
+  bool get _hasPrintSelection =>
+      _selectedTemplateIds.isNotEmpty || _includeGeometryPreview || _includeSchematicPreview;
 
   // A print job of this quote is queued or running, also one started before this dialog was opened.
   bool get _printJobActive => _printJobId != null || widget.repository.jobUpdates.jobs.any(
@@ -224,11 +227,12 @@ class _QuoteDocumentsOptionsDialogState extends State<QuoteDocumentsOptionsDialo
 
     try {
       final selectedBatch = _batchById(data, _selectedBatchId);
+      // Only the preview items of the batch: Geometry preview and / or Schematic preview.
       final geometryPreviewOnly = selectedBatch != null
           && selectedBatch.compatible
-          && selectedBatch.hasGeometryPreview
+          && (selectedBatch.hasGeometryPreview || selectedBatch.hasSchematicPreview)
           && _selectedTemplateIds.isEmpty
-          && _includeGeometryPreview;
+          && (_includeGeometryPreview || _includeSchematicPreview);
       final useExactBatch = !geometryPreviewOnly
           && selectedBatch != null
           && selectedBatch.compatible
@@ -256,6 +260,9 @@ class _QuoteDocumentsOptionsDialogState extends State<QuoteDocumentsOptionsDialo
                 && _includeGeometryPreview
             ? _includeGeometryWarnings
             : null,
+        includeSchematicPreview: selectedBatch?.hasSchematicPreview == true
+            ? _includeSchematicPreview
+            : false,
         geometryPreviewOnly: geometryPreviewOnly,
       );
       if (operation.jobId.isEmpty) {
@@ -409,9 +416,11 @@ class _QuoteDocumentsOptionsDialogState extends State<QuoteDocumentsOptionsDialo
                                         ..clear()
                                         ..addAll(batch.documentTemplateIds);
                                       _includeGeometryPreview = batch.hasGeometryPreview
-                                          && data.geometryPreviewSettings.pdfEnabled;
+                                          && data.geometryPreviewSettings.printable;
                                       _includeGeometryWarnings =
                                           data.geometryPreviewSettings.includeWarnings;
+                                      _includeSchematicPreview = batch.hasSchematicPreview
+                                          && data.schematicPreviewSettings.printable;
                                     });
                                   },
                           ),
@@ -419,7 +428,7 @@ class _QuoteDocumentsOptionsDialogState extends State<QuoteDocumentsOptionsDialo
                           const SizedBox(height: 6),
                           Text(
                             _splitOutput
-                                ? 'Output: one PDF per selected item, named from the template / Geometry preview.'
+                                ? 'Output: one PDF per selected item, named from the template / Geometry preview / Schematic preview.'
                                 : 'Output: ${selectedBatch.outputFilename}',
                             style: Theme.of(context).textTheme.bodySmall,
                           ),
@@ -442,13 +451,14 @@ class _QuoteDocumentsOptionsDialogState extends State<QuoteDocumentsOptionsDialo
                         ],
                         if (data.batches.isNotEmpty) const SizedBox(height: 12),
                         if (data.templates.isEmpty
-                            && !(selectedBatch?.hasGeometryPreview ?? false))
+                            && !(selectedBatch?.hasGeometryPreview ?? false)
+                            && !(selectedBatch?.hasSchematicPreview ?? false))
                           const Padding(
                             padding: EdgeInsets.symmetric(vertical: 8),
                             child: _DocumentsHint(
                               icon: Icons.print_disabled_outlined,
                               title: 'No print items',
-                              text: 'No accessible active document templates or Geometry preview are available for this quote.',
+                              text: 'No accessible active document templates, Geometry preview or Schematic preview are available for this quote.',
                             ),
                           )
                         else ...[
@@ -500,23 +510,25 @@ class _QuoteDocumentsOptionsDialogState extends State<QuoteDocumentsOptionsDialo
                                   CheckboxListTile(
                                     dense: true,
                                     controlAffinity: ListTileControlAffinity.leading,
-                                    value: data.geometryPreviewSettings.pdfEnabled
+                                    value: data.geometryPreviewSettings.printable
                                         && _includeGeometryPreview,
                                     title: const Text('Geometry preview'),
                                     subtitle: Text(
-                                      data.geometryPreviewSettings.pdfEnabled
-                                          ? 'Large Geometry preview block from this batch.'
-                                          : 'Disabled in System Settings → geometry_preview.',
+                                      !data.geometryPreviewSettings.pdfEnabled
+                                          ? 'Disabled in System Settings → geometry_preview.'
+                                          : !data.geometryPreviewSettings.hasPreview
+                                              ? 'Not saved for this quote · save the quote again.'
+                                              : 'Large Geometry preview block from this batch.',
                                     ),
                                     onChanged: _isPrinting
-                                            || !data.geometryPreviewSettings.pdfEnabled
+                                            || !data.geometryPreviewSettings.printable
                                         ? null
                                         : (checked) => setState(
                                               () => _includeGeometryPreview = checked == true,
                                             ),
                                   ),
                                 if ((selectedBatch?.hasGeometryPreview ?? false)
-                                    && data.geometryPreviewSettings.pdfEnabled
+                                    && data.geometryPreviewSettings.printable
                                     && _includeGeometryPreview)
                                   Padding(
                                     padding: const EdgeInsets.only(left: 32),
@@ -535,6 +547,27 @@ class _QuoteDocumentsOptionsDialogState extends State<QuoteDocumentsOptionsDialo
                                                 () => _includeGeometryWarnings = checked == true,
                                               ),
                                     ),
+                                  ),
+                                if (selectedBatch?.hasSchematicPreview ?? false)
+                                  CheckboxListTile(
+                                    dense: true,
+                                    controlAffinity: ListTileControlAffinity.leading,
+                                    value: data.schematicPreviewSettings.printable
+                                        && _includeSchematicPreview,
+                                    title: const Text('Schematic preview'),
+                                    subtitle: Text(
+                                      !data.schematicPreviewSettings.pdfEnabled
+                                          ? 'Disabled in System Settings → schematic_preview.'
+                                          : !data.schematicPreviewSettings.hasPreview
+                                              ? 'Not saved for this quote · save the quote again.'
+                                              : 'Large technical drawing (front, side and top view) from this batch.',
+                                    ),
+                                    onChanged: _isPrinting
+                                            || !data.schematicPreviewSettings.printable
+                                        ? null
+                                        : (checked) => setState(
+                                              () => _includeSchematicPreview = checked == true,
+                                            ),
                                   ),
                               ],
                             ),

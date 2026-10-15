@@ -111,6 +111,7 @@ class CalculatorRepository {
     required String expandedGeometryPreviewFileId,
     required List<String> expandedGeometryPreviewWarnings,
     required bool expandedGeometryPreviewWarningsIncluded,
+    String? schematicPreviewFileId,
   }) async {
     await _client.postJson('/api/internal/calculator/print-assets', body: {
       'quote_id': quoteId,
@@ -119,6 +120,7 @@ class CalculatorRepository {
       'expanded_geometry_preview_warnings': expandedGeometryPreviewWarnings,
       'expanded_geometry_preview_warnings_included':
           expandedGeometryPreviewWarningsIncluded,
+      if (schematicPreviewFileId != null) 'schematic_preview_file_id': schematicPreviewFileId,
     });
   }
 
@@ -139,6 +141,7 @@ class CalculatorRepository {
     bool? splitOutput,
     bool? includeGeometryPreview,
     bool? includeGeometryWarnings,
+    bool? includeSchematicPreview,
     bool geometryPreviewOnly = false,
   }) async {
     final response = await _client.postJson(
@@ -158,6 +161,8 @@ class CalculatorRepository {
           'include_geometry_preview': includeGeometryPreview,
         if (includeGeometryWarnings != null)
           'include_geometry_warnings': includeGeometryWarnings,
+        if (includeSchematicPreview != null)
+          'include_schematic_preview': includeSchematicPreview,
         if (geometryPreviewOnly) 'geometry_preview_only': true,
       },
     );
@@ -205,12 +210,14 @@ class CalculatorRepository {
   Future<QuoteSubmitResult> submitQuoteEmail(
     String quoteId, {
     required String operation,
+    QuoteDeliveryChoice delivery = const QuoteDeliveryChoice(),
   }) async {
     final response = await _client.postJson(
       '/api/internal/calculator/submit',
       body: {
         'quote_id': quoteId,
         'operation': operation,
+        ...delivery.toJson(),
       },
     );
     return QuoteSubmitResult.fromJson(response);
@@ -222,11 +229,17 @@ class CalculatorRepository {
         if (batchId != null) 'integration_batch_id': batchId,
       });
 
-  Future<QuoteIntegrationResult> submitIntegrationBatch(String quoteId, String batchId, String version) async {
+  Future<QuoteIntegrationResult> submitIntegrationBatch(
+    String quoteId,
+    String batchId,
+    String version, {
+    QuoteDeliveryChoice delivery = const QuoteDeliveryChoice(),
+  }) async {
     final response = await _client.postJson('/api/internal/calculator/integration-batch', body: {
       'quote_id': quoteId,
       'integration_batch_id': batchId,
       'batch_version': version,
+      ...delivery.toJson(),
     });
     return QuoteIntegrationResult.fromJson(response);
   }
@@ -435,6 +448,7 @@ class QuoteSubmitPreview {
     this.documentBatchName,
     this.documentBatchCode,
     this.documentCount = 0,
+    this.deliveryOptions = const QuoteDeliveryOptions(),
   });
 
   factory QuoteSubmitPreview.fromJson(Map<String, dynamic> json) {
@@ -499,6 +513,7 @@ class QuoteSubmitPreview {
       documentBatchName: _repoNullableString(batch['name']),
       documentBatchCode: _repoNullableString(batch['code']),
       documentCount: _repoIntOrNull(batch['document_count'] ?? batch['documentCount']) ?? 0,
+      deliveryOptions: QuoteDeliveryOptions.fromJson(_repoMap(json['delivery_options'])),
       errors: _repoList(json['errors']).map(QuoteSubmitIssue.fromJson).toList(growable: false),
       warnings: _repoList(json['warnings']).map(QuoteSubmitIssue.fromJson).toList(growable: false),
     );
@@ -529,6 +544,76 @@ class QuoteSubmitPreview {
   final int documentCount;
   final List<QuoteSubmitIssue> errors;
   final List<QuoteSubmitIssue> warnings;
+  final QuoteDeliveryOptions deliveryOptions;
+}
+
+// Send dialog choices: customer recipients and the preview items of the document batch (off by default).
+class QuoteDeliveryChoice {
+  const QuoteDeliveryChoice({
+    this.includeCustomer = true,
+    this.includeGeometryPreview = false,
+    this.includeSchematicPreview = false,
+  });
+
+  final bool includeCustomer;
+  final bool includeGeometryPreview;
+  final bool includeSchematicPreview;
+
+  QuoteDeliveryChoice copyWith({bool? includeCustomer, bool? includeGeometryPreview, bool? includeSchematicPreview}) =>
+      QuoteDeliveryChoice(
+        includeCustomer: includeCustomer ?? this.includeCustomer,
+        includeGeometryPreview: includeGeometryPreview ?? this.includeGeometryPreview,
+        includeSchematicPreview: includeSchematicPreview ?? this.includeSchematicPreview,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'include_customer': includeCustomer,
+        'include_geometry_preview': includeGeometryPreview,
+        'include_schematic_preview': includeSchematicPreview,
+      };
+}
+
+// delivery_options of the submit preview: whether the system allows external recipients (customer, B2B) and
+// whether the document batch has a saved Geometry / Schematic preview.
+class QuoteDeliveryOptions {
+  const QuoteDeliveryOptions({
+    this.customerAllowed = false,
+    this.externalEmails = const [],
+    this.geometryInBatch = false,
+    this.geometryAvailable = false,
+    this.schematicInBatch = false,
+    this.schematicAvailable = false,
+  });
+
+  factory QuoteDeliveryOptions.fromJson(Map<String, dynamic> json) {
+    final geometry = _repoMap(json['geometry_preview']);
+    final schematic = _repoMap(json['schematic_preview']);
+    return QuoteDeliveryOptions(
+      customerAllowed: _repoBool(json['customer_allowed']),
+      externalEmails: (json['external_emails'] is List ? json['external_emails'] as List : const [])
+          .map(_repoString)
+          .where((entry) => entry.isNotEmpty)
+          .toList(growable: false),
+      geometryInBatch: _repoBool(geometry['in_batch']),
+      geometryAvailable: _repoBool(geometry['available']),
+      schematicInBatch: _repoBool(schematic['in_batch']),
+      schematicAvailable: _repoBool(schematic['available']),
+    );
+  }
+
+  final bool customerAllowed;
+  final List<String> externalEmails;
+  final bool geometryInBatch;
+  final bool geometryAvailable;
+  final bool schematicInBatch;
+  final bool schematicAvailable;
+
+  // Recipients as they are sent with the given choice (external addresses removed when the customer is off).
+  List<String> recipients(List<String> emails, QuoteDeliveryChoice choice) {
+    if (choice.includeCustomer) return emails;
+    final external = externalEmails.map((entry) => entry.toLowerCase()).toSet();
+    return emails.where((entry) => !external.contains(entry.toLowerCase())).toList(growable: false);
+  }
 }
 
 class QuoteSubmitResult {
@@ -744,6 +829,7 @@ class PrintDialogData {
     required this.recentDocuments,
     required this.payloadPreview,
     required this.geometryPreviewSettings,
+    required this.schematicPreviewSettings,
     this.defaultBatch,
   });
 
@@ -769,6 +855,9 @@ class PrintDialogData {
       geometryPreviewSettings: GeometryPreviewPrintSettings.fromJson(
         _repoMap(json['geometry_preview'] ?? json['geometryPreview']),
       ),
+      schematicPreviewSettings: GeometryPreviewPrintSettings.fromJson(
+        _repoMap(json['schematic_preview'] ?? json['schematicPreview']),
+      ),
     );
   }
 
@@ -778,12 +867,15 @@ class PrintDialogData {
   final List<GeneratedDocument> recentDocuments;
   final Map<String, dynamic> payloadPreview;
   final GeometryPreviewPrintSettings geometryPreviewSettings;
+  // system_settings.schematic_preview (pdf_enabled only).
+  final GeometryPreviewPrintSettings schematicPreviewSettings;
 }
 
 class GeometryPreviewPrintSettings {
   const GeometryPreviewPrintSettings({
     required this.pdfEnabled,
     required this.includeWarnings,
+    this.hasPreview = true,
   });
 
   factory GeometryPreviewPrintSettings.fromJson(Map<String, dynamic> json) {
@@ -793,11 +885,16 @@ class GeometryPreviewPrintSettings {
         json['include_warnings'] ?? json['includeWarnings'],
         fallback: true,
       ),
+      hasPreview: _repoBool(json['has_expanded_preview'] ?? json['has_preview'], fallback: true),
     );
   }
 
   final bool pdfEnabled;
   final bool includeWarnings;
+  // The quote has the preview PNG saved.
+  final bool hasPreview;
+
+  bool get printable => pdfEnabled && hasPreview;
 }
 
 class DocumentBatchOption {
@@ -844,6 +941,9 @@ class DocumentBatchOption {
 
   bool get hasGeometryPreview =>
       items.any((entry) => entry.itemTypeCode == 'geometry_preview');
+
+  bool get hasSchematicPreview =>
+      items.any((entry) => entry.itemTypeCode == 'schematic_preview');
 
   String get displayName => isDefault ? '$name · Default' : name;
 }

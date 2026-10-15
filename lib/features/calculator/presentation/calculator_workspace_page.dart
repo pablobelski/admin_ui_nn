@@ -851,7 +851,7 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
         postCount: previewData.postCount,
         roofAngleDeg: draft.roofAngleDeg,
         rearHeightMm: draft.roofRearHeightMm ?? draft.heightMm,
-        frontHeightMm: draft.roofFrontHeightMm,
+        frontHeightMm: draft.roofFrontHeightMm ?? previewData.roofCalculation.frontHeightMm,
         humanImage: humanImage,
       );
       if (!mounted || !context.mounted) return;
@@ -888,7 +888,8 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
         quoteNotes: draft.externalNotes,
         roofAngleDeg: draft.roofAngleDeg,
         rearHeightMm: draft.roofRearHeightMm ?? draft.heightMm,
-        frontHeightMm: draft.roofFrontHeightMm,
+        frontHeightMm: draft.roofFrontHeightMm ?? previewData.roofCalculation.frontHeightMm,
+        roofParameters: selectedTemplate?.roofParameters ?? const {},
         warnings: expandedWarnings,
       );
       final expandedGeometryPng = await renderExpandedGeometryPreviewPng(
@@ -950,12 +951,45 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
         );
       }
 
+      // Schematic preview (technical drawing) of roof calculations for print batches.
+      String? schematicPreviewFileId;
+      if ((draft.modelCode?.trim().isNotEmpty ?? false) &&
+          selectedTemplate?.geometryPreviewIsRoof != false) {
+        if (!context.mounted) return;
+        final schematicPng = await renderExpandedSchematicPreviewPng(
+          context: context,
+          preview: expandedPreview,
+        );
+        final uploadedSchematic = await mediaRepository.uploadMediaFile(
+          filename:
+              'schematic_preview_${DateTime.now().toUtc().millisecondsSinceEpoch}.png',
+          contentType: 'image/png',
+          dataBase64: base64Encode(schematicPng),
+          purpose: 'quotes/schematic-preview',
+          metadata: {
+            'variant': 'schematic',
+            'quote_id': savedQuote.id,
+            'width': expandedGeometryPreviewRasterWidth,
+            'height': expandedGeometryPreviewRasterHeight,
+            'logical_width': expandedGeometryPreviewWidth,
+            'logical_height': expandedGeometryPreviewHeight,
+            'model_code': draft.modelCode,
+            'quote_no_external': draft.quoteNoExternal,
+          },
+        );
+        schematicPreviewFileId = uploadedSchematic['id']?.toString().trim();
+        if (schematicPreviewFileId == null || schematicPreviewFileId.isEmpty) {
+          throw StateError('Schematic preview upload returned no file id.');
+        }
+      }
+
       await repository.saveQuotePrintAssets(
         savedQuote.id,
         geometryPreviewFileId: geometryPreviewFileId,
         expandedGeometryPreviewFileId: expandedGeometryPreviewFileId,
         expandedGeometryPreviewWarnings: expandedWarnings,
         expandedGeometryPreviewWarningsIncluded: includeGeometryWarnings,
+        schematicPreviewFileId: schematicPreviewFileId,
       );
       final savedLoadedQuote = await repository.loadQuoteForWorkspace(
         savedQuote.id,
@@ -13664,7 +13698,8 @@ class _GeometryPreviewTab extends StatelessWidget {
               highlightedManufacturingFieldKind: highlightedManufacturingFieldKind,
               roofAngleDeg: draft.roofAngleDeg,
               rearHeightMm: draft.roofRearHeightMm ?? draft.heightMm,
-              frontHeightMm: draft.roofFrontHeightMm,
+              frontHeightMm: draft.roofFrontHeightMm ?? previewData.roofCalculation.frontHeightMm,
+              roofParameters: selectedTemplate?.roofParameters ?? const {},
             ),
         ],
       ),

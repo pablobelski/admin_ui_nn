@@ -3333,6 +3333,7 @@ class _SavedQuoteGeometryPreviewTab extends StatelessWidget {
             roofAngleDeg: roofCalculation?.angleDeg ?? slope.angleDeg,
             rearHeightMm: slope.rearHeightMm,
             frontHeightMm: roofCalculation?.frontHeightMm ?? slope.frontHeightMm,
+            roofParameters: selectedTemplate?.roofParameters ?? const {},
             showRoofType: true,
           ),
       ],

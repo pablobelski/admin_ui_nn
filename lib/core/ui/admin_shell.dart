@@ -91,6 +91,11 @@ class _AdminShellState extends ConsumerState<AdminShell> {
             ),
           ),
           IconButton(
+            tooltip: 'Language & date format',
+            onPressed: () => _showPreferencesDialog(context),
+            icon: const Icon(Icons.translate_rounded),
+          ),
+          IconButton(
             tooltip: 'Change password',
             onPressed: () => _showChangeOwnPasswordDialog(context),
             icon: const Icon(Icons.password_rounded),
@@ -224,6 +229,94 @@ class _AdminShellState extends ConsumerState<AdminShell> {
         type: TopNotificationType.error,
       );
     }
+  }
+
+  // Own language and date format: units and dates in printed documents.
+  Future<void> _showPreferencesDialog(BuildContext context) async {
+    final api = ref.read(apiClientProvider);
+    try {
+      final preferences = await api.getJson('/api/auth/preferences');
+      if (!context.mounted) return;
+      final selected = await showDialog<Map<String, String>>(
+        context: context,
+        builder: (_) => _PreferencesDialog(preferences: preferences),
+      );
+      if (selected == null) return;
+      await api.postJson('/api/auth/preferences', body: selected);
+      if (!context.mounted) return;
+      showTopNotification(context, 'Language and date format saved.', type: TopNotificationType.success);
+    } catch (error) {
+      if (!context.mounted) return;
+      showTopNotification(context, 'Language and date format failed: $error', type: TopNotificationType.error);
+    }
+  }
+}
+
+class _PreferencesDialog extends StatefulWidget {
+  const _PreferencesDialog({required this.preferences});
+
+  final Map<String, dynamic> preferences;
+
+  @override
+  State<_PreferencesDialog> createState() => _PreferencesDialogState();
+}
+
+class _PreferencesDialogState extends State<_PreferencesDialog> {
+  late String _locale = '${widget.preferences['locale_code'] ?? 'de'}';
+  late String _dateFormat = '${widget.preferences['date_format'] ?? 'dd.MM.yyyy'}';
+
+  List<Map<String, dynamic>> _options(String key) => [
+        for (final entry in widget.preferences[key] as List? ?? const [])
+          if (entry is Map) Map<String, dynamic>.from(entry),
+      ];
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Language & date format'),
+      content: SizedBox(
+        width: 420,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            DropdownButtonFormField<String>(
+              initialValue: _locale,
+              decoration: const InputDecoration(labelText: 'Language'),
+              items: [
+                for (final option in _options('locales'))
+                  DropdownMenuItem(value: '${option['code']}', child: Text('${option['label']}')),
+              ],
+              onChanged: (value) => setState(() => _locale = value ?? _locale),
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              initialValue: _dateFormat,
+              decoration: const InputDecoration(labelText: 'Date format'),
+              items: [
+                for (final option in _options('date_formats'))
+                  DropdownMenuItem(value: '${option['code']}', child: Text('${option['example']}')),
+              ],
+              onChanged: (value) => setState(() => _dateFormat = value ?? _dateFormat),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Used for units and dates in printed and sent documents.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop({'locale_code': _locale, 'date_format': _dateFormat}),
+          child: const Text('Save'),
+        ),
+      ],
+    );
   }
 }
 

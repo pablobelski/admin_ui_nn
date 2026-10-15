@@ -366,6 +366,7 @@ const systemSettingCodeOptions = <AdminSelectOption>[
   AdminSelectOption(value: 'standard_ral_colors', label: 'Standard RAL colors'),
   AdminSelectOption(value: 'media_storage', label: 'Media storage / MinIO'),
   AdminSelectOption(value: 'geometry_preview', label: 'Geometry preview'),
+  AdminSelectOption(value: 'schematic_preview', label: 'Schematic preview'),
 ];
 
 const priceListScopeOptions = <AdminSelectOption>[
@@ -383,9 +384,21 @@ const priceListScopeOptions = <AdminSelectOption>[
   AdminSelectOption(value: 'other', label: 'Other'),
 ];
 
+const userLanguageOptions = <AdminSelectOption>[
+  AdminSelectOption(value: 'de', label: 'Deutsch'),
+];
+
+const userDateFormatOptions = <AdminSelectOption>[
+  AdminSelectOption(value: 'dd.MM.yyyy', label: '15.10.2026'),
+  AdminSelectOption(value: 'yyyy-MM-dd', label: '2026-10-15'),
+  AdminSelectOption(value: 'dd/MM/yyyy', label: '15/10/2026'),
+  AdminSelectOption(value: 'MM/dd/yyyy', label: '10/15/2026'),
+];
+
 const documentBatchItemTypeOptions = <AdminSelectOption>[
   AdminSelectOption(value: 'document_template', label: 'XLS document template'),
   AdminSelectOption(value: 'geometry_preview', label: 'Geometry preview'),
+  AdminSelectOption(value: 'schematic_preview', label: 'Schematic preview'),
   AdminSelectOption(value: 'media_file', label: 'Media library file'),
 ];
 
@@ -481,7 +494,7 @@ const adminNavGroups = <AdminNavGroup>[
             key: 'setting_code',
             label: 'Setting',
             options: systemSettingCodeOptions,
-            helperText: 'head_organization = head organization; standard_ral_colors = standard RAL colors; media_storage = MinIO/S3 settings; geometry_preview = geometry preview display/print settings.',
+            helperText: 'head_organization = head organization; standard_ral_colors = standard RAL colors; media_storage = MinIO/S3 settings; geometry_preview = geometry preview display/print settings; schematic_preview = schematic preview (technical drawing) print settings.',
           ),
           AdminField(
             key: 'organization_id',
@@ -502,12 +515,12 @@ const adminNavGroups = <AdminNavGroup>[
           ),
           AdminField(
             key: 'value_json.pdf.enabled',
-            label: 'Geometry preview in PDF',
+            label: 'Preview in PDF',
             type: AdminFieldType.boolType,
             defaultValue: 'true',
             visibleWhenFieldKey: 'setting_code',
-            visibleWhenValues: ['geometry_preview'],
-            helperText: 'Global switch for geometry preview output in PDFs. When disabled, both the embedded small preview and the separate large geometry-preview batch item are omitted.',
+            visibleWhenValues: ['geometry_preview', 'schematic_preview'],
+            helperText: 'Global switch for preview output in PDFs. geometry_preview: when disabled, both the embedded small preview and the separate large geometry-preview batch item are omitted. schematic_preview: when disabled, the Schematic preview batch item is omitted.',
           ),
           AdminField(
             key: 'value_json.pdf.include_warnings',
@@ -2554,9 +2567,22 @@ const adminNavGroups = <AdminNavGroup>[
             matchesFieldKey: 'initial_password',
             includeInPayload: false,
           ),
-          AdminField(key: 'locale_code', label: 'Locale code', defaultValue: 'de'),
+          AdminField(
+            key: 'locale_code',
+            label: 'Language',
+            options: userLanguageOptions,
+            defaultValue: 'de',
+            helperText: 'Language of units in printed documents. Users can change it themselves.',
+          ),
           AdminField(key: 'timezone_name', label: 'Timezone name', defaultValue: 'Europe/Berlin'),
           AdminField(key: 'settings_json', label: 'Settings JSON', type: AdminFieldType.json),
+          AdminField(
+            key: 'settings_json.date_format',
+            label: 'Date format',
+            options: userDateFormatOptions,
+            defaultValue: 'dd.MM.yyyy',
+            helperText: 'Date format in printed documents. Users can change it themselves.',
+          ),
           AdminField(key: 'is_active', label: 'Active', type: AdminFieldType.boolType),
         ],
         supportsDelete: true,
@@ -2753,7 +2779,7 @@ const adminNavGroups = <AdminNavGroup>[
             label: 'Item type',
             options: documentBatchItemTypeOptions,
             defaultValue: 'document_template',
-            helperText: 'Choose an XLS template, the expanded Geometry preview, or a concrete file from Media Library.',
+            helperText: 'Choose an XLS template, the expanded Geometry preview, the Schematic preview (technical drawing), or a concrete file from Media Library.',
           ),
           AdminField(
             key: 'document_template_id',
