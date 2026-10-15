@@ -2247,9 +2247,14 @@ class _ProductStepState extends State<_ProductStep> {
         Text('Calculation context', style: Theme.of(context).textTheme.titleMedium),
         if (widget.draft.isEinzelteile) Consumer(builder: (context, ref, _) => DropdownButtonFormField<String>(
           initialValue: widget.draft.orderTypeCode, decoration: const InputDecoration(labelText: 'Dokumenttyp'),
-          items: const [DropdownMenuItem(value: 'offer', child: Text('Angebot')), DropdownMenuItem(value: 'order', child: Text('Auftrag')),
-            DropdownMenuItem(value: 'order_confirmation', child: Text('Auftragsbestätigung')), DropdownMenuItem(value: 'calculation', child: Text('Kalkulation')),
-            DropdownMenuItem(value: 'b2b_offer', child: Text('B2B-Angebot'))],
+          // Order types from system setting quote_code_lists (context references.quote_order_types).
+          items: [
+            for (final option in widget.contextData.references['quote_order_types'] ?? const <CalculatorOption>[])
+              DropdownMenuItem(value: option.code, child: Text(option.label)),
+            if (!(widget.contextData.references['quote_order_types'] ?? const <CalculatorOption>[])
+                .any((option) => option.code == widget.draft.orderTypeCode))
+              DropdownMenuItem(value: widget.draft.orderTypeCode, child: Text(widget.draft.orderTypeCode)),
+          ],
           onChanged: (value) { if (value != null) ref.read(calculatorDraftProvider.notifier).setOrderType(value); })),
         const SizedBox(height: 8),
         Text(

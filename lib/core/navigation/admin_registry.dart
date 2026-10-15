@@ -392,6 +392,9 @@ const systemSettingCodeOptions = <AdminSelectOption>[
   AdminSelectOption(value: 'media_storage', label: 'Media storage / MinIO'),
   AdminSelectOption(value: 'geometry_preview', label: 'Geometry preview'),
   AdminSelectOption(value: 'schematic_preview', label: 'Schematic preview'),
+  AdminSelectOption(value: 'quote_code_lists', label: 'Quote statuses and order types'),
+  AdminSelectOption(value: 'quote_status_transitions', label: 'Quote status transitions'),
+  AdminSelectOption(value: 'quote_status_order_types', label: 'Quote order type by status'),
 ];
 
 const priceListScopeOptions = <AdminSelectOption>[
@@ -519,7 +522,7 @@ const adminNavGroups = <AdminNavGroup>[
             key: 'setting_code',
             label: 'Setting',
             options: systemSettingCodeOptions,
-            helperText: 'head_organization = head organization; standard_ral_colors = standard RAL colors; media_storage = MinIO/S3 settings; geometry_preview = geometry preview display/print settings; schematic_preview = schematic preview (technical drawing) print settings.',
+            helperText: 'head_organization = head organization; standard_ral_colors = standard RAL colors; media_storage = MinIO/S3 settings; geometry_preview = geometry preview display/print settings; schematic_preview = schematic preview (technical drawing) print settings; quote_code_lists = all quote statuses and order types {"statuses":[{"code","label"}],"order_types":[...]}; quote_status_transitions = status rules with roles {"rules":[{"from","to","roles":[...],"action":"manual"|"submit"}]}; quote_status_order_types = order type set by a new status {"approved":"order"}.',
           ),
           AdminField(
             key: 'organization_id',
