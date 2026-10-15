@@ -192,6 +192,31 @@ const activeFilterOptions = <AdminSelectOption>[
   AdminSelectOption(value: 'false', label: 'No'),
 ];
 
+const integrationOperationOptions = <AdminSelectOption>[
+  AdminSelectOption(value: 'quote_email', label: 'Send quote email — quote_email'),
+  AdminSelectOption(value: 'create_reserve', label: 'Create Reserve — reserve_google_queue'),
+  AdminSelectOption(value: 'create_kommission', label: 'Create Kommission — accounting_google_sheet'),
+  AdminSelectOption(value: 'send_sevdesk', label: 'Send to Sevdesk — sevdesk_quote'),
+  AdminSelectOption(value: 'print_pdf', label: 'Generate PDF — jxls_renderer'),
+  AdminSelectOption(value: 'generate_glb', label: 'Generate 3D — glb_renderer'),
+];
+
+const integrationProviderFilterOptions = <AdminSelectOption>[
+  AdminSelectOption(value: 'firebase', label: 'firebase'),
+  AdminSelectOption(value: 'glb', label: 'glb'),
+  AdminSelectOption(value: 'google_apps_script', label: 'google_apps_script'),
+  AdminSelectOption(value: 'internal', label: 'internal'),
+  AdminSelectOption(value: 'jxls', label: 'jxls'),
+  AdminSelectOption(value: 'smtp', label: 'smtp'),
+];
+
+const integrationScopeFilterOptions = <AdminSelectOption>[
+  AdminSelectOption(value: 'quote', label: 'quote'),
+  AdminSelectOption(value: 'organization', label: 'organization'),
+  AdminSelectOption(value: 'master_data', label: 'master_data'),
+  AdminSelectOption(value: 'document_rendering', label: 'document_rendering'),
+];
+
 const referenceScopeOptions = <AdminSelectOption>[
   AdminSelectOption(value: 'system', label: 'System/global'),
   AdminSelectOption(value: 'table', label: 'Table record'),
@@ -3014,14 +3039,13 @@ const adminNavGroups = <AdminNavGroup>[
           AdminField(key: 'metadata_json', label: 'Metadata JSON', type: AdminFieldType.json, defaultValue: '{}'),
         ],
         detailActions: [
-          AdminDetailAction(label: 'Batch items', targetResourceKey: 'integration_batch_items',
-            filterKey: 'integration_batch_id', sourceValueKey: 'id', icon: Icons.format_list_numbered),
           AdminDetailAction(label: 'Configurator template', targetResourceKey: 'configurator_templates',
             filterKey: 'id', sourceValueKey: 'configurator_template_id', selectTargetRow: true),
         ],
       ),
       AdminResourceDefinition(
         key: 'integration_batch_items',
+        showInNavigation: false,
         title: 'Integration batch items',
         endpoint: '/api/admin/integration-batch-items',
         icon: Icons.format_list_numbered,
@@ -3035,19 +3059,14 @@ const adminNavGroups = <AdminNavGroup>[
         ],
         listFilters: [
           AdminResourceFilter(key: 'integration_batch_id', label: 'Batch', lookup: integrationBatchLookup),
+          AdminResourceFilter(key: 'operation_code', label: 'Operation', options: integrationOperationOptions),
+          AdminResourceFilter(key: 'integration_endpoint_id', label: 'Integration endpoint', lookup: integrationEndpointLookup),
           AdminResourceFilter(key: 'is_active', label: 'Active', options: activeFilterOptions),
         ],
         formFields: [
           AdminField(key: 'integration_batch_id', label: 'Batch', lookup: integrationBatchLookup),
           AdminField(key: 'integration_endpoint_id', label: 'Integration endpoint', lookup: integrationEndpointLookup),
-          AdminField(key: 'operation_code', label: 'Operation', options: [
-            AdminSelectOption(value: 'quote_email', label: 'Send quote email — quote_email'),
-            AdminSelectOption(value: 'create_reserve', label: 'Create Reserve — reserve_google_queue'),
-            AdminSelectOption(value: 'create_kommission', label: 'Create Kommission — accounting_google_sheet'),
-            AdminSelectOption(value: 'send_sevdesk', label: 'Send to Sevdesk — sevdesk_quote'),
-            AdminSelectOption(value: 'print_pdf', label: 'Generate PDF — jxls_renderer'),
-            AdminSelectOption(value: 'generate_glb', label: 'Generate 3D — glb_renderer'),
-          ]),
+          AdminField(key: 'operation_code', label: 'Operation', options: integrationOperationOptions),
           AdminField(key: 'batch_order', label: 'Order', type: AdminFieldType.number, defaultValue: '100',
             helperText: 'Steps run in ascending order. Errors are recorded; subsequent steps continue.'),
           AdminField(key: 'is_active', label: 'Active', type: AdminFieldType.boolType, defaultValue: 'true'),
@@ -3068,6 +3087,11 @@ const adminNavGroups = <AdminNavGroup>[
           AdminColumn(key: 'provider_code', label: 'Provider'),
           AdminColumn(key: 'entity_scope_code', label: 'Scope'),
           AdminColumn(key: 'is_active', label: 'Active'),
+        ],
+        listFilters: [
+          AdminResourceFilter(key: 'provider_code', label: 'Provider', options: integrationProviderFilterOptions),
+          AdminResourceFilter(key: 'entity_scope_code', label: 'Scope', options: integrationScopeFilterOptions),
+          AdminResourceFilter(key: 'is_active', label: 'Active', options: activeFilterOptions),
         ],
         formFields: [
           AdminField(key: 'code', label: 'Code'),

@@ -33,6 +33,7 @@ import '../../calculator/presentation/quote_integrations_panel.dart';
 import '../../calculator/presentation/quote_status_button.dart';
 import 'catalog_item_dependency_tree.dart';
 import 'document_batch_items_panel.dart';
+import 'integration_batch_items_panel.dart';
 import 'master_data_sync_dialog.dart';
 import 'organization_relation_tree.dart';
 
@@ -66,7 +67,10 @@ class ResourcePage extends ConsumerWidget {
           child: ResizableSplitPane(
             axis: isWide ? Axis.horizontal : Axis.vertical,
             initialFraction: isWide
-                ? (resource.key == 'document_batches' ? 0.38 : 0.6)
+                ? (resource.key == 'document_batches' ||
+                        resource.key == 'integration_batches'
+                    ? 0.38
+                    : 0.6)
                 : 0.5,
             minFirstFraction: 0.25,
             minSecondFraction: 0.25,
@@ -2046,7 +2050,8 @@ class _ResourceDetailsContent extends StatelessWidget {
       );
     }
 
-    if (resource.key == 'document_batches') {
+    if (resource.key == 'document_batches' ||
+        resource.key == 'integration_batches') {
       final batchId = data['id']?.toString().trim() ?? '';
       return ResizableSplitPane(
         axis: Axis.vertical,
@@ -2064,11 +2069,17 @@ class _ResourceDetailsContent extends StatelessWidget {
             JsonViewCard(title: 'Raw JSON', data: data),
           ],
         ),
-        second: DocumentBatchItemsPanel(
-          key: ValueKey('document-batch-items-$batchId'),
-          batchId: batchId,
-          repository: repository,
-        ),
+        second: resource.key == 'integration_batches'
+            ? IntegrationBatchItemsPanel(
+                key: ValueKey('integration-batch-items-$batchId'),
+                batchId: batchId,
+                repository: repository,
+              )
+            : DocumentBatchItemsPanel(
+                key: ValueKey('document-batch-items-$batchId'),
+                batchId: batchId,
+                repository: repository,
+              ),
       );
     }
 
