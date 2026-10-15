@@ -4256,9 +4256,23 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
         shape([for (final p in band) pp(p.dx, p.dy)], coveringFills[coveringCode]!);
       }
     }
+    // A beam on a wall step (vertical segment of the back edge) sits flush with the step on the deeper side.
+    double flushAtWallStep(double x) {
+      final back = layout.back;
+      for (var i = 0; i < back.length - 1; i++) {
+        final a = back[i];
+        final b = back[i + 1];
+        if ((a.dx - b.dx).abs() < 1e-6 && (a.dx - x).abs() < 1 && (a.dy - b.dy).abs() > 1) {
+          return a.dx + (_yAt(back, a.dx + 1) > _yAt(back, a.dx - 1) ? beamW / 2 : -beamW / 2);
+        }
+      }
+      return x;
+    }
+
     for (final x in rafters) {
       final yBack = _usesSharedModuleBeams ? _sharedModuleBackY(layout, x) : _yAt(layout.back, x);
-      part(Rect.fromPoints(pp(x, yBack) - Offset(beamPx / 2, 0), pp(x, _yAt(layout.front, x)) + Offset(beamPx / 2, 0)),
+      final bx = flushAtWallStep(x);
+      part(Rect.fromPoints(pp(bx, yBack) - Offset(beamPx / 2, 0), pp(bx, _yAt(layout.front, bx)) + Offset(beamPx / 2, 0)),
           profileColor);
     }
     canvas.drawPath(
@@ -4268,8 +4282,17 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
         ..style = PaintingStyle.stroke
         ..strokeWidth = 2 * gutterD * k,
     );
+    // Wall profile along the wall only: on a wall step the flush beam forms the edge.
+    final backProfile = Path();
+    for (var i = 0; i < layout.back.length - 1; i++) {
+      final a = layout.back[i];
+      final b = layout.back[i + 1];
+      if ((a.dx - b.dx).abs() < 1e-6) continue;
+      if (i == 0 || (layout.back[i - 1].dx - a.dx).abs() < 1e-6) backProfile.moveTo(pp(a.dx, a.dy).dx, pp(a.dx, a.dy).dy);
+      backProfile.lineTo(pp(b.dx, b.dy).dx, pp(b.dx, b.dy).dy);
+    }
     canvas.drawPath(
-      polyline(layout.back),
+      backProfile,
       Paint()
         ..color = profileColor
         ..style = PaintingStyle.stroke
