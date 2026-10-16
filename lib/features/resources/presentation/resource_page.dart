@@ -1344,11 +1344,8 @@ class _DetailsCardState extends ConsumerState<_DetailsCard> {
                                 quoteId: data['id']?.toString() ?? '',
                                 statusCode: data['status_code']?.toString() ?? 'draft',
                                 repository: ref.read(calculatorRepositoryProvider),
-                                enabled: {'approved', 'sent'}.contains(
-                                  (data['status_code']?.toString() ?? 'draft')
-                                      .trim()
-                                      .toLowerCase(),
-                                ),
+                                // The Submit rules of quote_status_transitions decide on the server.
+                                enabled: (data['status_code']?.toString() ?? 'draft').trim().toLowerCase() != 'draft',
                                 onCompleted: (_) async {
                                   ref.invalidate(resourceListProvider(resource));
                                   ref.invalidate(resourceDetailsProvider(resource));
@@ -1875,6 +1872,7 @@ class _ResourceDetailsContent extends StatelessWidget {
             _QuoteNumberPlate(
               quoteId: quoteId,
               quoteNo: _firstText(data['quote_no'], data['quoteNo']),
+              korrekturNo: quoteKorrekturNo(data['korrektur_json'], data['order_type_code']?.toString()),
               quoteType: (data['order_type_code'] ?? data['orderTypeCode']) == null
                   ? null
                   : _displayValue(
@@ -2830,10 +2828,12 @@ class _QuoteNumberPlate extends StatelessWidget {
     required this.onQuoteStatusChanged,
     this.quoteType,
     this.statusCode,
+    this.korrekturNo = 0,
   });
 
   final String quoteId;
   final String? quoteNo;
+  final int korrekturNo;
   final String? quoteType;
   final String? statusCode;
   final CalculatorRepository repository;
@@ -2884,7 +2884,7 @@ class _QuoteNumberPlate extends StatelessWidget {
                           const SizedBox(height: 2),
                           SelectableText(
                             quoteNo?.trim().isNotEmpty == true
-                                ? quoteNo!.trim()
+                                ? '${quoteNo!.trim()}${korrekturNo > 0 ? ' · Korrektur $korrekturNo' : ''}'
                                 : '—',
                             style: Theme.of(context).textTheme.titleMedium?.copyWith(
                                   fontWeight: FontWeight.w700,
@@ -4143,6 +4143,12 @@ Map<String, Map<String, String>> _detailLookupLabelsByKey(
               data: (rows) => _lookupLabelMap(entry.value, rows),
               orElse: () => const <String, String>{},
             ),
+    // Order type label of the quote plate (label only, not a relation field).
+    if (resource.key == 'quotes')
+      'order_type_code': ref.watch(adminLookupProvider(quoteOrderTypeLookup)).maybeWhen(
+            data: (rows) => _lookupLabelMap(quoteOrderTypeLookup, rows),
+            orElse: () => const <String, String>{},
+          ),
   };
 }
 

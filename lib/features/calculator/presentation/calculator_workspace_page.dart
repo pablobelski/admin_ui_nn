@@ -148,6 +148,7 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
           children: [
             _Header(
               calculationNumber: calculationNumber,
+              korrekturNo: loadedQuote?.korrekturNo ?? 0,
               isCalculationSaved: isCalculationSaved,
               selectedIndex: effectiveSelectedStep,
               steps: activeSteps,
@@ -689,13 +690,12 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
 
     final draft = ref.read(calculatorDraftProvider);
     final loadedQuote = ref.read(loadedQuoteProvider);
-    final canSaveAsOption = draft.canSaveAsOptionFor(loadedQuote);
 
     final mode = await showDialog<SaveQuoteMode>(
       context: context,
       builder: (_) => _SaveQuoteModeDialog(
         loadedQuote: loadedQuote,
-        canSaveAsOption: canSaveAsOption,
+        inPlaceMode: draft.inPlaceSaveModeFor(loadedQuote),
       ),
     );
 
@@ -738,7 +738,7 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
       final savedQuote = await repository.saveQuote(
         draft,
         mode: mode,
-        baseQuoteId: mode == SaveQuoteMode.asOption ? loadedQuote?.id : null,
+        baseQuoteId: mode == SaveQuoteMode.asNew ? null : loadedQuote?.id,
       );
       persistedQuote = savedQuote;
       final persisted = await repository.loadQuoteForWorkspace(savedQuote.id);
@@ -1044,10 +1044,10 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
   // the whole quote here would replace the loaded quote object, refetch the
   // calculator context and rebuild the result tabs while the user is still
   // working on the draft, so only the status is applied locally.
-  void _applyQuoteStatus(String quoteId, String statusCode) {
+  void _applyQuoteStatus(String quoteId, String statusCode, {String? orderTypeCode}) {
     final normalized = statusCode.trim();
     if (normalized.isEmpty) return;
-    ref.read(loadedQuoteProvider.notifier).updateStatusCode(normalized);
+    ref.read(loadedQuoteProvider.notifier).updateStatusCode(normalized, orderTypeCode: orderTypeCode);
     final saved = _savedQuote;
     if (saved == null || saved.id != quoteId || saved.statusCode == normalized) {
       return;
@@ -1069,7 +1069,7 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
 
   Future<void> _quoteStatusChanged(QuoteStatusChangeResult result) async {
     if (!mounted) return;
-    _applyQuoteStatus(result.quoteId, result.statusCode);
+    _applyQuoteStatus(result.quoteId, result.statusCode, orderTypeCode: result.orderTypeCode);
   }
 
 }
@@ -1148,11 +1148,13 @@ class _Header extends StatelessWidget {
     required this.draft,
     required this.buyerContact,
     required this.onStepSelected,
+    this.korrekturNo = 0,
   });
 
   final VoidCallback onRefresh;
   final VoidCallback onNewCalculation;
   final String? calculationNumber;
+  final int korrekturNo;
   final bool isCalculationSaved;
   final int selectedIndex;
   final List<_StepDefinition> steps;
@@ -1282,7 +1284,7 @@ class _Header extends StatelessWidget {
                                           const SizedBox(width: 8),
                                           Flexible(
                                             child: Text(
-                                              calculationNumber!.trim(),
+                                              '${calculationNumber!.trim()}${korrekturNo > 0 ? ' · Korrektur $korrekturNo' : ''}',
                                               maxLines: 1,
                                               textAlign: TextAlign.right,
                                               overflow: TextOverflow.ellipsis,
@@ -2245,17 +2247,6 @@ class _ProductStepState extends State<_ProductStep> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text('Calculation context', style: Theme.of(context).textTheme.titleMedium),
-        if (widget.draft.isEinzelteile) Consumer(builder: (context, ref, _) => DropdownButtonFormField<String>(
-          initialValue: widget.draft.orderTypeCode, decoration: const InputDecoration(labelText: 'Dokumenttyp'),
-          // Order types from system setting quote_code_lists (context references.quote_order_types).
-          items: [
-            for (final option in widget.contextData.references['quote_order_types'] ?? const <CalculatorOption>[])
-              DropdownMenuItem(value: option.code, child: Text(option.label)),
-            if (!(widget.contextData.references['quote_order_types'] ?? const <CalculatorOption>[])
-                .any((option) => option.code == widget.draft.orderTypeCode))
-              DropdownMenuItem(value: widget.draft.orderTypeCode, child: Text(widget.draft.orderTypeCode)),
-          ],
-          onChanged: (value) { if (value != null) ref.read(calculatorDraftProvider.notifier).setOrderType(value); })),
         const SizedBox(height: 8),
         Text(
           'Internal users may choose organization and price mode. Customer API must derive these values from the authenticated session.',
@@ -13092,7 +13083,7 @@ class _ResultPanel extends StatelessWidget {
                 _ResultActions(
                   canSaveQuote: false,
                   saveBlockedReason: 'Calculate the configuration before saving',
-                  canSaveAsOption: false,
+                  inPlaceSaveMode: null,
                   isSavingQuote: isSavingQuote,
                   savedQuote: savedQuote,
                   canPrint: loadedQuote != null || savedQuote != null,
@@ -13157,7 +13148,7 @@ class _ResultPanel extends StatelessWidget {
                 _ResultActions(
                   canSaveQuote: false,
                   saveBlockedReason: 'Calculate the configuration before saving',
-                  canSaveAsOption: false,
+                  inPlaceSaveMode: null,
                   isSavingQuote: isSavingQuote,
                   savedQuote: savedQuote,
                   canPrint: loadedQuote != null || savedQuote != null,
@@ -13195,14 +13186,12 @@ class _ResultPanel extends StatelessWidget {
                           needsRecalculation: needsRecalculation,
                           quoteId: loadedQuote?.id ?? savedQuote?.id,
                           quoteStatusCode: loadedQuote?.statusCode ?? savedQuote?.statusCode ?? 'draft',
+                          // The Submit rules of quote_status_transitions decide on the server (Angebot from calculated).
                           canSubmit: isCalculationSaved &&
                               !needsRecalculation &&
                               result.status == 'valid' &&
-                              {'approved', 'sent'}.contains(
-                                (loadedQuote?.statusCode ?? savedQuote?.statusCode ?? 'draft')
-                                    .trim()
-                                    .toLowerCase(),
-                              ),
+                              (loadedQuote?.statusCode ?? savedQuote?.statusCode ?? 'draft').trim().toLowerCase() !=
+                                  'draft',
                           repository: documentsRepository,
                           onQuoteSubmitted: onQuoteSubmitted,
                           onQuoteStatusChanged: onQuoteStatusChanged,
@@ -13277,7 +13266,7 @@ class _ResultPanel extends StatelessWidget {
                 saveBlockedReason: needsRecalculation
                     ? 'Recalculate: the configuration changed after the last calculation'
                     : null,
-                canSaveAsOption: draft.canSaveAsOptionFor(loadedQuote),
+                inPlaceSaveMode: draft.inPlaceSaveModeFor(loadedQuote),
                 isSavingQuote: isSavingQuote,
                 savedQuote: savedQuote,
                 canPrint: loadedQuote != null || savedQuote != null,
@@ -13372,7 +13361,7 @@ class _ResultPanel extends StatelessWidget {
         _ResultActions(
           canSaveQuote: false,
           saveBlockedReason: 'The last calculation failed; fix the configuration and recalculate',
-          canSaveAsOption: draft.canSaveAsOptionFor(loadedQuote),
+          inPlaceSaveMode: draft.inPlaceSaveModeFor(loadedQuote),
           isSavingQuote: isSavingQuote,
           savedQuote: savedQuote,
           canPrint: loadedQuote != null || savedQuote != null,
@@ -13715,7 +13704,7 @@ class _GeometryPreviewTab extends StatelessWidget {
 class _ResultActions extends StatelessWidget {
   const _ResultActions({
     required this.canSaveQuote,
-    required this.canSaveAsOption,
+    required this.inPlaceSaveMode,
     required this.isSavingQuote,
     required this.savedQuote,
     required this.canPrint,
@@ -13728,7 +13717,7 @@ class _ResultActions extends StatelessWidget {
 
   final String? saveBlockedReason;
   final bool canSaveQuote;
-  final bool canSaveAsOption;
+  final SaveQuoteMode? inPlaceSaveMode;
   final bool isSavingQuote;
   final SavedQuote? savedQuote;
   final bool canPrint;
@@ -13740,7 +13729,7 @@ class _ResultActions extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final blockedReason = canSaveQuote ? null : saveBlockedReason;
-    final hint = blockedReason ?? (canSaveAsOption ? 'As New / As Option' : 'As New');
+    final hint = blockedReason ?? (inPlaceSaveMode == null ? 'As New' : 'As New / ${inPlaceSaveMode!.label}');
     return Padding(
       padding: const EdgeInsets.all(12),
       child: Row(
@@ -13877,11 +13866,12 @@ class _ResultRelatedButton extends ConsumerWidget {
 class _SaveQuoteModeDialog extends StatelessWidget {
   const _SaveQuoteModeDialog({
     required this.loadedQuote,
-    required this.canSaveAsOption,
+    required this.inPlaceMode,
   });
 
   final LoadedQuote? loadedQuote;
-  final bool canSaveAsOption;
+  // Overwrite (draft) / Korrektur (calculated, approved, sent) of the loaded quote; null = only As New.
+  final SaveQuoteMode? inPlaceMode;
 
   @override
   Widget build(BuildContext context) {
@@ -13900,17 +13890,26 @@ class _SaveQuoteModeDialog extends StatelessWidget {
             ),
             const Divider(height: 1),
             ListTile(
-              enabled: canSaveAsOption,
-              leading: const Icon(Icons.call_split_outlined),
-              title: const Text('As Option'),
+              enabled: inPlaceMode != null,
+              leading: Icon(
+                inPlaceMode == SaveQuoteMode.korrektur ? Icons.edit_note_outlined : Icons.save_as_outlined,
+              ),
+              title: Text(
+                (inPlaceMode ?? (loadedQuote?.statusCode == 'draft' ? SaveQuoteMode.overwrite : SaveQuoteMode.korrektur))
+                    .label,
+              ),
               subtitle: Text(
                 loadedQuote == null
                     ? 'Load an existing quote first.'
-                    : canSaveAsOption
-                        ? 'Save as ${loadedQuote!.quoteNo} - Option #...'
-                        : 'Available only if input changed and buyer/ship-to stayed the same.',
+                    : inPlaceMode == SaveQuoteMode.overwrite
+                        ? 'Save again as ${loadedQuote!.quoteNo}.'
+                        : inPlaceMode == SaveQuoteMode.korrektur
+                            ? 'Save as ${loadedQuote!.quoteNo} · Korrektur ${loadedQuote!.korrekturNo + 1}.'
+                            : loadedQuote!.statusCode == 'draft'
+                                ? 'Kommission or customer changed: save As New.'
+                                : 'For calculated, approved or sent quotes, if the input changed and customer and Kommission stayed the same.',
               ),
-              onTap: canSaveAsOption ? () => Navigator.of(context).pop(SaveQuoteMode.asOption) : null,
+              onTap: inPlaceMode == null ? null : () => Navigator.of(context).pop(inPlaceMode),
             ),
           ],
         ),

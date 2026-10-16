@@ -172,19 +172,20 @@ const quoteLookup = AdminLookup(
   showIdInDropdown: false,
 );
 
-const quoteStatusOptions = <AdminSelectOption>[
-  AdminSelectOption(value: 'draft', label: 'Draft'),
-  AdminSelectOption(value: 'calculated', label: 'Calculated'),
-  AdminSelectOption(value: 'approved', label: 'Approved'),
-  AdminSelectOption(value: 'sent', label: 'Sent'),
-  AdminSelectOption(value: 'cancelled', label: 'Cancelled'),
-  AdminSelectOption(value: 'archived', label: 'Archived'),
-];
+// Quote statuses and order types with labels (system setting quote_code_lists).
+const quoteStatusLookup = AdminLookup(
+  endpoint: '/api/internal/calculator/quote-codes/statuses',
+  idKey: 'code',
+  labelKeys: ['label'],
+  showIdInDropdown: false,
+);
 
-const quoteOrderTypeOptions = <AdminSelectOption>[
-  AdminSelectOption(value: 'offer', label: 'Offer'),
-  AdminSelectOption(value: 'order', label: 'Auftragsbestätigung'),
-];
+const quoteOrderTypeLookup = AdminLookup(
+  endpoint: '/api/internal/calculator/quote-codes/order_types',
+  idKey: 'code',
+  labelKeys: ['label'],
+  showIdInDropdown: false,
+);
 
 // END quote admin block: admin-registry-quote-lookups-v2
 const activeFilterOptions = <AdminSelectOption>[
@@ -802,8 +803,8 @@ const adminNavGroups = <AdminNavGroup>[
           AdminColumn(key: 'quote_no', label: 'Quote no', isPrimary: true, flex: 2),
           AdminColumn(key: 'calculated_amount_eur', label: 'Amount EUR'),
           AdminColumn(key: 'created_by_name', label: 'Author', flex: 2),
-          AdminColumn(key: 'status_code', label: 'Status'),
-          AdminColumn(key: 'order_type_code', label: 'Type'),
+          AdminColumn(key: 'status_code', label: 'Status', lookup: quoteStatusLookup),
+          AdminColumn(key: 'order_type_code', label: 'Type', lookup: quoteOrderTypeLookup),
           AdminColumn(key: 'buyer_organization_id', label: 'Buyer', flex: 2, lookup: organizationLookup),
           AdminColumn(key: 'configurator_template_id', label: 'Template', flex: 2, lookup: configuratorTemplateLookup),
           AdminColumn(key: 'integration_statuses', label: 'Integrations'),
@@ -813,8 +814,8 @@ const adminNavGroups = <AdminNavGroup>[
           AdminResourceFilter(key: 'buyer_organization_id', label: 'Buyer', lookup: organizationLookup),
           AdminResourceFilter(key: 'configurator_template_id', label: 'Template', lookup: configuratorTemplateLookup),
           AdminResourceFilter(key: 'price_list_id', label: 'Price list', lookup: priceListLookup),
-          AdminResourceFilter(key: 'status_code', label: 'Status', options: quoteStatusOptions),
-          AdminResourceFilter(key: 'order_type_code', label: 'Order type', options: quoteOrderTypeOptions),
+          AdminResourceFilter(key: 'status_code', label: 'Status', lookup: quoteStatusLookup),
+          AdminResourceFilter(key: 'order_type_code', label: 'Order type', lookup: quoteOrderTypeLookup),
         ],
         formFields: [
           AdminField(key: 'quote_no', label: 'Quote no', readOnly: true),

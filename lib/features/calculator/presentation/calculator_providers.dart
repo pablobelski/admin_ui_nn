@@ -150,10 +150,10 @@ class LoadedQuoteNotifier extends Notifier<LoadedQuote?> {
   }
 
   /// Applies a new quote status without reloading the quote from the server.
-  void updateStatusCode(String statusCode) {
+  void updateStatusCode(String statusCode, {String? orderTypeCode}) {
     final current = state;
     if (current == null) return;
-    final next = current.withStatusCode(statusCode);
+    final next = current.withStatusCode(statusCode, orderTypeCode: orderTypeCode);
     if (identical(next, current)) return;
     state = next;
   }
@@ -234,8 +234,6 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
       missingSetPieceAbzugArticleNos: const [],
     );
   }
-
-  void setOrderType(String value) => state = state.copyWith(orderTypeCode: value);
 
   void setEinzelteile({bool? reclamation, String? werk, String? reason}) => state = state.copyWith(reclamation: reclamation, werk: werk, reclamationReason: reason);
 

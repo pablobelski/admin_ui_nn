@@ -40,6 +40,14 @@ final adminLookupProvider = FutureProvider.family<List<Map<String, dynamic>>, Ad
   },
 );
 
+/// Label of a quote status (system setting quote_code_lists); the code until the list is loaded.
+/// Watches the list in build methods; listen: false only reads it (callbacks).
+String quoteStatusLabel(WidgetRef ref, String code, {bool listen = true}) {
+  final lookup = adminLookupProvider(quoteStatusLookup);
+  final rows = (listen ? ref.watch(lookup) : ref.read(lookup)).asData?.value ?? const <Map<String, dynamic>>[];
+  return rows.where((row) => row['code'] == code).map((row) => '${row['label'] ?? code}').firstOrNull ?? code;
+}
+
 class SelectedResourceNotifier extends Notifier<String> {
   @override
   String build() => _accessibleResourceKey(currentAdminResourceKey());

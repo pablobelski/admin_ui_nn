@@ -901,7 +901,7 @@ class _PipelineSection extends StatelessWidget {
   }
 }
 
-class _StatusRow extends StatelessWidget {
+class _StatusRow extends ConsumerWidget {
   const _StatusRow({
     required this.status,
     required this.total,
@@ -913,7 +913,7 @@ class _StatusRow extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final color = _statusColor(context, status.code);
     final ratio = total == 0 ? 0.0 : status.quoteCount / total;
     return InkWell(
@@ -926,7 +926,7 @@ class _StatusRow extends StatelessWidget {
             SizedBox(
               width: 82,
               child: Text(
-                _titleCase(status.code),
+                quoteStatusLabel(ref, status.code),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
@@ -1110,13 +1110,13 @@ class _RecentQuotesSection extends StatelessWidget {
   }
 }
 
-class _StatusBadge extends StatelessWidget {
+class _StatusBadge extends ConsumerWidget {
   const _StatusBadge({required this.code});
 
   final String code;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final color = _statusColor(context, code);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -1125,7 +1125,7 @@ class _StatusBadge extends StatelessWidget {
         borderRadius: BorderRadius.circular(99),
       ),
       child: Text(
-        _titleCase(code),
+        quoteStatusLabel(ref, code),
         style: Theme.of(context).textTheme.labelSmall?.copyWith(
           color: color,
           fontWeight: FontWeight.w700,
@@ -1270,12 +1270,6 @@ String _activityDate(DateTime? value) {
 String _formatDateTime(DateTime? value) {
   if (value == null) return '—';
   return _dateTime.format(value.toLocal());
-}
-
-String _titleCase(String value) {
-  final normalized = value.replaceAll('_', ' ').trim();
-  if (normalized.isEmpty) return 'Unknown';
-  return '${normalized[0].toUpperCase()}${normalized.substring(1)}';
 }
 
 Color _statusColor(BuildContext context, String status) {

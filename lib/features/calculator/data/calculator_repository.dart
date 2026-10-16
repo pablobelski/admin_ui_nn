@@ -379,6 +379,7 @@ class QuoteStatusChangeResult {
     required this.previousStatusCode,
     required this.statusCode,
     required this.transitions,
+    this.orderTypeCode,
   });
 
   factory QuoteStatusChangeResult.fromJson(Map<String, dynamic> json) =>
@@ -390,6 +391,7 @@ class QuoteStatusChangeResult {
           json['previous_status_code'] ?? json['previousStatusCode'],
         ),
         statusCode: _repoString(json['status_code'] ?? json['statusCode']),
+        orderTypeCode: _repoNullableString(json['order_type_code']),
         transitions: _repoList(json['transitions'])
             .map(QuoteStatusTransitionOption.fromJson)
             .toList(growable: false),
@@ -400,6 +402,7 @@ class QuoteStatusChangeResult {
   final String quoteNo;
   final String previousStatusCode;
   final String statusCode;
+  final String? orderTypeCode;
   final List<QuoteStatusTransitionOption> transitions;
 }
 
@@ -429,6 +432,8 @@ class QuoteSubmitPreview {
     required this.quoteNo,
     required this.statusCode,
     required this.targetStatus,
+    required this.statusLabel,
+    required this.targetStatusLabel,
     required this.customerOrganizationName,
     required this.customerDeliveryEnabled,
     required this.to,
@@ -449,10 +454,14 @@ class QuoteSubmitPreview {
     this.documentBatchCode,
     this.documentCount = 0,
     this.deliveryOptions = const QuoteDeliveryOptions(),
+    this.orderTypeLabel,
+    this.korrekturNo = 0,
+    this.b2bEmail,
   });
 
   factory QuoteSubmitPreview.fromJson(Map<String, dynamic> json) {
     final quote = _repoMap(json['quote']);
+    final b2b = _repoMap(json['b2b']);
     final customer = _repoMap(json['customer']);
     final sender = _repoMap(json['sender']);
     final recipients = _repoMap(json['recipients']);
@@ -484,6 +493,20 @@ class QuoteSubmitPreview {
       quoteNo: _repoString(quote['quote_no'] ?? quote['quoteNo']),
       statusCode: _repoString(quote['status_code'] ?? quote['statusCode']),
       targetStatus: _repoString(quote['target_status'] ?? quote['targetStatus']),
+      statusLabel: _repoNullableString(quote['status_label']) ?? _repoString(quote['status_code'] ?? quote['statusCode']),
+      targetStatusLabel: _repoNullableString(quote['target_status_label'])
+          ?? _repoString(quote['target_status'] ?? quote['targetStatus']),
+      orderTypeLabel: _repoNullableString(quote['order_type_label']),
+      korrekturNo: _repoIntOrNull(quote['korrektur_no']) ?? 0,
+      // Second email of a B2B quote in the name of our customer.
+      b2bEmail: b2b.isEmpty
+          ? null
+          : [
+              'To ${_repoString(b2b['to'])}',
+              'CC ${_repoString(b2b['cc'])}',
+              'from ${_repoString(b2b['from_name'])}',
+              _repoString(_repoMap(b2b['document_batch'])['name']),
+            ].where((entry) => entry.isNotEmpty).join(' · '),
       customerOrganizationName: _repoString(customer['organization_name'] ?? customer['organizationName']),
       customerContactName: _repoNullableString(customer['contact_name'] ?? customer['contactName']),
       customerEmail: _repoNullableString(customer['email']),
@@ -525,6 +548,11 @@ class QuoteSubmitPreview {
   final String quoteNo;
   final String statusCode;
   final String targetStatus;
+  final String statusLabel;
+  final String targetStatusLabel;
+  final String? orderTypeLabel;
+  final int korrekturNo;
+  final String? b2bEmail;
   final String customerOrganizationName;
   final String? customerContactName;
   final String? customerEmail;

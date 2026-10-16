@@ -1457,7 +1457,6 @@ class CalculatorMarkiseSelection {
 
 class CalculatorDraft {
   const CalculatorDraft({
-    this.orderTypeCode = 'offer',
     this.isEinzelteile = false,
     this.reclamation = false,
     this.werk = 'Werk 1',
@@ -1602,7 +1601,6 @@ class CalculatorDraft {
         : normalizedStaticBeamPositionCode;
 
     return CalculatorDraft(
-      orderTypeCode: _nullableString(json['order_type_code']) ?? 'offer',
       isEinzelteile: json['einzelteile'] is Map,
       reclamation: _map(json['einzelteile'])['reclamation'] == true,
       werk: _nullableString(_map(json['einzelteile'])['werk']) ?? 'Werk 1',
@@ -1685,7 +1683,6 @@ class CalculatorDraft {
     );
   }
 
-  final String orderTypeCode;
   final bool isEinzelteile;
   final bool reclamation;
   final String werk;
@@ -1733,7 +1730,6 @@ class CalculatorDraft {
   final String? additionalDiscountReasonCode;
 
   CalculatorDraft copyWith({
-    String? orderTypeCode,
     bool? isEinzelteile,
     bool? reclamation,
     String? werk,
@@ -1805,7 +1801,6 @@ class CalculatorDraft {
     bool clearAdditionalDiscountReasonCode = false,
   }) {
     return CalculatorDraft(
-      orderTypeCode: orderTypeCode ?? this.orderTypeCode,
       isEinzelteile: isEinzelteile ?? this.isEinzelteile,
       reclamation: reclamation ?? this.reclamation,
       werk: werk ?? this.werk,
@@ -1961,7 +1956,6 @@ class CalculatorDraft {
 
   Map<String, dynamic> _baseJson({required List<Map<String, dynamic>> setContentsJson}) {
     return {
-      if (isEinzelteile) 'order_type_code': orderTypeCode,
       if (isEinzelteile) 'einzelteile': { 'reclamation': reclamation, 'werk': werk, 'reclamation_reason': reclamationReason },
       if (organizationId != null && organizationId!.isNotEmpty) 'organization_id': organizationId,
       if (templateId != null && templateId!.isNotEmpty) 'template_id': templateId,
@@ -2028,14 +2022,28 @@ class CalculatorDraft {
   }
 
   bool hasSameBuyerAndShipToAs(LoadedQuote quote) {
-    final currentBuyer = organizationId ?? '';
+    // The seller (VD) as organization is saved without buyer, as on the server.
+    final currentBuyer = organizationId == quote.sellerOrganizationId ? '' : organizationId ?? '';
     return (quote.buyerOrganizationId ?? '') == currentBuyer &&
         (quote.shipToOrganizationId ?? '') == currentBuyer;
   }
 
-  bool canSaveAsOptionFor(LoadedQuote? quote) {
-    if (quote == null) return false;
-    return differsFromLoadedQuote(quote) && hasSameBuyerAndShipToAs(quote);
+  /// Save under the number of the loaded quote: Overwrite (draft) or Korrektur (calculated / approved / sent).
+  /// Both need the same customer and Kommission, a Korrektur also changed input and the same B2B customer;
+  /// otherwise only As New (null).
+  SaveQuoteMode? inPlaceSaveModeFor(LoadedQuote? quote) {
+    if (quote == null ||
+        !hasSameBuyerAndShipToAs(quote) ||
+        (quote.quoteNoExternal ?? '').trim() != (quoteNoExternal ?? '').trim()) {
+      return null;
+    }
+    if (quote.statusCode == 'draft') return SaveQuoteMode.overwrite;
+    final sameB2bCustomer = (relatedCustomerId ?? '') == (_nullableString(quote.input['related_customer_id']) ?? '');
+    return const {'calculated', 'approved', 'sent'}.contains(quote.statusCode) &&
+            sameB2bCustomer &&
+            differsFromLoadedQuote(quote)
+        ? SaveQuoteMode.korrektur
+        : null;
   }
 }
 
@@ -2281,6 +2289,8 @@ class LoadedQuote {
     required this.quoteNo,
     required this.statusCode,
     required this.input,
+    this.orderTypeCode,
+    this.korrekturJson = const {},
     this.productFamilyId,
     this.resultJson,
     this.sellerOrganizationId,
@@ -2316,6 +2326,8 @@ class LoadedQuote {
       quoteNo: _string(quote['quote_no'] ?? quote['quoteNo'] ?? json['quote_no'] ?? json['quoteNo']),
       statusCode: _string(quote['status_code'] ?? quote['statusCode'] ?? json['status_code'] ?? json['statusCode']),
       input: input,
+      orderTypeCode: _nullableString(quote['order_type_code']),
+      korrekturJson: _map(quote['korrektur_json']),
       productFamilyId: _nullableString(quote['product_family_id'] ?? json['product_family_id']),
       resultJson: resultJson,
       sellerOrganizationId: _nullableString(quote['seller_organization_id'] ?? json['seller_organization_id']),
@@ -2347,6 +2359,8 @@ class LoadedQuote {
   final String quoteNo;
   final String statusCode;
   final Map<String, dynamic> input;
+  final String? orderTypeCode;
+  final Map<String, dynamic> korrekturJson;
   final String? productFamilyId;
   final Map<String, dynamic>? resultJson;
   final String? sellerOrganizationId;
@@ -2359,6 +2373,8 @@ class LoadedQuote {
   final List<CalculatorCatalogVariantOption> catalogVariants;
   final List<Map<String, dynamic>> catalogWarnings;
 
+  int get korrekturNo => quoteKorrekturNo(korrekturJson, orderTypeCode);
+
   Map<String, dynamic> get normalizedInput => CalculatorDraft.fromCalculationJson(
         input,
         productFamilyId: productFamilyId,
@@ -2369,14 +2385,17 @@ class LoadedQuote {
   /// The catalog lists are reused by reference on purpose: they are watched by
   /// calculatorContextProvider, which must not refetch the calculator context
   /// (and blank the workspace) just because the quote status changed.
-  LoadedQuote withStatusCode(String value) {
+  LoadedQuote withStatusCode(String value, {String? orderTypeCode}) {
     final normalized = value.trim();
-    if (normalized.isEmpty || normalized == statusCode) return this;
+    final nextOrderType = (orderTypeCode ?? '').trim().isEmpty ? this.orderTypeCode : orderTypeCode!.trim();
+    if (normalized.isEmpty || (normalized == statusCode && nextOrderType == this.orderTypeCode)) return this;
     return LoadedQuote(
       id: id,
       quoteNo: quoteNo,
       statusCode: normalized,
       input: input,
+      orderTypeCode: nextOrderType,
+      korrekturJson: korrekturJson,
       productFamilyId: productFamilyId,
       resultJson: resultJson,
       sellerOrganizationId: sellerOrganizationId,
@@ -2394,14 +2413,17 @@ class LoadedQuote {
 
 enum SaveQuoteMode {
   asNew,
-  asOption;
+  overwrite,
+  korrektur;
 
   String get apiValue {
     switch (this) {
       case SaveQuoteMode.asNew:
         return 'new';
-      case SaveQuoteMode.asOption:
-        return 'option';
+      case SaveQuoteMode.overwrite:
+        return 'overwrite';
+      case SaveQuoteMode.korrektur:
+        return 'korrektur';
     }
   }
 
@@ -2409,10 +2431,18 @@ enum SaveQuoteMode {
     switch (this) {
       case SaveQuoteMode.asNew:
         return 'As New';
-      case SaveQuoteMode.asOption:
-        return 'As Option';
+      case SaveQuoteMode.overwrite:
+        return 'Overwrite';
+      case SaveQuoteMode.korrektur:
+        return 'Korrektur';
     }
   }
+}
+
+/// Korrektur counter of the current order type (quotes.korrektur_json).
+int quoteKorrekturNo(Object? korrekturJson, String? orderTypeCode) {
+  final value = korrekturJson is Map ? korrekturJson[orderTypeCode ?? ''] : null;
+  return value is num && value > 0 ? value.toInt() : 0;
 }
 
 List<CalculatorSetContentTab> _restoreSetContentItems(

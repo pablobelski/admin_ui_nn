@@ -1,13 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/http/api_client.dart';
+import '../../../core/navigation/admin_providers.dart';
 import '../../../core/ui/top_notification.dart';
 import '../data/calculator_repository.dart';
 
 final Map<String, List<QuoteStatusTransitionOption>>
     _quoteStatusTransitionsCache = {};
 
-class QuoteStatusButton extends StatefulWidget {
+class QuoteStatusButton extends ConsumerStatefulWidget {
   const QuoteStatusButton({
     super.key,
     required this.quoteId,
@@ -26,10 +28,10 @@ class QuoteStatusButton extends StatefulWidget {
   final Future<void> Function(QuoteStatusChangeResult result)? onCompleted;
 
   @override
-  State<QuoteStatusButton> createState() => _QuoteStatusButtonState();
+  ConsumerState<QuoteStatusButton> createState() => _QuoteStatusButtonState();
 }
 
-class _QuoteStatusButtonState extends State<QuoteStatusButton> {
+class _QuoteStatusButtonState extends ConsumerState<QuoteStatusButton> {
   final GlobalKey _anchorKey = GlobalKey();
   bool _busy = false;
   late String _statusCode = widget.statusCode;
@@ -45,7 +47,7 @@ class _QuoteStatusButtonState extends State<QuoteStatusButton> {
   String get _displayStatus {
     final normalized = _statusCode.trim();
     if (normalized.isEmpty) return 'Status';
-    return normalized;
+    return quoteStatusLabel(ref, normalized);
   }
 
   String _cacheKey(String statusCode) =>
@@ -137,7 +139,8 @@ class _QuoteStatusButtonState extends State<QuoteStatusButton> {
       if (!mounted) return;
       showTopNotification(
         context,
-        'Quote status changed: ${result.previousStatusCode} → ${result.statusCode}.',
+        'Quote status changed: ${quoteStatusLabel(ref, result.previousStatusCode, listen: false)}'
+        ' → ${quoteStatusLabel(ref, result.statusCode, listen: false)}.',
         type: TopNotificationType.success,
       );
     } catch (error) {

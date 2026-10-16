@@ -650,18 +650,31 @@ class _QuoteSubmitPreviewDialogState extends State<_QuoteSubmitPreviewDialog> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _PreviewLine(label: 'Quote', value: '${preview.quoteNo} · ${preview.statusCode} → ${preview.targetStatus}'),
+              _PreviewLine(
+                label: 'Quote',
+                value: [
+                  preview.quoteNo,
+                  if (preview.korrekturNo > 0) 'Korrektur ${preview.korrekturNo}',
+                  if ((preview.orderTypeLabel ?? '').isNotEmpty) preview.orderTypeLabel!,
+                  '${preview.statusLabel} → ${preview.targetStatusLabel}',
+                ].join(' · '),
+              ),
               _PreviewLine(label: 'Customer', value: preview.customerOrganizationName.isEmpty ? '—' : preview.customerOrganizationName),
               if ((preview.customerContactName ?? '').isNotEmpty)
                 _PreviewLine(label: 'Contact', value: preview.customerContactName!),
               _PreviewLine(
                 label: 'Customer delivery',
                 value: customerDelivery
-                    ? 'Enabled for status ${preview.targetStatus}'
+                    ? 'Enabled for status ${preview.targetStatusLabel}'
                     : preview.deliveryOptions.customerAllowed
                         ? 'Left out · internal recipients only'
-                        : 'Disabled for status ${preview.targetStatus} · internal recipients only',
+                        : 'Disabled for status ${preview.targetStatusLabel} · internal recipients only',
               ),
+              if (preview.b2bEmail != null)
+                _PreviewLine(
+                  label: 'B2B email',
+                  value: _delivery.includeCustomer ? preview.b2bEmail! : 'Left out · ${preview.b2bEmail}',
+                ),
               _PreviewLine(label: 'To', value: _emails(preview.to)),
               _PreviewLine(label: 'CC', value: _emails(preview.cc)),
               _PreviewLine(label: 'BCC', value: _emails(preview.bcc)),
