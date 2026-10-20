@@ -11,6 +11,7 @@ class TemplateWorkspaceState {
     this.moduleQuery = '',
     this.productFamilyId = '',
     this.roofModelId = '',
+    this.statusCode = '',
     this.templateIdFilter = '',
     this.selectedTemplateId,
     this.selectedModuleId,
@@ -22,6 +23,7 @@ class TemplateWorkspaceState {
   final String moduleQuery;
   final String productFamilyId;
   final String roofModelId;
+  final String statusCode;
   final String templateIdFilter;
   final String? selectedTemplateId;
   final String? selectedModuleId;
@@ -32,6 +34,7 @@ class TemplateWorkspaceState {
         if (templateIdFilter.isNotEmpty) 'id': templateIdFilter,
         if (productFamilyId.isNotEmpty) 'product_family_id': productFamilyId,
         if (roofModelId.isNotEmpty) 'roof_model_id': roofModelId,
+        if (statusCode.isNotEmpty) 'status_code': statusCode,
       };
 
   TemplateWorkspaceState copyWith({
@@ -39,6 +42,7 @@ class TemplateWorkspaceState {
     String? moduleQuery,
     String? productFamilyId,
     String? roofModelId,
+    String? statusCode,
     String? templateIdFilter,
     String? selectedTemplateId,
     String? selectedModuleId,
@@ -52,6 +56,7 @@ class TemplateWorkspaceState {
       moduleQuery: moduleQuery ?? this.moduleQuery,
       productFamilyId: productFamilyId ?? this.productFamilyId,
       roofModelId: roofModelId ?? this.roofModelId,
+      statusCode: statusCode ?? this.statusCode,
       templateIdFilter: templateIdFilter ?? this.templateIdFilter,
       selectedTemplateId: clearTemplate ? null : (selectedTemplateId ?? this.selectedTemplateId),
       selectedModuleId: clearModule ? null : (selectedModuleId ?? this.selectedModuleId),
@@ -69,6 +74,7 @@ class TemplateWorkspaceNotifier extends Notifier<TemplateWorkspaceState> {
     return TemplateWorkspaceState(
       productFamilyId: filters['product_family_id'] ?? '',
       roofModelId: filters['roof_model_id'] ?? '',
+      statusCode: filters['status_code'] ?? '',
       templateIdFilter: templateIdFilter,
       selectedTemplateId: templateIdFilter.isEmpty ? null : templateIdFilter,
     );
@@ -111,6 +117,14 @@ class TemplateWorkspaceNotifier extends Notifier<TemplateWorkspaceState> {
         clearTemplate: true,
         clearModule: true,
       );
+    } else if (key == 'status_code') {
+      nextState = state.copyWith(
+        statusCode: normalizedValue,
+        templateIdFilter: '',
+        offset: 0,
+        clearTemplate: true,
+        clearModule: true,
+      );
     } else {
       nextState = state;
     }
@@ -125,15 +139,18 @@ class TemplateWorkspaceNotifier extends Notifier<TemplateWorkspaceState> {
     final templateIdFilter = filters['id'] ?? '';
     final productFamilyId = filters['product_family_id'] ?? '';
     final roofModelId = filters['roof_model_id'] ?? '';
+    final statusCode = filters['status_code'] ?? '';
     if (templateIdFilter == state.templateIdFilter &&
         productFamilyId == state.productFamilyId &&
-        roofModelId == state.roofModelId) {
+        roofModelId == state.roofModelId &&
+        statusCode == state.statusCode) {
       return;
     }
     state = state.copyWith(
       templateIdFilter: templateIdFilter,
       productFamilyId: productFamilyId,
       roofModelId: roofModelId,
+      statusCode: statusCode,
       selectedTemplateId: templateIdFilter.isEmpty ? null : templateIdFilter,
       offset: 0,
       clearTemplate: templateIdFilter.isEmpty,
@@ -147,6 +164,7 @@ class TemplateWorkspaceNotifier extends Notifier<TemplateWorkspaceState> {
       templateIdFilter: '',
       productFamilyId: '',
       roofModelId: '',
+      statusCode: '',
       offset: 0,
       clearTemplate: true,
       clearModule: true,
@@ -205,6 +223,7 @@ final configuratorTemplateListProvider =
     id: browserState.templateIdFilter,
     productFamilyId: browserState.productFamilyId,
     roofModelId: browserState.roofModelId,
+    statusCode: browserState.statusCode,
     limit: browserState.limit,
     offset: browserState.offset,
   );

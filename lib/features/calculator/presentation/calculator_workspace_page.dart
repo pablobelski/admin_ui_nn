@@ -1064,7 +1064,7 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
 
   Future<void> _quoteSubmitted(QuoteSubmitResult result) async {
     if (!mounted) return;
-    _applyQuoteStatus(result.quoteId, result.statusCode);
+    _applyQuoteStatus(result.quoteId, result.statusCode, orderTypeCode: result.orderTypeCode);
   }
 
   Future<void> _quoteStatusChanged(QuoteStatusChangeResult result) async {
@@ -14572,6 +14572,18 @@ Map<String, List<String>> _calculatorWarningMessagesByStep({
     _addWarningMessage(grouped, 'dimensions', message);
   }
 
+  // Höhe UKR (Unterkante Rinne) is the top of the posts: above the post length of the set the posts are too short.
+  final postSetLength = geometryPreviewPostSetLengthMm(draft.setContents);
+  final frontHeight = draft.roofFrontHeightMm ??
+      (result == null ? null : roofGeometryCalculationFromSources(result.sources)?.frontHeightMm);
+  if (postSetLength != null && frontHeight != null && frontHeight > postSetLength) {
+    final message = 'Höhe UKR $frontHeight mm exceeds the post length in the set (${postSetLength.round()} mm). '
+        'Plan longer posts in Set contents.';
+    for (final stepKey in const ['dimensions', 'set_contents']) {
+      _addWarningMessage(grouped, stepKey, message);
+    }
+  }
+
   final manualGeometryArticles = _manualGeometryOverrideArticles(draft);
   if (manualGeometryArticles.isNotEmpty) {
     final manualGeometryMessage =
@@ -14937,6 +14949,13 @@ class _PriceHeaderState extends ConsumerState<_PriceHeader> {
       additionalDiscountPct == additionalDiscountPct.roundToDouble() ? 0 : 1,
     );
     final effectiveQuoteId = quoteId?.trim() ?? '';
+    final loadedQuote = ref.watch(loadedQuoteProvider);
+    final orderTypes = ref.watch(adminLookupProvider(quoteOrderTypeLookup)).asData?.value ?? const <Map<String, dynamic>>[];
+    final orderTypeCode = loadedQuote?.id == effectiveQuoteId
+        ? loadedQuote?.orderTypeCode ?? ''
+        : orderTypes.where((row) => row['is_default'] == true).firstOrNull?['code']?.toString() ?? '';
+    final orderTypeLabel = orderTypes.where((row) => row['code'] == orderTypeCode)
+        .firstOrNull?['label']?.toString() ?? (orderTypeCode.isEmpty ? '—' : orderTypeCode);
 
     Widget messageSlot({
       required bool attention,
@@ -14976,71 +14995,67 @@ class _PriceHeaderState extends ConsumerState<_PriceHeader> {
               Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  Expanded(
-                    child: Wrap(
-                      spacing: 6,
-                      runSpacing: 6,
-                      children: [
-                        Chip(
-                          visualDensity: VisualDensity.compact,
-                          avatar: Icon(
-                            needsRecalculation
-                                ? Icons.error_outline
-                                : result.status == 'valid'
-                                    ? Icons.check_circle
-                                    : Icons.warning_amber_rounded,
-                            color: needsRecalculation
-                                ? Theme.of(context).colorScheme.error
-                                : null,
-                          ),
-                          label: Text(
-                            needsRecalculation ? 'recalculate' : result.status,
-                          ),
-                          backgroundColor: needsRecalculation
-                              ? Theme.of(context).colorScheme.errorContainer
-                              : null,
-                        ),
-                        if (relationSelected)
-                          const Chip(
-                            visualDensity: VisualDensity.compact,
-                            label: Text('b2b'),
-                          ),
-                      ],
+                  Flexible(
+                    child: Chip(
+                      visualDensity: VisualDensity.compact,
+                      label: Text(orderTypeLabel, overflow: TextOverflow.ellipsis),
                     ),
                   ),
-                  if (hasB2b) ...[
-                    const SizedBox(width: 12),
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Transform.scale(
-                          scale: 0.82,
-                          child: Switch(
-                            value: _showB2bPrice,
-                            onChanged: (value) =>
-                                setState(() => _showB2bPrice = value),
-                          ),
-                        ),
-                        const SizedBox(width: 2),
-                        Text(
-                          'B2B price',
-                          style: Theme.of(context).textTheme.labelMedium,
-                        ),
-                      ],
+                  const SizedBox(width: 6),
+                  Chip(
+                    visualDensity: VisualDensity.compact,
+                    avatar: Icon(
+                      needsRecalculation
+                          ? Icons.error_outline
+                          : result.status == 'valid'
+                              ? Icons.check_circle
+                              : Icons.warning_amber_rounded,
+                      color: needsRecalculation
+                          ? Theme.of(context).colorScheme.error
+                          : null,
                     ),
-                  ],
+                    label: Text(
+                      needsRecalculation ? 'recalculate' : result.status,
+                    ),
+                    backgroundColor: needsRecalculation
+                        ? Theme.of(context).colorScheme.errorContainer
+                        : null,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    flex: 2,
+                    child: Tooltip(
+                      message: dealerName,
+                      child: Text(dealerName, maxLines: 1, overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
+                    ),
+                  ),
+                  if (relationSelected)
+                    const Chip(visualDensity: VisualDensity.compact, label: Text('b2b')),
                 ],
               ),
-              const SizedBox(height: 8),
-              SelectionArea(
-                child: Text(
-                  dealerName,
-                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w700,
+              if (hasB2b) Align(
+                alignment: Alignment.centerRight,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Transform.scale(
+                      scale: 0.82,
+                      child: Switch(
+                        value: _showB2bPrice,
+                        onChanged: (value) =>
+                            setState(() => _showB2bPrice = value),
                       ),
+                    ),
+                    const SizedBox(width: 2),
+                    Text(
+                      'B2B price',
+                      style: Theme.of(context).textTheme.labelMedium,
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 3),
+              const SizedBox(height: 8),
               SelectionArea(
                 child: Text.rich(
                   TextSpan(

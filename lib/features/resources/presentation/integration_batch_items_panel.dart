@@ -16,9 +16,13 @@ class IntegrationBatchItemsPanel extends ConsumerStatefulWidget {
     super.key,
     required this.batchId,
     required this.repository,
+    this.mailingProfile = false,
+    this.configuratorTemplateId,
   });
 
   final String batchId;
+  final bool mailingProfile;
+  final String? configuratorTemplateId;
   final AdminResourceRepository repository;
 
   @override
@@ -28,13 +32,14 @@ class IntegrationBatchItemsPanel extends ConsumerStatefulWidget {
 
 class _IntegrationBatchItemsPanelState
     extends ConsumerState<IntegrationBatchItemsPanel> {
-  static const _batchKey = 'integration_batch_id';
+  String get _batchKey => widget.mailingProfile ? 'mailing_profile_id' : 'integration_batch_id';
+  String get _itemTitle => widget.mailingProfile ? 'Mailing rule' : 'Integration batch item';
 
   late Future<ResourceListResponse> _itemsFuture;
   final Map<String, String> _filters = <String, String>{};
 
   AdminResourceDefinition get _resource =>
-      findResourceByKey('integration_batch_items');
+      findResourceByKey(widget.mailingProfile ? 'mailing_profile_rules' : 'integration_batch_items');
 
   List<AdminResourceFilter> get _itemFilters => _resource.listFilters
       .where((filter) => filter.key != _batchKey)
@@ -42,12 +47,17 @@ class _IntegrationBatchItemsPanelState
 
   AdminResourceDefinition get _editorResource => AdminResourceDefinition(
         key: _resource.key,
-        title: 'Integration batch item',
+        title: _itemTitle,
         endpoint: _resource.endpoint,
         icon: _resource.icon,
         columns: _resource.columns,
         formFields: _resource.formFields
             .where((field) => field.key != _batchKey)
+            .map((field) => widget.mailingProfile && field.key == 'document_batch_id'
+                ? AdminField(key: field.key, label: field.label, lookup: field.lookup,
+                    visibleWhenFieldKey: field.visibleWhenFieldKey, visibleWhenValues: field.visibleWhenValues,
+                    lookupFilters: {'configurator_template_id': widget.configuratorTemplateId ?? ''})
+                : field)
             .toList(growable: false),
         supportsCreate: _resource.supportsCreate,
         supportsEdit: _resource.supportsEdit,
@@ -122,7 +132,7 @@ class _IntegrationBatchItemsPanelState
       _reload();
       showTopNotification(
         context,
-        'Batch item created.',
+        '$_itemTitle created.',
         type: TopNotificationType.success,
       );
     } catch (error) {
@@ -154,7 +164,7 @@ class _IntegrationBatchItemsPanelState
       _reload();
       showTopNotification(
         context,
-        'Batch item updated.',
+        '$_itemTitle updated.',
         type: TopNotificationType.success,
       );
     } catch (error) {
@@ -174,8 +184,8 @@ class _IntegrationBatchItemsPanelState
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Delete batch item?'),
-        content: Text('Delete "$label" from this integration batch?'),
+        title: Text('Delete $_itemTitle?'),
+        content: Text('Delete "$label" from this configuration?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
@@ -196,7 +206,7 @@ class _IntegrationBatchItemsPanelState
       _reload();
       showTopNotification(
         context,
-        'Batch item deleted.',
+        '$_itemTitle deleted.',
         type: TopNotificationType.success,
       );
     } catch (error) {
@@ -210,6 +220,7 @@ class _IntegrationBatchItemsPanelState
   }
 
   String _operationLabel(Map<String, dynamic> row) {
+    if (widget.mailingProfile) return '${row['name']} · ${row['recipient_type']}';
     final code = row['operation_code']?.toString().trim() ?? '';
     for (final option in integrationOperationOptions) {
       if (option.value == code) return option.label;
@@ -266,7 +277,7 @@ class _IntegrationBatchItemsPanelState
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final endpointLabels = <String, String>{
-      for (final option in _lookupOptions(integrationEndpointLookup))
+      for (final option in _lookupOptions(widget.mailingProfile ? documentBatchLookup : integrationEndpointLookup))
         option.value: option.label,
     };
 
@@ -287,10 +298,10 @@ class _IntegrationBatchItemsPanelState
                 color: colorScheme.primary,
               ),
               const SizedBox(width: 8),
-              Text('Batch items', style: Theme.of(context).textTheme.titleMedium),
+              Text(widget.mailingProfile ? 'Mailing rules' : 'Batch items', style: Theme.of(context).textTheme.titleMedium),
               const Spacer(),
               IconButton(
-                tooltip: 'Refresh batch items',
+                tooltip: widget.mailingProfile ? 'Refresh mailing rules' : 'Refresh batch items',
                 onPressed: _reload,
                 icon: const Icon(Icons.refresh),
               ),
@@ -334,10 +345,10 @@ class _IntegrationBatchItemsPanelState
                   separatorBuilder: (_, __) => const Divider(height: 1),
                   itemBuilder: (context, index) {
                     final row = rows[index];
-                    final order = row['batch_order']?.toString() ?? '100';
+                    final order = row[widget.mailingProfile ? 'sort_order' : 'batch_order']?.toString() ?? '100';
                     final active = row['is_active'] == true;
                     final endpointId =
-                        row['integration_endpoint_id']?.toString().trim() ?? '';
+                        row[widget.mailingProfile ? 'document_batch_id' : 'integration_endpoint_id']?.toString().trim() ?? '';
                     return ListTile(
                       dense: true,
                       contentPadding: const EdgeInsets.symmetric(horizontal: 6),
@@ -354,7 +365,9 @@ class _IntegrationBatchItemsPanelState
                         overflow: TextOverflow.ellipsis,
                       ),
                       subtitle: Text(
-                        'Endpoint: ${endpointLabels[endpointId] ?? (endpointId.isEmpty ? '—' : endpointId)}',
+                        widget.mailingProfile
+                            ? 'Documents: ${row['use_default_batch'] == true ? 'Default batch' : endpointLabels[endpointId] ?? endpointId}'
+                            : 'Endpoint: ${endpointLabels[endpointId] ?? (endpointId.isEmpty ? '—' : endpointId)}',
                         overflow: TextOverflow.ellipsis,
                       ),
                       trailing: Row(
@@ -373,12 +386,12 @@ class _IntegrationBatchItemsPanelState
                             ),
                           ),
                           IconButton(
-                            tooltip: 'Edit batch item',
+                            tooltip: 'Edit $_itemTitle',
                             onPressed: () => _editItem(row),
                             icon: const Icon(Icons.edit_outlined, size: 18),
                           ),
                           IconButton(
-                            tooltip: 'Delete batch item',
+                            tooltip: 'Delete $_itemTitle',
                             onPressed: () => _deleteItem(row),
                             icon: const Icon(Icons.delete_outline, size: 18),
                           ),

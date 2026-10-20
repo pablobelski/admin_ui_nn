@@ -105,8 +105,8 @@ void showTopNotification(
     ),
   );
 
-  _activeTopNotification = entry;
   overlay.insert(entry);
+  _activeTopNotification = entry;
   _activeTopNotificationTimer = Timer(duration, () {
     if (identical(_activeTopNotification, entry)) {
       _removeActiveTopNotification();
@@ -118,8 +118,11 @@ void _removeActiveTopNotification() {
   _activeTopNotificationTimer?.cancel();
   _activeTopNotificationTimer = null;
   final entry = _activeTopNotification;
-  if (entry?.mounted == true) {
-    entry!.remove();
-  }
   _activeTopNotification = null;
+  // An inserted entry may not be mounted until the next frame. It still
+  // must be removed when another notification replaces it before that frame.
+  if (entry != null) {
+    entry.remove();
+    entry.dispose();
+  }
 }

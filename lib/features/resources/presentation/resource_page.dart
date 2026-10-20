@@ -16,6 +16,7 @@ import '../../../core/ui/admin_list_table.dart';
 import '../../../core/ui/json_view_card.dart';
 import '../../../core/ui/media_file_actions.dart';
 import '../../../core/ui/media_file_picker.dart';
+import '../../../core/ui/media_upload_root_dialog.dart';
 import '../../../core/ui/media_preview_dialog.dart';
 import '../../../core/ui/resizable_split_pane.dart';
 import '../../../core/ui/scrollable_areas.dart';
@@ -68,7 +69,7 @@ class ResourcePage extends ConsumerWidget {
             axis: isWide ? Axis.horizontal : Axis.vertical,
             initialFraction: isWide
                 ? (resource.key == 'document_batches' ||
-                        resource.key == 'integration_batches'
+                        resource.key == 'integration_batches' || resource.key == 'mailing_profiles'
                     ? 0.38
                     : 0.6)
                 : 0.5,
@@ -239,12 +240,19 @@ class _ToolbarState extends ConsumerState<_Toolbar> {
       final picked = await pickMediaFile();
       if (picked == null) return;
 
+      if (!context.mounted) return;
+      final destination = await showDialog<Map<String, String?>>(
+        context: context,
+        builder: (_) => MediaUploadRootDialog(repository: repository, filename: picked.filename),
+      );
+      if (destination == null) return;
       try {
         final uploaded = await repository.uploadMediaFile(
           filename: picked.filename,
           contentType: picked.mimeType,
           dataBase64: picked.base64Data,
           purpose: 'media_library',
+          rootPath: destination['root_path'],
           metadata: {
             'resource_key': widget.resource.key,
             'field_key': 'media_library_create',
@@ -2049,7 +2057,7 @@ class _ResourceDetailsContent extends StatelessWidget {
     }
 
     if (resource.key == 'document_batches' ||
-        resource.key == 'integration_batches') {
+        resource.key == 'integration_batches' || resource.key == 'mailing_profiles') {
       final batchId = data['id']?.toString().trim() ?? '';
       return ResizableSplitPane(
         axis: Axis.vertical,
@@ -2067,11 +2075,13 @@ class _ResourceDetailsContent extends StatelessWidget {
             JsonViewCard(title: 'Raw JSON', data: data),
           ],
         ),
-        second: resource.key == 'integration_batches'
+        second: resource.key == 'integration_batches' || resource.key == 'mailing_profiles'
             ? IntegrationBatchItemsPanel(
                 key: ValueKey('integration-batch-items-$batchId'),
                 batchId: batchId,
                 repository: repository,
+                mailingProfile: resource.key == 'mailing_profiles',
+                configuratorTemplateId: data['configurator_template_id']?.toString(),
               )
             : DocumentBatchItemsPanel(
                 key: ValueKey('document-batch-items-$batchId'),

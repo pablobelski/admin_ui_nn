@@ -98,6 +98,7 @@ const configuratorTemplateLookup = AdminLookup(
   labelKeys: ['code', 'name', 'version', 'status_code'],
   limit: 1000,
   showIdInDropdown: false,
+  selectableWhen: {'status_code': 'published'},
 );
 
 const documentTemplateLookup = AdminLookup(
@@ -105,6 +106,7 @@ const documentTemplateLookup = AdminLookup(
   labelKeys: ['code', 'name', 'document_type_code', 'version'],
   limit: 1000,
   showIdInDropdown: false,
+  selectableWhen: {'is_active': 'true'},
 );
 
 const documentBatchLookup = AdminLookup(
@@ -112,13 +114,26 @@ const documentBatchLookup = AdminLookup(
   labelKeys: ['code', 'name', 'is_default'],
   limit: 1000,
   showIdInDropdown: false,
+  selectableWhen: {'is_active': 'true'},
 );
+
+const mailingProfileLookup = AdminLookup(
+  endpoint: '/api/admin/mailing-profiles', labelKeys: ['code', 'name'], limit: 1000, showIdInDropdown: false,
+  selectableWhen: {'is_active': 'true'},
+);
+
+const mailingRecipientOptions = [
+  AdminSelectOption(value: 'internal', label: 'Internal staff'),
+  AdminSelectOption(value: 'customer', label: 'Customer'),
+  AdminSelectOption(value: 'related_customer', label: 'B2B partner'),
+];
 
 const integrationBatchLookup = AdminLookup(
   endpoint: '/api/admin/integration-batches',
   labelKeys: ['code', 'name', 'is_default'],
   limit: 1000,
   showIdInDropdown: false,
+  selectableWhen: {'is_active': 'true'},
 );
 
 const integrationEndpointLookup = AdminLookup(
@@ -126,6 +141,7 @@ const integrationEndpointLookup = AdminLookup(
   labelKeys: ['code', 'name'],
   limit: 1000,
   showIdInDropdown: false,
+  selectableWhen: {'is_active': 'true'},
 );
 
 const emailTemplateLookup = AdminLookup(
@@ -133,6 +149,7 @@ const emailTemplateLookup = AdminLookup(
   labelKeys: ['code', 'name', 'message_type_code', 'scope_code', 'version'],
   limit: 1000,
   showIdInDropdown: false,
+  selectableWhen: {'is_active': 'true'},
 );
 
 const roofModelLookup = AdminLookup(
@@ -437,6 +454,9 @@ const documentTypeOptions = <AdminSelectOption>[
   AdminSelectOption(value: 'order', label: 'Order'),
   AdminSelectOption(value: 'invoice', label: 'Invoice'),
   AdminSelectOption(value: 'delivery_note', label: 'Delivery note'),
+  AdminSelectOption(value: 'kit', label: 'Kit'),
+  AdminSelectOption(value: 'ce', label: 'CE sheet'),
+  AdminSelectOption(value: 'warranty', label: 'Warranty'),
   AdminSelectOption(value: 'other', label: 'Other'),
 ];
 
@@ -1733,6 +1753,12 @@ const adminNavGroups = <AdminNavGroup>[
             type: AdminFieldType.boolType,
             helperText: 'If disabled, Submit/Resend still sends the rendered quote email to configured internal recipients/actor only.',
           ),
+          AdminField(
+            key: 'submit_mailing_profile_id', label: 'Submit mailing profile', lookup: mailingProfileLookup,
+            lookupFilters: {'is_active': 'true'},
+            lookupFilterFieldKey: 'id', lookupFilterQueryKey: 'configurator_template_id',
+            helperText: 'Select a profile of this configurator. Empty keeps the legacy delivery settings. Save a new configurator before assigning a profile.',
+          ),
           AdminField(key: 'geometry_preview_media_file_id', label: 'Geometry Preview image ID',
               type: AdminFieldType.file, filePurpose: 'template_geometry_preview',
               accept: 'image/png,image/jpeg,image/webp',
@@ -1744,6 +1770,8 @@ const adminNavGroups = <AdminNavGroup>[
           AdminField(key: 'metadata_json', label: 'Metadata JSON', type: AdminFieldType.json),
         ],
         detailActions: [
+          AdminDetailAction(label: 'Mailing profiles', targetResourceKey: 'mailing_profiles',
+            filterKey: 'configurator_template_id', sourceValueKey: 'id', icon: Icons.outgoing_mail),
           AdminDetailAction(
             label: 'Show product family',
             targetResourceKey: 'product_families',
@@ -2857,6 +2885,11 @@ const adminNavGroups = <AdminNavGroup>[
           AdminColumn(key: 'scope_code', label: 'Scope'),
           AdminColumn(key: 'is_active', label: 'Active'),
         ],
+        listFilters: [
+          AdminResourceFilter(key: 'document_type_code', label: 'Document type', options: documentTypeOptions),
+          AdminResourceFilter(key: 'scope_code', label: 'Scope', options: scopeOptions),
+          AdminResourceFilter(key: 'is_active', label: 'Active', options: activeFilterOptions),
+        ],
         formFields: [
           AdminField(key: 'code', label: 'Code'),
           AdminField(key: 'name', label: 'Name'),
@@ -2917,6 +2950,82 @@ const adminNavGroups = <AdminNavGroup>[
         ],
       ),
       AdminResourceDefinition(
+        key: 'mailing_profiles', title: 'Mailing Profiles', endpoint: '/api/admin/mailing-profiles',
+        icon: Icons.outgoing_mail, supportsDelete: true,
+        description: 'Each rule sends its own document batch to internal staff, the customer or the B2B partner.',
+        columns: [
+          AdminColumn(key: 'name', label: 'Name', isPrimary: true, flex: 2),
+          AdminColumn(key: 'code', label: 'Code'),
+          AdminColumn(key: 'configurator_template_id', label: 'Configurator', lookup: configuratorTemplateLookup, flex: 2),
+          AdminColumn(key: 'is_active', label: 'Active'),
+          AdminColumn(key: 'metadata_json.migration_needs_review', label: 'Review migration'),
+        ],
+        listFilters: [
+          AdminResourceFilter(key: 'configurator_template_id', label: 'Configurator', lookup: configuratorTemplateLookup),
+          AdminResourceFilter(key: 'is_active', label: 'Active', options: activeFilterOptions),
+        ],
+        formFields: [
+          AdminField(key: 'code', label: 'Code'), AdminField(key: 'name', label: 'Name'),
+          AdminField(key: 'configurator_template_id', label: 'Configurator template', lookup: configuratorTemplateLookup),
+          AdminField(key: 'is_active', label: 'Active', type: AdminFieldType.boolType),
+          AdminField(key: 'metadata_json', label: 'Metadata JSON', type: AdminFieldType.json, defaultValue: '{}'),
+        ],
+        detailActions: [AdminDetailAction(label: 'Configurator template', targetResourceKey: 'configurator_templates',
+          filterKey: 'id', sourceValueKey: 'configurator_template_id', selectTargetRow: true)],
+      ),
+      AdminResourceDefinition(
+        key: 'mailing_profile_rules', title: 'Mailing Rules', endpoint: '/api/admin/mailing-profile-rules',
+        icon: Icons.mark_email_read_outlined, supportsDelete: true, showInNavigation: false,
+        columns: [
+          AdminColumn(key: 'sort_order', label: 'Order'), AdminColumn(key: 'name', label: 'Name', isPrimary: true),
+          AdminColumn(key: 'recipient_type', label: 'Recipients'),
+          AdminColumn(key: 'document_batch_id', label: 'Documents', lookup: documentBatchLookup),
+          AdminColumn(key: 'is_active', label: 'Active'),
+        ],
+        listFilters: [
+          AdminResourceFilter(key: 'mailing_profile_id', label: 'Profile', lookup: mailingProfileLookup),
+          AdminResourceFilter(key: 'recipient_type', label: 'Recipients', options: mailingRecipientOptions),
+          AdminResourceFilter(key: 'is_active', label: 'Active', options: activeFilterOptions),
+        ],
+        formFields: [
+          AdminField(key: 'mailing_profile_id', label: 'Profile', lookup: mailingProfileLookup),
+          AdminField(key: 'code', label: 'Code'), AdminField(key: 'name', label: 'Name'),
+          AdminField(key: 'recipient_type', label: 'Recipients', options: mailingRecipientOptions, defaultValue: 'customer'),
+          AdminField(key: 'sort_order', label: 'Order', type: AdminFieldType.number, defaultValue: '100'),
+          AdminField(key: 'is_active', label: 'Enabled', type: AdminFieldType.boolType),
+          AdminField(key: 'use_default_batch', label: 'Use default document batch', type: AdminFieldType.boolType, defaultValue: 'true'),
+          AdminField(key: 'document_batch_id', label: 'Document batch', lookup: documentBatchLookup,
+            visibleWhenFieldKey: 'use_default_batch', visibleWhenValues: ['false']),
+          AdminField(key: 'email_template_id', label: 'Email template', lookup: emailTemplateLookup,
+            helperText: 'Empty: automatic template for the document type. Recipient settings of the email template are ignored.'),
+          AdminField(key: 'email_template_by_order_type', label: 'Email templates by order type (JSON)', type: AdminFieldType.json, defaultValue: '{}'),
+          AdminField(key: 'email_template_by_order_type.offer', label: 'Offer email template', lookup: emailTemplateLookup),
+          AdminField(key: 'email_template_by_order_type.order_confirmation', label: 'Order confirmation email template', lookup: emailTemplateLookup),
+          AdminField(key: 'recipient_emails', label: 'Additional internal emails',
+            helperText: 'Comma-separated addresses explicitly approved for internal documents.',
+            visibleWhenFieldKey: 'recipient_type', visibleWhenValues: ['internal']),
+          AdminField(key: 'recipient_mode', label: 'Internal address header', defaultValue: 'bcc', options: [
+            AdminSelectOption(value: 'to', label: 'TO'), AdminSelectOption(value: 'cc', label: 'CC'), AdminSelectOption(value: 'bcc', label: 'BCC')],
+            visibleWhenFieldKey: 'recipient_type', visibleWhenValues: ['internal']),
+          AdminField(key: 'include_configured_internal', label: 'Configured internal recipients', type: AdminFieldType.boolType,
+            visibleWhenFieldKey: 'recipient_type', visibleWhenValues: ['internal']),
+          AdminField(key: 'include_submitter', label: 'Submitting employee', type: AdminFieldType.boolType,
+            visibleWhenFieldKey: 'recipient_type', visibleWhenValues: ['internal']),
+          AdminField(key: 'include_creator', label: 'Creating employee', type: AdminFieldType.boolType,
+            visibleWhenFieldKey: 'recipient_type', visibleWhenValues: ['internal']),
+          AdminField(key: 'include_administrators', label: 'Internal administrators', type: AdminFieldType.boolType,
+            visibleWhenFieldKey: 'recipient_type', visibleWhenValues: ['internal']),
+          AdminField(key: 'include_correction_recipients', label: 'Correction recipients (Korrektur only)', type: AdminFieldType.boolType,
+            visibleWhenFieldKey: 'recipient_type', visibleWhenValues: ['internal']),
+          AdminField(key: 'copy_customer', label: 'Copy B2B documents to customer', type: AdminFieldType.boolType,
+            helperText: 'Same attachments. Only when a customer rule and external delivery are enabled.',
+            visibleWhenFieldKey: 'recipient_type', visibleWhenValues: ['related_customer']),
+          AdminField(key: 'from_submitter', label: 'Send as submitting employee', type: AdminFieldType.boolType,
+            helperText: 'From = the internal user who runs Submit, so replies reach this person. Other users keep the system sender.',
+            visibleWhenFieldKey: 'recipient_type', visibleWhenValues: ['customer', 'internal']),
+        ],
+      ),
+      AdminResourceDefinition(
         key: 'email_templates',
         title: 'Email Templates',
         endpoint: '/api/admin/email-templates',
@@ -2927,6 +3036,10 @@ const adminNavGroups = <AdminNavGroup>[
           AdminColumn(key: 'message_type_code', label: 'Message type'),
           AdminColumn(key: 'scope_code', label: 'Scope'),
           AdminColumn(key: 'is_active', label: 'Active'),
+        ],
+        listFilters: [
+          AdminResourceFilter(key: 'scope_code', label: 'Scope', options: scopeOptions),
+          AdminResourceFilter(key: 'is_active', label: 'Active', options: activeFilterOptions),
         ],
         formFields: [
           AdminField(key: 'code', label: 'Code'),
@@ -3103,6 +3216,30 @@ const adminNavGroups = <AdminNavGroup>[
           AdminField(key: 'provider_code', label: 'Provider code'),
           AdminField(key: 'entity_scope_code', label: 'Entity scope code'),
           AdminField(key: 'config_json', label: 'Config JSON', type: AdminFieldType.json),
+          AdminField(
+            key: 'config_json.templates.tds_glas.drive_upload.link_document_template_id',
+            label: 'Commission PDF link: TDS Glas',
+            lookup: documentTemplateLookup,
+            helperText: 'Second sheet link opens only this template. It must belong to an available document batch. Clear to use the first uploaded PDF.',
+            visibleWhenFieldKey: 'code',
+            visibleWhenValues: ['accounting_google_sheet'],
+          ),
+          AdminField(
+            key: 'config_json.templates.einzelteile.drive_upload.link_document_template_id',
+            label: 'Commission PDF link: Einzelteile',
+            lookup: documentTemplateLookup,
+            helperText: 'Second sheet link opens only this template. It must belong to an available document batch. Clear to use the first uploaded PDF.',
+            visibleWhenFieldKey: 'code',
+            visibleWhenValues: ['accounting_google_sheet'],
+          ),
+          AdminField(
+            key: 'config_json.templates.einzelteile.exceptions.reclamation.drive_upload.link_document_template_id',
+            label: 'Commission PDF link: Einzelteile Reklamation',
+            lookup: documentTemplateLookup,
+            helperText: 'Without an override, inherits Einzelteile. Choose another available template; clearing an existing override uses the first uploaded PDF.',
+            visibleWhenFieldKey: 'code',
+            visibleWhenValues: ['accounting_google_sheet'],
+          ),
           AdminField(
             key: 'config_json.templates.tds_glas.drive_upload.folder_path',
             label: 'Google Drive base folder: TDS Glas',

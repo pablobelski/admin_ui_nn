@@ -170,11 +170,15 @@ class AdminResourceRepository {
     );
   }
 
+  Future<Map<String, dynamic>> fetchMediaStorageRoots() =>
+      _client.getJson('/api/admin/media-files/roots');
+
   Future<Map<String, dynamic>> uploadMediaFile({
     required String filename,
     required String contentType,
     required String dataBase64,
     required String purpose,
+    String? rootPath,
     Map<String, dynamic> metadata = const {},
   }) {
     return _client.postJson(
@@ -184,6 +188,7 @@ class AdminResourceRepository {
         'content_type': contentType,
         'data_base64': dataBase64,
         'purpose': purpose,
+        if (rootPath != null) 'root_path': rootPath,
         'metadata': metadata,
       },
     );

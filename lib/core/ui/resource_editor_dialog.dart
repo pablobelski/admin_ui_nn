@@ -59,7 +59,8 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
       for (final field in widget.resource.formFields)
         if (field.type == AdminFieldType.boolType)
           field.key: _valueAtPath(widget.initialData, field.key) == true ||
-              (widget.initialData == null && _defaultBoolValue(field.key)),
+              (widget.initialData == null &&
+                  (field.defaultValue != null ? field.defaultValue == 'true' : _defaultBoolValue(field.key))),
     };
     _lookupFutures = {
       for (final field in widget.resource.formFields)
@@ -84,7 +85,7 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
   String _lookupFilterValue(AdminField field) {
     final sourceKey = field.lookupFilterFieldKey;
     if (sourceKey == null || sourceKey.isEmpty) return '';
-    return _controllers[sourceKey]?.text.trim() ?? '';
+    return _controllers[sourceKey]?.text.trim() ?? _valueAtPath(widget.initialData, sourceKey)?.toString().trim() ?? '';
   }
 
   Future<List<Map<String, dynamic>>> _loadLookup(AdminField field) {
@@ -383,6 +384,10 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
           for (final row in rows) {
             final id = row[lookup.idKey]?.toString();
             if (id == null || id.isEmpty) continue;
+            if (id != currentValue &&
+                lookup.selectableWhen.entries.any((entry) => '${row[entry.key]}' != entry.value)) {
+              continue;
+            }
             hasCurrentValue = hasCurrentValue || id == currentValue;
             options.add(SearchableSelectOption(value: id, label: _lookupLabel(lookup, row)));
           }
@@ -843,8 +848,11 @@ class _ResourceEditorDialogState extends State<ResourceEditorDialog> {
     }
 
     final payload = <String, dynamic>{};
+    // Parent JSON editors first, then nested controls. Never overwrite a selected child with stale raw JSON.
+    final payloadFields = widget.resource.formFields.toList()
+      ..sort((a, b) => a.key.split('.').length.compareTo(b.key.split('.').length));
 
-    for (final field in widget.resource.formFields) {
+    for (final field in payloadFields) {
       if (!_isFieldVisible(field)) continue;
       if (!field.includeInPayload) continue;
 

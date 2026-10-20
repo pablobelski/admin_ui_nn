@@ -88,6 +88,19 @@ bool _isGeometryPreviewPostItem(CalculatorSetContentItem item) {
   return false;
 }
 
+// Longest enabled post (Pfosten 15190) of the set contents, null when the set has no post length.
+double? geometryPreviewPostSetLengthMm(List<CalculatorSetContentTab> modules) {
+  double? length;
+  for (final module in modules) {
+    for (final item in module.items) {
+      final value = item.lengthMm?.toDouble();
+      if (!item.enabled || value == null || value <= 0 || !_isGeometryPreviewPostItem(item)) continue;
+      length = length == null ? value : math.max(length, value);
+    }
+  }
+  return length;
+}
+
 int geometryPreviewPostCount({
   required int calculatedPostCount,
   required List<CalculatorSetContentTab> modules,
@@ -2361,9 +2374,10 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
           ? _roofCoveringFillColor()
           : Colors.white.withValues(alpha: 0.30)
       ..style = PaintingStyle.fill;
-    final shadowPaint = Paint()
-      ..color = Colors.black.withValues(alpha: 0.055)
-      ..style = PaintingStyle.fill;
+    final gridPaint = Paint()
+      ..color = mutedLineColor.withValues(alpha: 0.26)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 0.8;
 
     canvas.save();
     canvas.clipRect(
@@ -2377,7 +2391,11 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
             ),
     );
 
-    _drawGroundShadow(canvas, s, layout, shadowPaint);
+    // Floor grid inside the drawing area only, so the preview keeps its scale and size.
+    canvas.save();
+    canvas.clipRect(Rect.fromLTWH(pad, pad, availW, availH));
+    _drawGroundGrid(canvas, s, layout, gridPaint);
+    canvas.restore();
     _drawWallGuides(canvas, s, layout, guidePaint);
 
     _drawRoofFill(canvas, s, layout, roofFillPaint);
@@ -2888,27 +2906,25 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     return bands;
   }
 
-  void _drawGroundShadow(
+  // Floor grid as in the GLB scene: 1 m lines counted from the wall (y = depth) to at least 1.5 m in front of the
+  // roof, 4 m wider than the roof on both sides (the human figure stands there).
+  void _drawGroundGrid(
     Canvas canvas,
     Offset Function(double, double, double) s,
     _RoofLayout layout,
     Paint paint,
   ) {
-    final outline = <Offset>[
-      ...layout.front,
-      for (var i = layout.back.length - 1; i >= 0; i--) layout.back[i],
-    ];
-    if (outline.isEmpty) return;
-    const shadowShift = Offset(64, 10);
-    final path = Path();
-    final first = s(outline.first.dx, outline.first.dy, 0) + shadowShift;
-    path.moveTo(first.dx, first.dy);
-    for (final point in outline.skip(1)) {
-      final p = s(point.dx, point.dy, 0) + shadowShift;
-      path.lineTo(p.dx, p.dy);
+    const step = 1000.0;
+    final back = layout.depthMm;
+    final front = back - ((back + 1500) / step).ceil() * step;
+    const left = -4 * step;
+    final right = (layout.widthMm / step).ceil() * step + 4 * step;
+    for (var x = left; x <= right; x += step) {
+      canvas.drawLine(s(x, front, 0), s(x, back, 0), paint);
     }
-    path.close();
-    canvas.drawPath(path, paint);
+    for (var y = back; y >= front; y -= step) {
+      canvas.drawLine(s(left, y, 0), s(right, y, 0), paint);
+    }
   }
 
   void _drawRoofFill(
@@ -4031,7 +4047,6 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     final beamBackOffset = _roofParam('backOffsetMm', 'back_offset_mm', 4);
     final glassFrontAdd = _roofParam('glassFrontAddMm', 'glass_front_add_mm', 52);
     const wallColor = Color(0xFFB9BDC1);
-    const postSetColor = Color(0xFFE24B4A);
     final w = layout.widthMm;
     final d = layout.depthMm;
     if (w <= postW || d <= postW) return;
@@ -4045,6 +4060,10 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     if (rear <= gutterH) return;
     final angle = roofAngleDeg;
     final front = _frontHeightFor(rear, d).clamp(gutterH, rear).toDouble();
+    // Höhe UKW / UKR are lower edges (wall profile / gutter = top of the posts). The roof top line (beam top, glass
+    // underside) lies one gutter height above both; the wall profile is drawn as high as the gutter, so the slope
+    // stays atan((UKW - UKR) / depth) as calculated.
+    final topRear = rear + gutterH, topFront = front + gutterH;
     final wallMm = wallMounted ? wallT : 0.0;
     final profileColor = colorSwatchColor ?? const Color(0xFFA7ABAF);
     // One opaque fill per covering of the fields; a further covering of the same kind (klar, matt) gets a darker shade.
@@ -4063,7 +4082,14 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     // Outer beams flush with the roof edge (gutter, posts) below.
     final rafters = [for (final x in _effectiveRafterX(layout)) x.clamp(beamW / 2, w - beamW / 2).toDouble()];
     final posts = _effectivePostPoints(layout);
-    final postSetLength = _postSetLengthMm();
+    // Rafter bays per module (they may differ): lichtes Maß = calculated beam step, Achsabstand = + beam width.
+    final moduleBays = <(double, double, double)>[];
+    for (final area in layout.moduleAreas) {
+      final calculation = calculatedModules.where((entry) => entry.moduleIndex == area.index).firstOrNull;
+      if (calculation == null || calculation.beamStepMm <= 0 || area.corners.isEmpty) continue;
+      final xs = area.corners.map((point) => point.dx);
+      moduleBays.add((xs.reduce(_min), xs.reduce(_max), calculation.beamStepMm));
+    }
     final code = colorCode?.trim() ?? '';
     final covering = coveringName?.trim() ?? '';
     final legend = <(String, String, Color)>[
@@ -4074,7 +4100,7 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
       else
         ('glass', covering.isEmpty ? 'Eindeckung' : 'Eindeckung: $covering', glassColor),
       if (wallMounted) ('wall', 'Wand', wallColor),
-      if (postSetLength != null) ('post', 'Pfostenlänge im Set', postSetColor),
+      if (moduleBays.isNotEmpty) ('bay', 'Sparren: Achsabstand / lichtes Maß', lineColor),
       ('text', 'Alle Maße in mm, einheitlicher Maßstab', lineColor),
     ];
     final legendWidth = legend
@@ -4112,9 +4138,6 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.0
       ..strokeCap = StrokeCap.round;
-    final postSetPaint = Paint()
-      ..color = postSetColor
-      ..strokeWidth = 1.0;
     void part(Rect rect, Color color) {
       canvas.drawRect(rect, Paint()..color = color);
       canvas.drawRect(rect, outline);
@@ -4134,38 +4157,32 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     label('Vorderansicht', Offset(x0, y1 + titleH * 0.4), hAlign: 0, size: ts);
     final beamPx = _max(1.2, beamW * k);
     if ((rear - front) * k >= 0.5) {
-      final glassRect = Rect.fromLTRB(x0, zy(rear), x0 + w * k, zy(front));
+      final glassRect = Rect.fromLTRB(x0, zy(topRear), x0 + w * k, zy(topFront));
       part(glassRect, glassColor);
       if (multipleCoverings) {
         canvas.save();
         canvas.clipRect(glassRect);
         for (final (band, coveringCode) in coveringBands) {
-          shape([for (final p in band) Offset(x0 + p.dx * k, zy(front + (rear - front) * p.dy / d))],
+          shape([for (final p in band) Offset(x0 + p.dx * k, zy(topFront + (rear - front) * p.dy / d))],
               coveringFills[coveringCode]!);
         }
         canvas.restore();
       }
       for (final x in rafters) {
-        part(Rect.fromLTRB(x0 + x * k - beamPx / 2, zy(rear), x0 + x * k + beamPx / 2, zy(front)), profileColor);
+        part(Rect.fromLTRB(x0 + x * k - beamPx / 2, zy(topRear), x0 + x * k + beamPx / 2, zy(topFront)), profileColor);
       }
     }
-    part(Rect.fromLTWH(x0, zy(rear), w * k, _max(1.5, profileT * k)), profileColor);
-    part(Rect.fromLTRB(x0, zy(front), x0 + w * k, zy(front - gutterH)), profileColor);
+    part(Rect.fromLTRB(x0, zy(topRear), x0 + w * k, zy(rear)), profileColor);
+    part(Rect.fromLTRB(x0, zy(topFront), x0 + w * k, zy(front)), profileColor);
     final postX = <double>{
       for (final point in posts) point.dx.clamp(postW / 2, w - postW / 2).toDouble().roundToDouble(),
     }.toList()
       ..sort();
     for (final x in postX) {
       final left = x0 + (x - postW / 2) * k;
-      part(Rect.fromLTRB(left, zy(front - gutterH), left + _max(2, postW * k), ground), profileColor);
+      part(Rect.fromLTRB(left, zy(front), left + _max(2, postW * k), ground), profileColor);
     }
     canvas.drawLine(Offset(x0 - 6 * u, ground), Offset(x0 + w * k + 6 * u, ground), groundPaint);
-    if (postSetLength != null) {
-      final y = zy(postSetLength);
-      _drawDashedLine(canvas, Offset(x0, y), Offset(x0 + w * k, y), postSetPaint, dashLength: 4 * u, gapLength: 3 * u);
-      label('Pfosten im Set ${postSetLength.round()}', Offset(x0 + 8 * u, y - 7 * u),
-          hAlign: 0, isBold: false, color: postSetColor);
-    }
     for (var i = 0; i + 1 < postX.length; i++) {
       final a = Offset(x0 + postX[i] * k, ground + 12 * u);
       final b = Offset(x0 + postX[i + 1] * k, ground + 12 * u);
@@ -4181,7 +4198,7 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     label('Seitenansicht', Offset(x2, y1 + titleH * 0.4), hAlign: 0, size: ts);
     final wallFace = x2 + sideLeftW + wallMm * k;
     double sx(double v) => wallFace + v * k;
-    double roofZ(double v) => rear + (front - rear) * v / d;
+    double roofZ(double v) => topRear + (topFront - topRear) * v / d;
     if (wallMounted) {
       part(Rect.fromLTRB(x2 + sideLeftW, zy(rear + wallOver), wallFace, ground), wallColor);
     }
@@ -4201,7 +4218,8 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
       Offset(sx(beamEnd), zy(roofZ(beamEnd) - beamH)),
       Offset(sx(beamStart), zy(roofZ(beamStart) - beamH)),
     ], profileColor);
-    part(Rect.fromLTRB(sx(d - gutterD), zy(front), sx(d), zy(front - gutterH)), profileColor);
+    part(Rect.fromLTRB(sx(d - gutterD), zy(topFront), sx(d), zy(front)), profileColor);
+    part(Rect.fromLTRB(sx(0), zy(topRear), sx(profileT), zy(rear)), profileColor);
     final postV = <double>{
       for (final point in posts) (d - point.dy).clamp(postW / 2, d - postW / 2).toDouble().roundToDouble(),
     };
@@ -4219,7 +4237,7 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     _dimLine(canvas, Offset(sx(0), ground + 12 * u), Offset(sx(d), ground + 12 * u), dimensionPaint);
     label('${d.round()}', Offset(sx(d / 2), ground + 20 * u));
     if (angle != null) {
-      label('$angle°', Offset(sx(d / 2), zy((rear + front) / 2 + glassT) - 10 * u));
+      label('$angle°', Offset(sx(d / 2), zy((topRear + topFront) / 2 + glassT) - 10 * u));
     }
 
     // Draufsicht: wall on top, gutter at the bottom.
@@ -4303,15 +4321,15 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     final depthDimX = x0 + w * k + 12 * u;
     _dimLine(canvas, Offset(depthDimX, planTop), Offset(depthDimX, planTop + d * k), dimensionPaint);
     label('${d.round()}', Offset(depthDimX + 4 * u, planTop + d * k / 2), hAlign: 0);
-    if (rafters.length > 1) {
-      // Inner pair when available: the outer beams sit flush with the roof edge.
-      final i = rafters.length > 2 ? 1 : 0;
+    for (final (minX, maxX, step) in moduleBays) {
+      // Dimension on a middle pair of the module (the outer beams sit flush with the roof edge), values below it.
+      final inModule = [for (final x in rafters) if (x >= minX - 1 && x <= maxX + 1) x];
       final y = planTop + d * k + 12 * u;
-      final a = Offset(x0 + rafters[i] * k, y);
-      final b = Offset(x0 + rafters[i + 1] * k, y);
-      _dimLine(canvas, a, b, dimensionPaint);
-      label('Achsabstand Sparren ${(rafters[i + 1] - rafters[i]).round()}', b + Offset(8 * u, 0),
-          hAlign: 0, isBold: false);
+      if (inModule.length > 1) {
+        final i = (inModule.length - 2) ~/ 2;
+        _dimLine(canvas, Offset(x0 + inModule[i] * k, y), Offset(x0 + inModule[i + 1] * k, y), dimensionPaint);
+      }
+      label('${(step + beamW).round()} / ${step.round()}', Offset(x0 + (minX + maxX) / 2 * k, y + 8 * u), isBold: false);
     }
 
     // Legend next to the top view.
@@ -4322,9 +4340,8 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
       switch (kind) {
         case 'profile' || 'glass' || 'wall':
           part(swatch, color);
-        case 'post':
-          _drawDashedLine(canvas, Offset(x2, center), Offset(x2 + legendSwatch, center), postSetPaint,
-              dashLength: 4 * u, gapLength: 3 * u);
+        case 'bay':
+          _dimLine(canvas, Offset(x2, center), Offset(x2 + legendSwatch, center), dimensionPaint);
       }
       label(text, Offset(kind == 'text' ? x2 : x2 + legendSwatch + 6 * u, center), hAlign: 0, isBold: false);
       legendY += legendLine;
@@ -4344,19 +4361,6 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     final value = roofParameters[key] ?? roofParameters[snakeKey];
     final number = value is num ? value.toDouble() : double.tryParse('${value ?? ''}');
     return number == null || number < 0 ? fallback : number;
-  }
-
-  // Longest enabled post (Pfosten 15190) of the set contents, null when the set has no post length.
-  double? _postSetLengthMm() {
-    double? length;
-    for (final module in modules) {
-      for (final item in module.items) {
-        final value = item.lengthMm?.toDouble();
-        if (!item.enabled || value == null || value <= 0 || !_isGeometryPreviewPostItem(item)) continue;
-        length = length == null ? value : _max(length, value);
-      }
-    }
-    return length;
   }
 
   double _textWidth(String text, double fontSize) => (TextPainter(
@@ -4504,7 +4508,7 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
       }
 
       fillStandard(postCount);
-      return points;
+      return _distributeSegmentPosts(layout, points);
     }
 
     final preferredModules = _preferredPostModuleIndices();
@@ -4586,7 +4590,92 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
       }
     }
 
-    return points;
+    return _distributeSegmentPosts(layout, points);
+  }
+
+  // Keep the chosen side and priority supports. Redistribute only the remaining
+  // posts on each module-width segment, snapping the whole group to free beams.
+  List<Offset> _distributeSegmentPosts(_RoofLayout layout, List<Offset> posts) {
+    final structural = _structuralPriorityPostPoints(layout);
+    final fixed = [
+      ...structural,
+      ..._canonicalPostPoints(layout),
+      if (structural.isEmpty) ..._segmentJointPostPoints(layout, layout.front, const []),
+      if (structural.isEmpty && !wallMounted) ..._segmentJointPostPoints(layout, layout.back, const []),
+    ];
+    final result = List<Offset>.from(posts);
+    final boundaries = layout.moduleAreas.expand((area) => area.corners.map((point) => point.dx)).toSet();
+    final rafters = _effectiveRafterX(layout);
+    for (final edge in _freePerimeterSegments(layout)) {
+      final start = edge[0];
+      final end = edge[1];
+      // A longitudinal side runs along a beam rather than across rafters;
+      // its structural/profile-cut supports keep their existing placement.
+      if ((end.dx - start.dx).abs() < 1) continue;
+      final cuts = <double>{start.dx, end.dx,
+        ...boundaries.where((x) => x > math.min(start.dx, end.dx) + 1 && x < math.max(start.dx, end.dx) - 1),
+      }.toList()..sort();
+      Offset at(double x) => Offset.lerp(start, end, (x - start.dx) / (end.dx - start.dx))!;
+      for (var segment = 0; segment < cuts.length - 1; segment++) {
+        final left = cuts[segment];
+        final right = cuts[segment + 1];
+        final indices = <int>[
+          for (var i = 0; i < posts.length; i++)
+            if (_pointOnPlanSegment(posts[i], at(left), at(right)) &&
+                !fixed.any((point) => (point - posts[i]).distance < 1)) i,
+        ];
+        if (indices.isEmpty) continue;
+        final occupied = [for (var i = 0; i < result.length; i++) if (!indices.contains(i)) result[i]];
+        final candidates = _uniquePoints([
+          for (final x in rafters)
+            if (x >= left && x <= right) at(x),
+        ]).where((point) => !occupied.any((other) => (other - point).distance < 1)).toList()
+          ..sort((a, b) => a.dx.compareTo(b.dx));
+        // More requested posts than free crossings cannot be represented without
+        // changing the side/count. Preserve that pre-existing exceptional layout.
+        if (candidates.length < indices.length) continue;
+        final selected = _evenlySpacedBeamIndices(
+          candidates.map((point) => point.dx).toList(), left, right, indices.length,
+        );
+        for (var i = 0; i < indices.length; i++) {
+          result[indices[i]] = candidates[selected[i]];
+        }
+      }
+    }
+    return result;
+  }
+
+  // Minimum total squared distance to i/(count+1), with distinct ordered beams.
+  // Solving the group avoids the midpoint-first bias of repeated gap splitting.
+  List<int> _evenlySpacedBeamIndices(List<double> beams, double left, double right, int count) {
+    final cost = List.generate(count + 1, (_) => List.filled(beams.length + 1, double.infinity));
+    final take = List.generate(count + 1, (_) => List.filled(beams.length + 1, false));
+    for (var j = 0; j <= beams.length; j++) {
+      cost[0][j] = 0;
+    }
+    for (var i = 1; i <= count; i++) {
+      final target = left + (right - left) * i / (count + 1);
+      for (var j = 1; j <= beams.length; j++) {
+        final distance = beams[j - 1] - target;
+        final selected = cost[i - 1][j - 1] + distance * distance;
+        cost[i][j] = cost[i][j - 1];
+        if (selected < cost[i][j] - 1e-6) {
+          cost[i][j] = selected;
+          take[i][j] = true;
+        }
+      }
+    }
+    final result = <int>[];
+    var i = count;
+    var j = beams.length;
+    while (i > 0 && j > 0) {
+      if (take[i][j]) {
+        result.add(j - 1);
+        i--;
+      }
+      j--;
+    }
+    return result.reversed.toList();
   }
 
   List<int> _preferredPostModuleIndices() {

@@ -212,6 +212,20 @@ class _TemplateToolbarState extends ConsumerState<_TemplateToolbar> {
           ),
         ),
         SizedBox(
+          width: 180,
+          child: SearchableSelectFormField(
+            key: ValueKey('template-filter-status-${workspaceState.statusCode}'),
+            value: workspaceState.statusCode,
+            options: [
+              for (final option in statusOptions)
+                SearchableSelectOption(value: option.value, label: option.label),
+            ],
+            onChanged: (value) => browser.setTemplateFilter('status_code', value),
+            labelText: 'Status',
+            emptyLabel: '— All —',
+          ),
+        ),
+        SizedBox(
           width: 280,
           child: TextField(
             controller: _moduleSearchController,
@@ -1421,6 +1435,7 @@ Map<String, String> _templateNavigationFilters(Map<String, String> filters) {
     if ((filters['product_family_id'] ?? '').isNotEmpty)
       'product_family_id': filters['product_family_id']!,
     if ((filters['roof_model_id'] ?? '').isNotEmpty) 'roof_model_id': filters['roof_model_id']!,
+    if ((filters['status_code'] ?? '').isNotEmpty) 'status_code': filters['status_code']!,
   };
 }
 

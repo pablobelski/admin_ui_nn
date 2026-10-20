@@ -196,12 +196,14 @@ class CalculatorRepository {
   Future<QuoteSubmitPreview> fetchQuoteSubmitPreview(
     String quoteId, {
     required String operation,
+    QuoteDeliveryChoice delivery = const QuoteDeliveryChoice(),
   }) async {
     final response = await _client.getJson(
       '/api/internal/calculator/submit',
       query: {
         'quote_id': quoteId,
         'operation': operation,
+        for (final entry in delivery.toJson().entries) entry.key: '${entry.value}',
       },
     );
     return QuoteSubmitPreview.fromJson(response);
@@ -223,10 +225,11 @@ class CalculatorRepository {
     return QuoteSubmitResult.fromJson(response);
   }
 
-  Future<Map<String, dynamic>> previewIntegrationBatch(String quoteId, {String? batchId}) =>
+  Future<Map<String, dynamic>> previewIntegrationBatch(String quoteId, {String? batchId, QuoteDeliveryChoice delivery = const QuoteDeliveryChoice()}) =>
       _client.getJson('/api/internal/calculator/integration-batch', query: {
         'quote_id': quoteId,
         if (batchId != null) 'integration_batch_id': batchId,
+        for (final entry in delivery.toJson().entries) entry.key: '${entry.value}',
       });
 
   Future<QuoteIntegrationResult> submitIntegrationBatch(
@@ -352,6 +355,7 @@ class QuoteStatusTransitions {
     required this.quoteId,
     required this.quoteNo,
     required this.statusCode,
+    this.orderTypeCode,
     required this.transitions,
   });
 
@@ -360,6 +364,7 @@ class QuoteStatusTransitions {
         quoteId: _repoString(json['quote_id'] ?? json['quoteId']),
         quoteNo: _repoString(json['quote_no'] ?? json['quoteNo']),
         statusCode: _repoString(json['status_code'] ?? json['statusCode']),
+        orderTypeCode: _repoNullableString(json['order_type_code']),
         transitions: _repoList(json['transitions'])
             .map(QuoteStatusTransitionOption.fromJson)
             .toList(growable: false),
@@ -368,6 +373,7 @@ class QuoteStatusTransitions {
   final String quoteId;
   final String quoteNo;
   final String statusCode;
+  final String? orderTypeCode;
   final List<QuoteStatusTransitionOption> transitions;
 }
 
@@ -443,7 +449,7 @@ class QuoteSubmitPreview {
     required this.senderAddress,
     required this.subject,
     required this.attachmentMode,
-    required this.recipientTemplateLabels,
+    required this.recipientBatches,
     required this.emailTemplateLabels,
     required this.emailSubjects,
     required this.errors,
@@ -457,6 +463,8 @@ class QuoteSubmitPreview {
     this.orderTypeLabel,
     this.korrekturNo = 0,
     this.b2bEmail,
+    this.mailingProfile = const {}, this.mailingProfiles = const [],
+    this.mailingDeliveries = const [], this.mailingSkipped = const [],
   });
 
   factory QuoteSubmitPreview.fromJson(Map<String, dynamic> json) {
@@ -467,15 +475,8 @@ class QuoteSubmitPreview {
     final recipients = _repoMap(json['recipients']);
     final batch = _repoMap(json['document_batch'] ?? json['documentBatch']);
     final email = _repoMap(json['email']);
-    final recipientTemplates = _repoMap(json['recipient_templates'] ?? json['recipientTemplates']);
+    final recipientBatches = _repoMap(json['recipient_batches']);
     final emailTemplates = _repoMap(json['email_templates'] ?? json['emailTemplates']);
-    String recipientTemplateLabel(String key) {
-      final template = _repoMap(recipientTemplates[key]);
-      final name = _repoString(template['name']);
-      final code = _repoString(template['code']);
-      if (name.isNotEmpty && code.isNotEmpty) return '$name ($code)';
-      return name.isNotEmpty ? name : code;
-    }
     String emailTemplateLabel(String key) {
       final template = _repoMap(emailTemplates[key]);
       final name = _repoString(template['name']);
@@ -487,6 +488,8 @@ class QuoteSubmitPreview {
         ? value.map((entry) => _repoString(entry)).where((entry) => entry.isNotEmpty).toList(growable: false)
         : const [];
     return QuoteSubmitPreview(
+      mailingProfile: _repoMap(json['mailing_profile']), mailingProfiles: _repoList(json['mailing_profiles']),
+      mailingDeliveries: _repoList(json['mailing_deliveries']), mailingSkipped: _repoList(json['mailing_skipped']),
       canSubmit: _repoBool(json['can_submit'] ?? json['canSubmit']),
       operation: _repoString(json['operation']),
       quoteId: _repoString(quote['id']),
@@ -518,11 +521,7 @@ class QuoteSubmitPreview {
       senderAddress: _repoString(sender['address']),
       subject: _repoString(email['subject']),
       attachmentMode: _repoString(json['attachment_mode'] ?? json['attachmentMode']),
-      recipientTemplateLabels: {
-        'to': recipientTemplateLabel('to'),
-        'cc': recipientTemplateLabel('cc'),
-        'bcc': recipientTemplateLabel('bcc'),
-      },
+      recipientBatches: {for (final group in ['to', 'cc', 'bcc']) group: _repoMap(recipientBatches[group])},
       emailTemplateLabels: {
         'to': emailTemplateLabel('to'),
         'cc': emailTemplateLabel('cc'),
@@ -553,6 +552,8 @@ class QuoteSubmitPreview {
   final String? orderTypeLabel;
   final int korrekturNo;
   final String? b2bEmail;
+  final Map<String, dynamic> mailingProfile;
+  final List<Map<String, dynamic>> mailingProfiles, mailingDeliveries, mailingSkipped;
   final String customerOrganizationName;
   final String? customerContactName;
   final String? customerEmail;
@@ -564,7 +565,7 @@ class QuoteSubmitPreview {
   final String senderAddress;
   final String subject;
   final String attachmentMode;
-  final Map<String, String> recipientTemplateLabels;
+  final Map<String, Map<String, dynamic>> recipientBatches;
   final Map<String, String> emailTemplateLabels;
   final Map<String, String> emailSubjects;
   final String? documentBatchName;
@@ -578,23 +579,36 @@ class QuoteSubmitPreview {
 // Send dialog choices: customer recipients and the preview items of the document batch (off by default).
 class QuoteDeliveryChoice {
   const QuoteDeliveryChoice({
+    this.mailingProfileId, this.mailingProfileVersion,
+    this.splitOutput,
     this.includeCustomer = true,
     this.includeGeometryPreview = false,
     this.includeSchematicPreview = false,
   });
 
+  final String? mailingProfileId, mailingProfileVersion;
+  final bool? splitOutput;
   final bool includeCustomer;
   final bool includeGeometryPreview;
   final bool includeSchematicPreview;
 
-  QuoteDeliveryChoice copyWith({bool? includeCustomer, bool? includeGeometryPreview, bool? includeSchematicPreview}) =>
+  QuoteDeliveryChoice copyWith({bool? splitOutput, bool? includeCustomer, bool? includeGeometryPreview, bool? includeSchematicPreview}) =>
       QuoteDeliveryChoice(
+        mailingProfileId: mailingProfileId, mailingProfileVersion: mailingProfileVersion,
+        splitOutput: splitOutput ?? this.splitOutput,
         includeCustomer: includeCustomer ?? this.includeCustomer,
         includeGeometryPreview: includeGeometryPreview ?? this.includeGeometryPreview,
         includeSchematicPreview: includeSchematicPreview ?? this.includeSchematicPreview,
       );
 
+  QuoteDeliveryChoice withProfile(String? id, [String? version]) => QuoteDeliveryChoice(
+    mailingProfileId: id, mailingProfileVersion: version, splitOutput: splitOutput,
+    includeCustomer: includeCustomer, includeGeometryPreview: includeGeometryPreview, includeSchematicPreview: includeSchematicPreview);
+
   Map<String, dynamic> toJson() => {
+        if ((mailingProfileId ?? '').isNotEmpty) 'mailing_profile_id': mailingProfileId,
+        if ((mailingProfileVersion ?? '').isNotEmpty) 'mailing_profile_version': mailingProfileVersion,
+        if (splitOutput != null) 'split_output': splitOutput,
         'include_customer': includeCustomer,
         'include_geometry_preview': includeGeometryPreview,
         'include_schematic_preview': includeSchematicPreview,
@@ -605,6 +619,7 @@ class QuoteDeliveryChoice {
 // whether the document batch has a saved Geometry / Schematic preview.
 class QuoteDeliveryOptions {
   const QuoteDeliveryOptions({
+    this.splitOutput = false,
     this.customerAllowed = false,
     this.externalEmails = const [],
     this.geometryInBatch = false,
@@ -617,6 +632,7 @@ class QuoteDeliveryOptions {
     final geometry = _repoMap(json['geometry_preview']);
     final schematic = _repoMap(json['schematic_preview']);
     return QuoteDeliveryOptions(
+      splitOutput: _repoBool(json['split_output']),
       customerAllowed: _repoBool(json['customer_allowed']),
       externalEmails: (json['external_emails'] is List ? json['external_emails'] as List : const [])
           .map(_repoString)
@@ -629,6 +645,7 @@ class QuoteDeliveryOptions {
     );
   }
 
+  final bool splitOutput;
   final bool customerAllowed;
   final List<String> externalEmails;
   final bool geometryInBatch;
@@ -651,6 +668,7 @@ class QuoteSubmitResult {
     required this.quoteId,
     required this.quoteNo,
     required this.statusCode,
+    this.orderTypeCode,
     required this.customerDeliveryEnabled,
     required this.queued,
     required this.jobId,
@@ -663,6 +681,7 @@ class QuoteSubmitResult {
         quoteId: _repoString(json['quote_id'] ?? json['quoteId']),
         quoteNo: _repoString(json['quote_no'] ?? json['quoteNo']),
         statusCode: _repoString(json['status_code'] ?? json['statusCode']),
+        orderTypeCode: _repoNullableString(json['order_type_code']),
         customerDeliveryEnabled: _repoBool(json['customer_delivery_enabled'] ?? json['customerDeliveryEnabled']),
         queued: _repoBool(json['queued']),
         jobId: _repoString(json['integration_job_id'] ?? json['job_id'] ?? json['jobId']),
@@ -674,6 +693,7 @@ class QuoteSubmitResult {
   final String quoteId;
   final String quoteNo;
   final String statusCode;
+  final String? orderTypeCode;
   final bool customerDeliveryEnabled;
   final bool queued;
   final String jobId;

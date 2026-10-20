@@ -13,6 +13,7 @@ class ConfiguratorTemplateRepository {
     String id = '',
     String productFamilyId = '',
     String roofModelId = '',
+    String statusCode = '',
     int limit = 30,
     int offset = 0,
   }) async {
@@ -23,6 +24,7 @@ class ConfiguratorTemplateRepository {
         if (id.isNotEmpty) 'id': id,
         if (productFamilyId.isNotEmpty) 'product_family_id': productFamilyId,
         if (roofModelId.isNotEmpty) 'roof_model_id': roofModelId,
+        if (statusCode.isNotEmpty) 'status_code': statusCode,
         'limit': '$limit',
         'offset': '$offset',
       },

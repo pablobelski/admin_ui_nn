@@ -19,6 +19,7 @@ class AdminLookup {
     this.labelKeys = const ['display_name', 'legal_name', 'name', 'code'],
     this.limit = 500,
     this.showIdInDropdown = true,
+    this.selectableWhen = const {},
   });
 
   final String endpoint;
@@ -26,6 +27,9 @@ class AdminLookup {
   final List<String> labelKeys;
   final int limit;
   final bool showIdInDropdown;
+  // Form fields offer only rows with these values (e.g. is_active: true); a value already saved stays selectable.
+  // List filters and column labels keep all rows.
+  final Map<String, String> selectableWhen;
 }
 
 class AdminField {
