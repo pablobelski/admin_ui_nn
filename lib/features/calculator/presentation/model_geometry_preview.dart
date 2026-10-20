@@ -4107,20 +4107,26 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
         .map((row) => _textWidth(row.$2, fs) + (row.$1 == 'text' ? 0.0 : legendSwatch + 6 * u))
         .reduce(_max);
     final legendHeight = legend.length * legendLine;
+    // Depth of every module in the top view: the layout's depth dimensions (left / right roof edge, middle module).
+    final depthDims = [
+      for (final dim in layout.dimensions)
+        if (dim.code != 'H' && !_isWidthDimensionCode(dim.code) && (dim.end.dy - dim.start.dy).abs() >= 1) dim,
+    ];
+    final leftDimW = depthDims.any((dim) => dim.offset.dx < 0) ? rightDimW : 0.0;
 
     // One scale for all views: front + top view stacked in the left column, side view and legend on the right.
     final fixedV = 2 * pad + 2 * titleH + frontDimH + gapY;
     final k = [
-      (area.width - 2 * pad - rightDimW - gapX - sideLeftW - sideRightW) / (w + wallMm + d),
-      (area.width - 2 * pad - rightDimW - gapX - legendWidth) / w,
+      (area.width - 2 * pad - leftDimW - rightDimW - gapX - sideLeftW - sideRightW) / (w + wallMm + d),
+      (area.width - 2 * pad - leftDimW - rightDimW - gapX - legendWidth) / w,
       (area.height - fixedV - topDimH) / (rear + wallOver + wallMm + d),
       (area.height - fixedV - legendHeight - drawingBottomRightReserve) / (rear + wallOver),
     ].reduce(_min);
     if (k <= 0) return;
-    final contentW = w * k + rightDimW + gapX + _max(sideLeftW + (wallMm + d) * k + sideRightW, legendWidth);
+    final contentW = leftDimW + w * k + rightDimW + gapX + _max(sideLeftW + (wallMm + d) * k + sideRightW, legendWidth);
     final contentH = fixedV - 2 * pad + (rear + wallOver) * k +
         _max((wallMm + d) * k + topDimH, legendHeight + drawingBottomRightReserve);
-    final x0 = area.left + pad + _max(0.0, (area.width - 2 * pad - contentW) / 2);
+    final x0 = area.left + pad + leftDimW + _max(0.0, (area.width - 2 * pad - contentW) / 2);
     final y1 = area.top + pad + _max(0.0, (area.height - 2 * pad - contentH) / 2);
     final x2 = x0 + w * k + rightDimW + gapX;
     final ground = y1 + titleH + (rear + wallOver) * k;
@@ -4318,9 +4324,15 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     );
     canvas.restore();
     canvas.drawPath(footprint, outline);
-    final depthDimX = x0 + w * k + 12 * u;
-    _dimLine(canvas, Offset(depthDimX, planTop), Offset(depthDimX, planTop + d * k), dimensionPaint);
-    label('${d.round()}', Offset(depthDimX + 4 * u, planTop + d * k / 2), hAlign: 0);
+    for (final dim in depthDims) {
+      final side = dim.offset.dx < 0 ? -1.0 : 1.0;
+      final x = pp(dim.start.dx, 0).dx + side * 12 * u;
+      final a = Offset(x, pp(0, dim.start.dy).dy);
+      final b = Offset(x, pp(0, dim.end.dy).dy);
+      _dimLine(canvas, a, b, dimensionPaint);
+      label('${(dim.end.dy - dim.start.dy).abs().round()}', Offset(x + side * 4 * u, (a.dy + b.dy) / 2),
+          hAlign: side < 0 ? 1 : 0);
+    }
     for (final (minX, maxX, step) in moduleBays) {
       // Dimension on a middle pair of the module (the outer beams sit flush with the roof edge), values below it.
       final inModule = [for (final x in rafters) if (x >= minX - 1 && x <= maxX + 1) x];
