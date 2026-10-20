@@ -448,6 +448,10 @@ const documentBatchItemTypeOptions = <AdminSelectOption>[
   AdminSelectOption(value: 'media_file', label: 'Media library file'),
 ];
 
+const filenamePlaceholdersHelp = 'Placeholders: {{quote_no}}, {{korrektur}}, {{order_type}}, {{customer_number}}, '
+    '{{customer_name}}, {{customer_short}}, {{document_type}}, {{year}}, {{yy}}, {{date}}, {{time}}. '
+    'Spaces are allowed; date/time are added only where {{date}} / {{time}} stand.';
+
 const documentTypeOptions = <AdminSelectOption>[
   AdminSelectOption(value: 'calculation', label: 'Calculation'),
   AdminSelectOption(value: 'offer', label: 'Offer'),
@@ -2755,8 +2759,9 @@ const adminNavGroups = <AdminNavGroup>[
           AdminField(
             key: 'batch_output_filename',
             label: 'Batch output filename',
-            defaultValue: 'documents_{{quote_no}}.pdf',
-            helperText: 'Supports {{quote_no}} and the existing filename placeholders.',
+            defaultValue: 'documents_{{quote_no}}_{{date}}_{{time}}.pdf',
+            helperText: 'Name of the merged PDF. $filenamePlaceholdersHelp '
+                'Printed separately, each file takes the Output filename of its document template.',
           ),
           AdminField(
             key: 'split_output',
@@ -2930,6 +2935,11 @@ const adminNavGroups = <AdminNavGroup>[
             label: 'Settings JSON',
             type: AdminFieldType.json,
             defaultValue: '{}',
+          ),
+          AdminField(
+            key: 'settings_json.print.outputFilename',
+            label: 'Output filename',
+            helperText: 'Name of this document when printed alone or separately from a batch. $filenamePlaceholdersHelp',
           ),
           AdminField(
             key: 'settings_json.print.requiredOptionBomSourcePath',
