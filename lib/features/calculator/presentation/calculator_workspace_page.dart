@@ -2952,7 +2952,7 @@ String _templateConstantDescription(String path) {
     'wallGutterBlendeClearanceMm': 'Clearance deducted from the beam step before the glass-panel width is calculated, in millimetres.',
     'wallGutterBlendePerGlassBay': 'Number of wall/gutter cover pieces calculated for each glass bay.',
     'beamStockLengthsMm': 'Commercial beam lengths used by the legacy-compatible glass-seal quantity formula, in millimetres.',
-    'manualSetContentArticleNos': 'Catalog articles that may be added manually and whose calculated quantity or length may be overridden in Set Contents.',
+    'manualSetContentArticleNos': 'Catalog articles that may be added manually in Set Contents. Every calculated article may be overridden there.',
     'sourceWorkbook': 'Workbook from which this parameter set was imported; retained for traceability only.',
     'sourceSheet': 'Workbook sheet from which the value was imported; retained for traceability only.',
     'sourceRange': 'Workbook range from which the value was imported; retained for traceability only.',
@@ -3000,7 +3000,7 @@ String _templateConstantDescription(String path) {
   }
   if (RegExp(r'^manualSetContentArticleNos\.\d+$').hasMatch(path) ||
       RegExp(r'^manual_set_content_article_nos\.\d+$').hasMatch(path)) {
-    return 'One catalog article allowed for manual insertion and calculated-value override in Set Contents.';
+    return 'One catalog article allowed for manual insertion in Set Contents.';
   }
   return 'Template parameter used by the selected roof calculation.';
 }
@@ -8021,7 +8021,7 @@ class _SetContentsCalculationParamsCard extends StatelessWidget {
                   toggle(
                     label: '16912 als Langmaß',
                     tooltip:
-                        'Uses the legacy long-length rule for 16912. From 14000 mm verify the length manually.',
+                        'Wenn aktiv, wird 16912 als Langmaß (ungeschnitten) ausgeliefert: bis 7000 mm Modulbreite 2 Stk. × Modulbreite, darüber AUFRUNDEN(Breite/7000) × 2 Stk. × halbe Modulbreite; die Glasbreite wird ohne Blenden-Abzug berechnet. Ab 14000 mm manuell eingeben.',
                     value: wallGutterBlendeLongLength,
                     onChanged: onWallGutterBlendeLongLengthChanged,
                   ),
@@ -8284,7 +8284,6 @@ class _SetContentsStepState extends State<_SetContentsStep> {
     List<CalculatorSetContentTab> tabs, {
     required bool hasMissingSetPieceAbzug,
   }) {
-    final overrideArticleKeys = _manualSetContentArticleKeys(widget.selectedTemplate);
     return DefaultTabController(
       key: ValueKey('set-content-tabs-${tabs.map((tab) => tab.moduleRole).join('-')}'),
       length: tabs.length,
@@ -8377,7 +8376,6 @@ class _SetContentsStepState extends State<_SetContentsStep> {
                     mediaRepository: widget.mediaRepository,
                     tab: tabs[tabIndex],
                     tabIndex: tabIndex,
-                    overrideArticleKeys: overrideArticleKeys,
                     diagnostics: _diagnosticsForTab(tabs, tabIndex),
                     onToggleItem: (itemIndex) => widget.notifier.toggleSetContentItemEnabled(tabIndex, itemIndex),
                     onDeleteManual: (itemIndex) => widget.notifier.removeManualSetContentItem(tabIndex, itemIndex),
@@ -9229,23 +9227,6 @@ bool _catalogItemMatchesArticleKeys(
   );
 }
 
-bool _setContentItemMatchesArticleKeys(
-  CalculatorContext contextData,
-  CalculatorSetContentItem item,
-  Set<String> articleKeys,
-) {
-  if (articleKeys.isEmpty) return false;
-  final directKeys = <String>{
-    ..._catalogCodeKeys(item.articleNo),
-    ..._catalogCodeKeys(item.profileNo),
-    ..._catalogCodeKeys(item.baseCode),
-  };
-  if (directKeys.intersection(articleKeys).isNotEmpty) return true;
-  final catalogItem = _catalogItemForSetContent(contextData, item);
-  return catalogItem != null &&
-      _catalogItemMatchesArticleKeys(contextData, catalogItem, articleKeys);
-}
-
 Set<String> _catalogCodeKeys(String? raw) {
   final value = raw?.trim().toLowerCase();
   if (value == null || value.isEmpty) return const <String>{};
@@ -9952,7 +9933,6 @@ class _SetContentTabTable extends StatefulWidget {
     required this.mediaRepository,
     required this.tab,
     required this.tabIndex,
-    required this.overrideArticleKeys,
     required this.diagnostics,
     required this.onCommitItemValues,
     required this.onToggleItem,
@@ -9979,7 +9959,6 @@ class _SetContentTabTable extends StatefulWidget {
   final AdminResourceRepository mediaRepository;
   final CalculatorSetContentTab tab;
   final int tabIndex;
-  final Set<String> overrideArticleKeys;
   final List<Map<String, dynamic>> diagnostics;
   final void Function(
     int itemIndex, {
@@ -10168,9 +10147,10 @@ class _SetContentTabTableState extends State<_SetContentTabTable> {
                 ],
                 const SizedBox(width: 8),
                 Tooltip(
-                  message: widget.wallGutterBlendeRulesEnabled
-                      ? '16912 uses the legacy module and organization dependencies.'
-                      : '16912 uses the current glass-bay calculation.',
+                  message:
+                      'Händlerregel aus dem alten Konfig: für die Händler in Parameters → wallGutterBlendeSinglePerBayOrganizationIds '
+                      '(VD Assamstadt, Alexklusiv) bekommt dieses Modul 1 Stk. 16912 je Glasfeld statt 2. '
+                      'Für andere Händler und bei "16912 als Langmaß" ohne Wirkung.',
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -10178,7 +10158,7 @@ class _SetContentTabTableState extends State<_SetContentTabTable> {
                         value: widget.wallGutterBlendeRulesEnabled,
                         onChanged: widget.onWallGutterBlendeRulesChanged,
                       ),
-                      const Text('16912 rules'),
+                      const Text('16912 · 1 Stk./Glasfeld'),
                     ],
                   ),
                 ),
@@ -10255,12 +10235,8 @@ class _SetContentTabTableState extends State<_SetContentTabTable> {
   Widget _row(BuildContext context, _SetContentVisibleRow visible) {
     final item = visible.item;
     final index = visible.itemIndex;
-    final canOverrideCalculated = item.isCalculated &&
-        _setContentItemMatchesArticleKeys(
-          widget.contextData,
-          item,
-          widget.overrideArticleKeys,
-        );
+    // Every calculated article may be overridden; derived accessories follow the effective values.
+    final canOverrideCalculated = item.isCalculated;
     final itemIdentity = item.segmentId ??
         '${item.catalogItemId}:${item.catalogVariantId ?? ''}:${item.articleNo ?? ''}:$index';
     final editable = item.isManual ||
@@ -10362,7 +10338,9 @@ class _SetContentTabTableState extends State<_SetContentTabTable> {
                       Text('Base / delta', style: Theme.of(context).textTheme.labelSmall),
                     ],
                   )
-                : Text(amount != 0 ? _moneyFormat.format(amount) : 'Manual'),
+                : Text(diagnostic?['set_netted'] == true
+                    ? 'Set delta'
+                    : amount != 0 ? _moneyFormat.format(amount) : 'Manual'),
             _SetContentTabTable._stateWidth,
           ),
           _gap(),
@@ -14681,6 +14659,7 @@ Map<String, List<String>> _calculatorWarningMessagesByStep({
   }) {
     for (final row in diagnostics) {
       if (skipAbzug && _isAbzugDiagnosticRecord(row)) continue;
+      if (row['set_netted'] == true) continue;
       final warning = '${row['warning'] ?? ''}'.trim();
       if (warning.isNotEmpty) {
         _addWarningMessage(grouped, stepKey, warning);
