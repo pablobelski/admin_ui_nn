@@ -853,6 +853,7 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
         rearHeightMm: draft.roofRearHeightMm ?? draft.heightMm,
         frontHeightMm: draft.roofFrontHeightMm ?? previewData.roofCalculation.frontHeightMm,
         humanImage: humanImage,
+        rasterScale: geometryPreviewPrintSettings.smallPreviewScale,
       );
       if (!mounted || !context.mounted) return;
       final expandedPreview = ModelGeometryPreview(
@@ -908,8 +909,8 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
         metadata: {
           'variant': 'geometry_only',
           'quote_id': savedQuote.id,
-          'width': geometryOnlyPreviewRasterWidth,
-          'height': geometryOnlyPreviewRasterHeight,
+          'width': geometryOnlyPreviewWidth * geometryPreviewPrintSettings.smallPreviewScale,
+          'height': geometryOnlyPreviewHeight * geometryPreviewPrintSettings.smallPreviewScale,
           'logical_width': geometryOnlyPreviewWidth,
           'logical_height': geometryOnlyPreviewHeight,
           'model_code': draft.modelCode,

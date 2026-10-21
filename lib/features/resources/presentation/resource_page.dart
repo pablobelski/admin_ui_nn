@@ -36,6 +36,7 @@ import 'catalog_item_dependency_tree.dart';
 import 'document_batch_items_panel.dart';
 import 'integration_batch_items_panel.dart';
 import 'master_data_sync_dialog.dart';
+import 'mcp_access_dialog.dart';
 import 'organization_relation_tree.dart';
 
 final _uiDateTimeFormat = DateFormat('dd.MM.yy HH:mm');
@@ -1429,6 +1430,19 @@ class _DetailsCardState extends ConsumerState<_DetailsCard> {
                                   icon: const Icon(Icons.password_rounded, size: 18),
                                   label: const Text('Password'),
                                 ),
+                              ),
+                            ),
+                          if (resource.key == 'users')
+                            Padding(
+                              padding: const EdgeInsets.only(right: 8),
+                              child: McpAccessButton(
+                                userId: browserState.selectedId!,
+                                hasKey: data['mcp_access'] == true,
+                                repository: repository,
+                                onChanged: () {
+                                  ref.invalidate(resourceListProvider(resource));
+                                  ref.invalidate(resourceDetailsProvider(resource));
+                                },
                               ),
                             ),
                           if (mustChangePassword)

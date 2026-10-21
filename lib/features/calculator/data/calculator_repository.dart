@@ -924,6 +924,7 @@ class GeometryPreviewPrintSettings {
     required this.pdfEnabled,
     required this.includeWarnings,
     this.hasPreview = true,
+    this.smallPreviewScale = 1,
   });
 
   factory GeometryPreviewPrintSettings.fromJson(Map<String, dynamic> json) {
@@ -934,6 +935,7 @@ class GeometryPreviewPrintSettings {
         fallback: true,
       ),
       hasPreview: _repoBool(json['has_expanded_preview'] ?? json['has_preview'], fallback: true),
+      smallPreviewScale: (_repoIntOrNull(json['small_preview_scale']) ?? 1).clamp(1, 4).toInt(),
     );
   }
 
@@ -941,6 +943,8 @@ class GeometryPreviewPrintSettings {
   final bool includeWarnings;
   // The quote has the preview PNG saved.
   final bool hasPreview;
+  // system_settings.geometry_preview.pdf.small_preview_scale: raster scale of the small PNG for templates.
+  final int smallPreviewScale;
 
   bool get printable => pdfEnabled && hasPreview;
 }

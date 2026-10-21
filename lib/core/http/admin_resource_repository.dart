@@ -152,6 +152,12 @@ class AdminResourceRepository {
     );
   }
 
+  // MCP key of a user: a new key replaces the old one and is returned once (token, public_url, role_allowed, enabled).
+  Future<Map<String, dynamic>> createUserMcpToken(String userId) =>
+      _client.postJson('/api/admin/users/$userId/mcp-token', body: const <String, dynamic>{});
+
+  Future<void> revokeUserMcpToken(String userId) => _client.delete('/api/admin/users/$userId/mcp-token');
+
   Future<Map<String, dynamic>> fetchMasterDataSync(String endpointCode) =>
       _client.getJson('/api/admin/master-data-sync', query: {'endpoint_code': endpointCode});
 

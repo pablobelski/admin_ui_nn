@@ -22,11 +22,6 @@ import 'quote_integrations_panel.dart';
 
 const geometryOnlyPreviewWidth = 450;
 const geometryOnlyPreviewHeight = 305;
-const geometryOnlyPreviewRasterScale = 1;
-const geometryOnlyPreviewRasterWidth =
-    geometryOnlyPreviewWidth * geometryOnlyPreviewRasterScale;
-const geometryOnlyPreviewRasterHeight =
-    geometryOnlyPreviewHeight * geometryOnlyPreviewRasterScale;
 
 Future<ui.Image?>? _geometryPreviewHumanImageFutureCache;
 final Map<String, Future<Uint8List?>> _geometryPreviewMediaBytesFutureCache =
@@ -1980,12 +1975,14 @@ Future<Uint8List> renderGeometryOnlyPreviewPng({
   required int? rearHeightMm,
   required int? frontHeightMm,
   ui.Image? humanImage,
+  // system_settings.geometry_preview.pdf.small_preview_scale (1 = 450 x 305 px).
+  int rasterScale = 1,
 }) async {
   final recorder = ui.PictureRecorder();
   final canvas = Canvas(recorder)
     ..scale(
-      geometryOnlyPreviewRasterScale.toDouble(),
-      geometryOnlyPreviewRasterScale.toDouble(),
+      rasterScale.toDouble(),
+      rasterScale.toDouble(),
     );
   final size = Size(
     geometryOnlyPreviewWidth.toDouble(),
@@ -2027,8 +2024,8 @@ Future<Uint8List> renderGeometryOnlyPreviewPng({
 
   final picture = recorder.endRecording();
   final image = await picture.toImage(
-    geometryOnlyPreviewRasterWidth,
-    geometryOnlyPreviewRasterHeight,
+    geometryOnlyPreviewWidth * rasterScale,
+    geometryOnlyPreviewHeight * rasterScale,
   );
   picture.dispose();
   try {
