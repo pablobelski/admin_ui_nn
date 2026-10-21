@@ -96,6 +96,23 @@ double? geometryPreviewPostSetLengthMm(List<CalculatorSetContentTab> modules) {
   return length;
 }
 
+// Joints (cut points) of the continuous gutter: running sum of its enabled cut pieces (gutter:overall:cut-N),
+// left to right, in mm from the left roof edge.
+List<double> geometryPreviewGutterCutPositionsMm(List<CalculatorSetContentTab> modules) {
+  final pieces = [
+    for (final module in modules)
+      for (final item in module.items)
+        if (item.enabled && (item.segmentId ?? '').startsWith('gutter:overall:cut-') && (item.lengthMm ?? 0) > 0) item,
+  ]..sort((a, b) => (a.cutGroupIndex ?? 0).compareTo(b.cutGroupIndex ?? 0));
+  final cuts = <double>[];
+  var position = 0.0;
+  for (var i = 0; i + 1 < pieces.length; i++) {
+    position += pieces[i].lengthMm!.toDouble() * pieces[i].quantity.toDouble();
+    cuts.add(position);
+  }
+  return cuts;
+}
+
 int geometryPreviewPostCount({
   required int calculatedPostCount,
   required List<CalculatorSetContentTab> modules,
@@ -2411,6 +2428,7 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     _drawRoofSideEdges(canvas, s, layout, k);
     _drawManufacturingSplits(canvas, s, layout);
     _drawRoofEdge(canvas, s, layout.front, layout.heightMm, k, isGutter: true);
+    if (!geometryOnly) _drawGutterCutPoints(canvas, (x, y) => s(x, y, layout.heightMm), layout, 1);
     _drawDimensions(canvas, s, params, layout, profile, dimensionPaint);
 
     if (!geometryOnly) {
@@ -3940,16 +3958,28 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     return normalized == 'B' || normalized.startsWith('BR') || normalized.startsWith('BW');
   }
 
-  void _dimLine(Canvas canvas, Offset start, Offset end, Paint paint) {
+  // Oblique ticks at both ends (geometry preview) or, with [arrow] > 0, filled arrowheads of that length
+  // (schematic preview drawing).
+  void _dimLine(Canvas canvas, Offset start, Offset end, Paint paint, {double arrow = 0}) {
     canvas.drawLine(start, end, paint);
     final direction = end - start;
     final length = direction.distance;
     if (length <= 0) return;
     final unit = direction / length;
     final normal = Offset(-unit.dy, unit.dx);
-    const arrow = 6.0;
-    canvas.drawLine(start - unit * arrow + normal * 3.5, start + unit * arrow - normal * 3.5, paint);
-    canvas.drawLine(end - unit * arrow + normal * 3.5, end + unit * arrow - normal * 3.5, paint);
+    if (arrow > 0) {
+      final head = Paint()..color = paint.color;
+      for (final (tip, back) in [(start, unit), (end, -unit)]) {
+        canvas.drawPath(
+          Path()..addPolygon([tip, tip + back * arrow + normal * arrow / 3, tip + back * arrow - normal * arrow / 3], true),
+          head,
+        );
+      }
+      return;
+    }
+    const tick = 6.0;
+    canvas.drawLine(start - unit * tick + normal * 3.5, start + unit * tick - normal * 3.5, paint);
+    canvas.drawLine(end - unit * tick + normal * 3.5, end + unit * tick - normal * 3.5, paint);
   }
 
   void _drawHuman(Canvas canvas, Offset frontLeftGround, double heightPx, double gapPx) {
@@ -4049,7 +4079,7 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     if (w <= postW || d <= postW) return;
 
     final u = (area.height / 380).clamp(1.0, 2.0).toDouble();
-    final pad = 10 * u, titleH = 16 * u, frontDimH = 36 * u, gapY = 12 * u, gapX = 22 * u, topDimH = 22 * u;
+    final pad = 10 * u, titleH = 16 * u, frontDimH = 36 * u, gapY = 12 * u, gapX = 22 * u, topDimH = 38 * u;
     final rightDimW = 46 * u, sideLeftW = 46 * u, sideRightW = 50 * u;
     final fs = 9.5 * u, ts = 11 * u, legendLine = 15 * u, legendSwatch = 10 * u;
 
@@ -4097,7 +4127,7 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
       else
         ('glass', covering.isEmpty ? 'Eindeckung' : 'Eindeckung: $covering', glassColor),
       if (wallMounted) ('wall', 'Wand', wallColor),
-      if (moduleBays.isNotEmpty) ('bay', 'Sparren: Achsabstand / lichtes Maß', lineColor),
+      if (moduleBays.isNotEmpty) ('bay', 'Sparren: lichtes Maß (Kante) / Achsabstand (Mitte)', lineColor),
       ('text', 'Alle Maße in mm, einheitlicher Maßstab', lineColor),
     ];
     final legendWidth = legend
@@ -4141,6 +4171,20 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.0
       ..strokeCap = StrokeCap.round;
+    final extensionPaint = Paint()
+      ..color = lineColor.withValues(alpha: 0.5)
+      ..strokeWidth = 0.6;
+    // Drafting dimension: arrowheads at both ends; thin dashed extension lines lead from the points of the
+    // drawing the value is measured from (section centre or edge) to just past the dimension line.
+    void dimension(Offset a, Offset b, {Offset? fromA, Offset? fromB}) {
+      for (final (from, to) in [(fromA, a), (fromB, b)]) {
+        if (from == null || (to - from).distance < 1) continue;
+        _drawDashedLine(canvas, from, to + (to - from) / (to - from).distance * 3 * u, extensionPaint,
+            dashLength: 3 * u, gapLength: 2 * u);
+      }
+      _dimLine(canvas, a, b, dimensionPaint, arrow: 5 * u);
+    }
+
     void part(Rect rect, Color color) {
       canvas.drawRect(rect, Paint()..color = color);
       canvas.drawRect(rect, outline);
@@ -4189,13 +4233,15 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     for (var i = 0; i + 1 < postX.length; i++) {
       final a = Offset(x0 + postX[i] * k, ground + 12 * u);
       final b = Offset(x0 + postX[i + 1] * k, ground + 12 * u);
-      _dimLine(canvas, a, b, dimensionPaint);
+      // Post spacing between the post centres: centre lines from the post tops.
+      dimension(a, b, fromA: Offset(a.dx, zy(front)), fromB: Offset(b.dx, zy(front)));
       label('${(postX[i + 1] - postX[i]).round()}', _lerp(a, b, 0.5) + Offset(0, 8 * u));
     }
     final widthStart = Offset(x0, ground + 28 * u);
     final widthEnd = Offset(x0 + w * k, ground + 28 * u);
-    _dimLine(canvas, widthStart, widthEnd, dimensionPaint);
+    dimension(widthStart, widthEnd, fromA: Offset(x0, zy(front)), fromB: Offset(x0 + w * k, zy(front)));
     label('${w.round()}', _lerp(widthStart, widthEnd, 0.5) + Offset(0, 8 * u));
+    _drawGutterCutPoints(canvas, (x, _) => Offset(x0 + x * k, zy(topFront)), layout, u);
 
     // Seitenansicht: v = distance from the wall (back edge) towards the gutter.
     label('Seitenansicht', Offset(x2, y1 + titleH * 0.4), hAlign: 0, size: ts);
@@ -4232,12 +4278,17 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     }
     canvas.drawLine(Offset(x2 + sideLeftW - 6 * u, ground), Offset(sx(d) + 10 * u, ground), groundPaint);
     final rearDimX = x2 + sideLeftW - 10 * u;
-    _dimLine(canvas, Offset(rearDimX, ground), Offset(rearDimX, zy(rear)), dimensionPaint);
+    // Höhe UKW from the lower edge of the wall profile, Höhe UKR from the lower edge of the gutter, depth from the
+    // wall face to the gutter front.
+    dimension(Offset(rearDimX, ground), Offset(rearDimX, zy(rear)),
+        fromA: Offset(sx(0), ground), fromB: Offset(sx(0), zy(rear)));
     label('${rear.round()}', Offset(rearDimX - 4 * u, (ground + zy(rear)) / 2), hAlign: 1);
     final frontDimX = sx(d) + 14 * u;
-    _dimLine(canvas, Offset(frontDimX, ground), Offset(frontDimX, zy(front)), dimensionPaint);
+    dimension(Offset(frontDimX, ground), Offset(frontDimX, zy(front)),
+        fromA: Offset(sx(d), ground), fromB: Offset(sx(d), zy(front)));
     label('${front.round()}', Offset(frontDimX + 4 * u, (ground + zy(front)) / 2), hAlign: 0);
-    _dimLine(canvas, Offset(sx(0), ground + 12 * u), Offset(sx(d), ground + 12 * u), dimensionPaint);
+    dimension(Offset(sx(0), ground + 12 * u), Offset(sx(d), ground + 12 * u),
+        fromA: Offset(sx(0), zy(rear)), fromB: Offset(sx(d), zy(front)));
     label('${d.round()}', Offset(sx(d / 2), ground + 20 * u));
     if (angle != null) {
       label('$angle°', Offset(sx(d / 2), zy((topRear + topFront) / 2 + glassT) - 10 * u));
@@ -4326,20 +4377,28 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
       final x = pp(dim.start.dx, 0).dx + side * 12 * u;
       final a = Offset(x, pp(0, dim.start.dy).dy);
       final b = Offset(x, pp(0, dim.end.dy).dy);
-      _dimLine(canvas, a, b, dimensionPaint);
+      dimension(a, b, fromA: pp(dim.start.dx, dim.start.dy), fromB: pp(dim.end.dx, dim.end.dy));
       label('${(dim.end.dy - dim.start.dy).abs().round()}', Offset(x + side * 4 * u, (a.dy + b.dy) / 2),
           hAlign: side < 0 ? 1 : 0);
     }
     for (final (minX, maxX, step) in moduleBays) {
-      // Dimension on a middle pair of the module (the outer beams sit flush with the roof edge), values below it.
+      // A middle pair of the module (the outer beams sit flush with the roof edge): lichtes Maß between the beam
+      // faces, below it the Achsabstand between the beam centres, extension lines from the beam front ends.
       final inModule = [for (final x in rafters) if (x >= minX - 1 && x <= maxX + 1) x];
-      final y = planTop + d * k + 12 * u;
-      if (inModule.length > 1) {
-        final i = (inModule.length - 2) ~/ 2;
-        _dimLine(canvas, Offset(x0 + inModule[i] * k, y), Offset(x0 + inModule[i + 1] * k, y), dimensionPaint);
-      }
-      label('${(step + beamW).round()} / ${step.round()}', Offset(x0 + (minX + maxX) / 2 * k, y + 8 * u), isBold: false);
+      if (inModule.length < 2) continue;
+      final i = (inModule.length - 2) ~/ 2;
+      final (l, r) = (inModule[i], inModule[i + 1]);
+      Offset beamFront(double x) => pp(x, _yAt(layout.front, x));
+      final y = planTop + d * k + 8 * u;
+      final centre = x0 + (l + r) / 2 * k;
+      dimension(Offset(x0 + (l + beamW / 2) * k, y), Offset(x0 + (r - beamW / 2) * k, y),
+          fromA: beamFront(l + beamW / 2), fromB: beamFront(r - beamW / 2));
+      label('${step.round()}', Offset(centre, y + 7 * u), isBold: false);
+      dimension(Offset(x0 + l * k, y + 16 * u), Offset(x0 + r * k, y + 16 * u), fromA: beamFront(l), fromB: beamFront(r));
+      label('${(step + beamW).round()}', Offset(centre, y + 23 * u), isBold: false);
     }
+    // Gutter joints: arrow inside the plan onto the inner edge of the gutter.
+    _drawGutterCutPoints(canvas, (x, y) => pp(x, y + gutterD), layout, u);
 
     // Legend next to the top view.
     var legendY = y2 + titleH;
@@ -4350,7 +4409,8 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
         case 'profile' || 'glass' || 'wall':
           part(swatch, color);
         case 'bay':
-          _dimLine(canvas, Offset(x2, center), Offset(x2 + legendSwatch, center), dimensionPaint);
+          _dimLine(canvas, Offset(x2, center), Offset(x2 + legendSwatch, center), dimensionPaint,
+              arrow: legendSwatch * 0.4);
       }
       label(text, Offset(kind == 'text' ? x2 : x2 + legendSwatch + 6 * u, center), hAlign: 0, isBold: false);
       legendY += legendLine;
@@ -4459,6 +4519,33 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
         _canonicalPostPoints(layout).any((post) => (post - point).distance < 1);
   }
 
+  // A post supports every gutter joint (cut point) on the front edge.
+  List<Offset> _gutterCutPostPoints(_RoofLayout layout) => [
+        for (final x in geometryPreviewGutterCutPositionsMm(modules))
+          if (x > 1 && x < layout.widthMm - 1) Offset(x, _yAt(layout.front, x)),
+      ];
+
+  // Black arrow from above onto a gutter joint, labelled above its tail.
+  void _drawCutPointArrow(Canvas canvas, Offset tip, String text, double u) {
+    final tail = tip - Offset(0, 24 * u);
+    canvas.drawLine(tail, tip - Offset(0, 6 * u), Paint()
+      ..color = Colors.black
+      ..strokeWidth = 1.2 * u);
+    canvas.drawPath(
+      Path()..addPolygon([tip, tip + Offset(-3.5 * u, -8 * u), tip + Offset(3.5 * u, -8 * u)], true),
+      Paint()..color = Colors.black,
+    );
+    _drawText(canvas, text, tail - Offset(0, 7 * u), Colors.black, 9.5 * u, isBold: true, maxWidth: 120 * u);
+  }
+
+  void _drawGutterCutPoints(Canvas canvas, Offset Function(double x, double y) at, _RoofLayout layout, double u) {
+    final cuts = geometryPreviewGutterCutPositionsMm(modules);
+    for (var i = 0; i < cuts.length; i++) {
+      _drawCutPointArrow(canvas, at(cuts[i], _yAt(layout.front, cuts[i])),
+          cuts.length > 1 ? 'cut point ${i + 1}' : 'cut point', u);
+    }
+  }
+
   List<Offset> _effectivePostPoints(_RoofLayout layout) {
     // Leave the canonical support points free when the active BOM has no posts;
     // _recommendedPostPoints then renders the minimum assumed supports dashed.
@@ -4484,6 +4571,7 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
         if (points.length >= target) return;
         final front = _edgePostCorners(layout.front, isFront: true);
         append(front.external, target);
+        append(_gutterCutPostPoints(layout), target);
         append(front.internal, target);
 
         if (!wallMounted && points.length < target) {
@@ -4545,6 +4633,7 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
       );
       if (candidate != null) append([candidate], postCount);
     }
+    append(_gutterCutPostPoints(layout), postCount);
 
     // Structural points are stronger than the old front-edge preference:
     // eligible module-area intersections first, then profile-cut endpoints.
@@ -4606,14 +4695,17 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
   // posts on each module-width segment, snapping the whole group to free beams.
   List<Offset> _distributeSegmentPosts(_RoofLayout layout, List<Offset> posts) {
     final structural = _structuralPriorityPostPoints(layout);
+    final gutterCuts = _gutterCutPostPoints(layout);
     final fixed = [
       ...structural,
+      ...gutterCuts,
       ..._canonicalPostPoints(layout),
       if (structural.isEmpty) ..._segmentJointPostPoints(layout, layout.front, const []),
       if (structural.isEmpty && !wallMounted) ..._segmentJointPostPoints(layout, layout.back, const []),
     ];
     final result = List<Offset>.from(posts);
     final boundaries = layout.moduleAreas.expand((area) => area.corners.map((point) => point.dx)).toSet();
+    final cutX = gutterCuts.map((point) => point.dx).toList()..sort();
     final rafters = _effectiveRafterX(layout);
     for (final edge in _freePerimeterSegments(layout)) {
       final start = edge[0];
@@ -4635,19 +4727,36 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
         ];
         if (indices.isEmpty) continue;
         final occupied = [for (var i = 0; i < result.length; i++) if (!indices.contains(i)) result[i]];
-        final candidates = _uniquePoints([
-          for (final x in rafters)
-            if (x >= left && x <= right) at(x),
-        ]).where((point) => !occupied.any((other) => (other - point).distance < 1)).toList()
-          ..sort((a, b) => a.dx.compareTo(b.dx));
-        // More requested posts than free crossings cannot be represented without
-        // changing the side/count. Preserve that pre-existing exceptional layout.
-        if (candidates.length < indices.length) continue;
-        final selected = _evenlySpacedBeamIndices(
-          candidates.map((point) => point.dx).toList(), left, right, indices.length,
-        );
-        for (var i = 0; i < indices.length; i++) {
-          result[indices[i]] = candidates[selected[i]];
+        // The gutter joints split the segment: each free post goes to the piece with the widest
+        // spacing, then the posts spread on each piece (the same in the GLB renderer).
+        final pieces = [left, ...cutX.where((x) => x > left + 1 && x < right - 1), right];
+        final counts = List.filled(pieces.length - 1, 0);
+        for (var n = 0; n < indices.length; n++) {
+          var best = 0;
+          for (var p = 1; p < counts.length; p++) {
+            if ((pieces[p + 1] - pieces[p]) / (counts[p] + 1) > (pieces[best + 1] - pieces[best]) / (counts[best] + 1)) best = p;
+          }
+          counts[best]++;
+        }
+        var next = 0;
+        for (var p = 0; p < counts.length; p++) {
+          final group = indices.sublist(next, next + counts[p]);
+          next += counts[p];
+          if (group.isEmpty) continue;
+          final candidates = _uniquePoints([
+            for (final x in rafters)
+              if (x >= pieces[p] && x <= pieces[p + 1]) at(x),
+          ]).where((point) => !occupied.any((other) => (other - point).distance < 1)).toList()
+            ..sort((a, b) => a.dx.compareTo(b.dx));
+          // More requested posts than free crossings cannot be represented without
+          // changing the side/count. Preserve that pre-existing exceptional layout.
+          if (candidates.length < group.length) continue;
+          final selected = _evenlySpacedBeamIndices(
+            candidates.map((point) => point.dx).toList(), pieces[p], pieces[p + 1], group.length,
+          );
+          for (var i = 0; i < group.length; i++) {
+            result[group[i]] = candidates[selected[i]];
+          }
         }
       }
     }

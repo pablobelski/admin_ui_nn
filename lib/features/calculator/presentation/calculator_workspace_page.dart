@@ -8394,6 +8394,9 @@ class _SetContentsStepState extends State<_SetContentsStep> {
                     ),
                     onResetItem: (itemIndex) => widget.notifier.resetSetContentItemOverride(tabIndex, itemIndex),
                     onEditModuleComponents: () => _showModuleComponentEditor(tabIndex),
+                    onEditGutterCuts: _gutterCutPieces(tabs[tabIndex]).length > 1
+                        ? () => _showGutterCutEditor(tabIndex)
+                        : null,
                     wallGutterBlendeRulesEnabled: tabs[tabIndex].geometryBool(
                       'wall_gutter_blende_rules_enabled',
                       widget.selectedTemplate
@@ -8442,6 +8445,55 @@ class _SetContentsStepState extends State<_SetContentsStep> {
     final confirmed = await _confirmModuleComponentChanges(rows, changes);
     if (!mounted || !confirmed) return;
     widget.notifier.applySetContentArticleOverrides(tabIndex, changes);
+  }
+
+  // Rinne cut points of the continuous gutter. Each choice goes to the draft at once, so the preview moves the
+  // cut arrow and the posts while the dialog is open; the server warns about joints that are not on a beam.
+  Future<void> _showGutterCutEditor(int tabIndex) async {
+    final pieces = _gutterCutPieces(widget.draft.setContents[tabIndex]);
+    if (pieces.length < 2) return;
+    final source = pieces.first.$2.sourceComponent;
+    final rawBeams = source['gutter_beam_positions_mm'];
+    final totalMm = pieces.fold<double>(
+      0,
+      (sum, piece) => sum + (piece.$2.calculatedLengthMm ?? piece.$2.lengthMm ?? 0).toDouble(),
+    );
+    await showDialog<void>(
+      context: context,
+      barrierColor: Colors.black12,
+      builder: (_) => _GutterCutDialog(
+        totalMm: totalMm,
+        beamsMm: [
+          if (rawBeams is List)
+            for (final value in rawBeams)
+              if (value is num) value.toDouble(),
+        ],
+        maxPieceMm: (source['gutter_max_piece_length_mm'] as num?)?.toDouble() ?? totalMm,
+        initialCutsMm: geometryPreviewGutterCutPositionsMm([widget.draft.setContents[tabIndex]]),
+        onChanged: (cutsMm) => _applyGutterCuts(tabIndex, totalMm, cutsMm),
+        onReset: () {
+          for (final (index, _) in _gutterCutPieces(widget.draft.setContents[tabIndex])) {
+            widget.notifier.resetSetContentItemOverride(tabIndex, index);
+          }
+        },
+      ),
+    );
+  }
+
+  // Piece lengths from the cut points; a piece back at its calculated length becomes automatic again.
+  void _applyGutterCuts(int tabIndex, double totalMm, List<double> cutsMm) {
+    final bounds = [0.0, ...cutsMm, totalMm];
+    final pieces = _gutterCutPieces(widget.draft.setContents[tabIndex]);
+    for (var i = 0; i < pieces.length && i + 1 < bounds.length; i++) {
+      final (index, item) = pieces[i];
+      final lengthMm = ((bounds[i + 1] - bounds[i]) * 10).round() / 10;
+      final calculated = item.calculatedLengthMm?.toDouble();
+      if (calculated != null && (calculated - lengthMm).abs() < 0.05) {
+        widget.notifier.resetSetContentItemOverride(tabIndex, index);
+      } else {
+        widget.notifier.updateSetContentItemValues(tabIndex, index, lengthMm: lengthMm, updateLength: true);
+      }
+    }
   }
 
   Future<bool> _confirmModuleComponentChanges(
@@ -9559,6 +9611,128 @@ List<_SetContentVisibleRow> _visibleSetContentRows(CalculatorContext contextData
   return rows;
 }
 
+// Calculated cut pieces of the continuous gutter in this tab (item index, item), left to right.
+List<(int, CalculatorSetContentItem)> _gutterCutPieces(CalculatorSetContentTab tab) => [
+      for (var i = 0; i < tab.items.length; i++)
+        if (tab.items[i].isCalculated && (tab.items[i].segmentId ?? '').startsWith('gutter:overall:cut-'))
+          (i, tab.items[i]),
+    ]..sort((a, b) => (a.$2.cutGroupIndex ?? 0).compareTo(b.$2.cutGroupIndex ?? 0));
+
+// Rinne cut points: every joint on a beam axis (numbered left to right along the gutter), every piece within
+// the template limit (gutterSplitThresholdMm); a beam is offered for a cut only between its neighbouring cuts.
+class _GutterCutDialog extends StatefulWidget {
+  const _GutterCutDialog({
+    required this.totalMm,
+    required this.beamsMm,
+    required this.maxPieceMm,
+    required this.initialCutsMm,
+    required this.onChanged,
+    required this.onReset,
+  });
+
+  final double totalMm;
+  final List<double> beamsMm;
+  final double maxPieceMm;
+  final List<double> initialCutsMm;
+  final ValueChanged<List<double>> onChanged;
+  final VoidCallback onReset;
+
+  @override
+  State<_GutterCutDialog> createState() => _GutterCutDialogState();
+}
+
+class _GutterCutDialogState extends State<_GutterCutDialog> {
+  late final List<double> _cuts = [...widget.initialCutsMm];
+
+  int? _beamAt(double x) {
+    final index = widget.beamsMm.indexWhere((beam) => (beam - x).abs() <= 2);
+    return index < 0 ? null : index;
+  }
+
+  bool _fits(int cut, double x) {
+    final previous = cut == 0 ? 0.0 : _cuts[cut - 1];
+    final next = cut == _cuts.length - 1 ? widget.totalMm : _cuts[cut + 1];
+    return x > previous + 1 &&
+        x < next - 1 &&
+        x - previous <= widget.maxPieceMm &&
+        next - x <= widget.maxPieceMm;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bounds = [0.0, ..._cuts, widget.totalMm];
+    final theme = Theme.of(context);
+    return AlertDialog(
+      title: const Text('Rinne cut points'),
+      content: SizedBox(
+        width: 520,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Each Rinne joint sits on a beam (numbered left to right along the gutter); every piece stays within '
+              '${widget.maxPieceMm.round()} mm. A post stands under each cut point, the other posts are spread again.',
+              style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+            ),
+            const SizedBox(height: 12),
+            for (var cut = 0; cut < _cuts.length; cut++)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Row(
+                  children: [
+                    SizedBox(width: 80, child: Text('Cut ${cut + 1}')),
+                    Expanded(
+                      child: DropdownButtonFormField<int>(
+                        key: ValueKey('gutter-cut-$cut-${_cuts[cut]}'),
+                        initialValue: _beamAt(_cuts[cut]),
+                        isExpanded: true,
+                        decoration: InputDecoration(
+                          isDense: true,
+                          labelText: 'Beam',
+                          helperText: _beamAt(_cuts[cut]) == null ? '${_cuts[cut].round()} mm: not on a beam' : null,
+                        ),
+                        items: [
+                          for (var beam = 0; beam < widget.beamsMm.length; beam++)
+                            if (_fits(cut, widget.beamsMm[beam]) || _beamAt(_cuts[cut]) == beam)
+                              DropdownMenuItem(
+                                value: beam,
+                                child: Text('Beam ${beam + 1} · ${widget.beamsMm[beam].round()} mm'),
+                              ),
+                        ],
+                        onChanged: (beam) {
+                          if (beam == null) return;
+                          setState(() => _cuts[cut] = widget.beamsMm[beam]);
+                          widget.onChanged(List.of(_cuts));
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            Text('Pieces: ${[
+              for (var i = 0; i + 1 < bounds.length; i++) '${(bounds[i + 1] - bounds[i]).round()} mm',
+            ].join(' / ')}'),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () {
+            widget.onReset();
+            Navigator.of(context).pop();
+          },
+          child: const Text('Automatic'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Close'),
+        ),
+      ],
+    );
+  }
+}
+
 const _moduleEditorArticleNames = <String, String>{
   '15698': 'Träger',
   '15184': 'Glasleiste TD',
@@ -9939,6 +10113,7 @@ class _SetContentTabTable extends StatefulWidget {
     required this.onDeleteManual,
     required this.onResetItem,
     required this.onEditModuleComponents,
+    this.onEditGutterCuts,
     required this.wallGutterBlendeRulesEnabled,
     required this.onWallGutterBlendeRulesChanged,
     required this.onAddManual,
@@ -9970,6 +10145,8 @@ class _SetContentTabTable extends StatefulWidget {
   final void Function(int itemIndex) onDeleteManual;
   final void Function(int itemIndex) onResetItem;
   final VoidCallback onEditModuleComponents;
+  // Rinne cut points; null when the tab has no cut pieces of the continuous gutter.
+  final VoidCallback? onEditGutterCuts;
   final bool wallGutterBlendeRulesEnabled;
   final ValueChanged<bool> onWallGutterBlendeRulesChanged;
   final VoidCallback onAddManual;
@@ -10162,6 +10339,14 @@ class _SetContentTabTableState extends State<_SetContentTabTable> {
                     ],
                   ),
                 ),
+                if (widget.onEditGutterCuts != null) ...[
+                  const SizedBox(width: 8),
+                  IconButton.filledTonal(
+                    onPressed: widget.onEditGutterCuts,
+                    tooltip: 'Rinne cut points',
+                    icon: const Icon(Icons.content_cut, size: 18),
+                  ),
+                ],
                 const SizedBox(width: 8),
                 IconButton.filledTonal(
                   onPressed: widget.onEditModuleComponents,
