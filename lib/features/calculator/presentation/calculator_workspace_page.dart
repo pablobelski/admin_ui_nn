@@ -8379,6 +8379,7 @@ class _SetContentsStepState extends State<_SetContentsStep> {
                     diagnostics: _diagnosticsForTab(tabs, tabIndex),
                     onToggleItem: (itemIndex) => widget.notifier.toggleSetContentItemEnabled(tabIndex, itemIndex),
                     onDeleteManual: (itemIndex) => widget.notifier.removeManualSetContentItem(tabIndex, itemIndex),
+                    onDuplicateItem: (itemIndex) => widget.notifier.duplicateSetContentItem(tabIndex, itemIndex),
                     onCommitItemValues: (
                       itemIndex, {
                       num? quantity,
@@ -8394,7 +8395,7 @@ class _SetContentsStepState extends State<_SetContentsStep> {
                     ),
                     onResetItem: (itemIndex) => widget.notifier.resetSetContentItemOverride(tabIndex, itemIndex),
                     onEditModuleComponents: () => _showModuleComponentEditor(tabIndex),
-                    onEditGutterCuts: _gutterCutPieces(tabs[tabIndex]).length > 1
+                    onEditGutterCuts: geometryPreviewGutterPieces(tabs[tabIndex]).length > 1
                         ? () => _showGutterCutEditor(tabIndex)
                         : null,
                     wallGutterBlendeRulesEnabled: tabs[tabIndex].geometryBool(
@@ -8449,14 +8450,15 @@ class _SetContentsStepState extends State<_SetContentsStep> {
 
   // Rinne cut points of the continuous gutter. Each choice goes to the draft at once, so the preview moves the
   // cut arrow and the posts while the dialog is open; the server warns about joints that are not on a beam.
+  // A "+" copy of a piece is one more piece; the cuts still divide the calculated gutter length.
   Future<void> _showGutterCutEditor(int tabIndex) async {
-    final pieces = _gutterCutPieces(widget.draft.setContents[tabIndex]);
+    final pieces = geometryPreviewGutterPieces(widget.draft.setContents[tabIndex]);
     if (pieces.length < 2) return;
     final source = pieces.first.$2.sourceComponent;
     final rawBeams = source['gutter_beam_positions_mm'];
     final totalMm = pieces.fold<double>(
       0,
-      (sum, piece) => sum + (piece.$2.calculatedLengthMm ?? piece.$2.lengthMm ?? 0).toDouble(),
+      (sum, piece) => sum + (piece.$2.isCalculated ? piece.$2.calculatedLengthMm ?? piece.$2.lengthMm ?? 0 : 0).toDouble(),
     );
     await showDialog<void>(
       context: context,
@@ -8471,9 +8473,15 @@ class _SetContentsStepState extends State<_SetContentsStep> {
         maxPieceMm: (source['gutter_max_piece_length_mm'] as num?)?.toDouble() ?? totalMm,
         initialCutsMm: geometryPreviewGutterCutPositionsMm([widget.draft.setContents[tabIndex]]),
         onChanged: (cutsMm) => _applyGutterCuts(tabIndex, totalMm, cutsMm),
+        // Back to the calculated cut: calculated pieces automatic again, copied pieces removed (last first).
         onReset: () {
-          for (final (index, _) in _gutterCutPieces(widget.draft.setContents[tabIndex])) {
-            widget.notifier.resetSetContentItemOverride(tabIndex, index);
+          final pieces = geometryPreviewGutterPieces(widget.draft.setContents[tabIndex]);
+          for (final (index, item) in pieces) {
+            if (item.isCalculated) widget.notifier.resetSetContentItemOverride(tabIndex, index);
+          }
+          final copies = [for (final (index, item) in pieces) if (!item.isCalculated) index]..sort();
+          for (final index in copies.reversed) {
+            widget.notifier.removeManualSetContentItem(tabIndex, index);
           }
         },
       ),
@@ -8483,7 +8491,7 @@ class _SetContentsStepState extends State<_SetContentsStep> {
   // Piece lengths from the cut points; a piece back at its calculated length becomes automatic again.
   void _applyGutterCuts(int tabIndex, double totalMm, List<double> cutsMm) {
     final bounds = [0.0, ...cutsMm, totalMm];
-    final pieces = _gutterCutPieces(widget.draft.setContents[tabIndex]);
+    final pieces = geometryPreviewGutterPieces(widget.draft.setContents[tabIndex]);
     for (var i = 0; i < pieces.length && i + 1 < bounds.length; i++) {
       final (index, item) = pieces[i];
       final lengthMm = ((bounds[i + 1] - bounds[i]) * 10).round() / 10;
@@ -8553,6 +8561,33 @@ class _SetContentsStepState extends State<_SetContentsStep> {
 
   Future<void> _showAddManualComponent(int tabIndex) async {
     final allowedArticleKeys = _manualSetContentArticleKeys(widget.selectedTemplate);
+    // Variants in a frame color (Colors reference or BLANK) only in the color the
+    // set is built from, as the server's catalog color: the roof color, for a
+    // Sonderfarbe the source profile color that is coated. Articles without
+    // frame-color variants (e.g. BLANK only) and other colors (SWZ) stay.
+    final standardColors = (widget.contextData.references['colors'] ?? const <CalculatorOption>[])
+        .map((option) => _normalizeRalCode(option.code))
+        .whereType<String>()
+        .toSet();
+    final frameColors = {...standardColors, _uncoatedProfileColorCode};
+    final roofColor = _normalizeRalCode(widget.draft.colorCode);
+    final setColor = roofColor == null || standardColors.contains(roofColor)
+        ? roofColor
+        : _normalizeRalCode(widget.draft.sourceProfileColorCode) ?? roofColor;
+    final selectableVariants = widget.contextData.templateSetCatalogVariants
+        .where((entry) => entry.isSelectable)
+        .toList(growable: false);
+    final frameColoredItemIds = {
+      for (final variant in selectableVariants)
+        if (standardColors.contains(_normalizeRalCode(variant.colorCode))) variant.catalogItemId,
+    };
+    final variants = selectableVariants.where((variant) {
+      final color = _normalizeRalCode(variant.colorCode);
+      return setColor == null ||
+          color == setColor ||
+          !frameColors.contains(color) ||
+          !frameColoredItemIds.contains(variant.catalogItemId);
+    }).toList(growable: false);
     final candidates = widget.contextData
         .templateSetCatalogItemsFor(widget.draft.templateId)
         .where(
@@ -8561,6 +8596,12 @@ class _SetContentsStepState extends State<_SetContentsStep> {
             item,
             allowedArticleKeys,
           ),
+        )
+        // An article with variants needs one in the allowed color.
+        .where(
+          (item) =>
+              variants.any((variant) => variant.catalogItemId == item.id) ||
+              !selectableVariants.any((variant) => variant.catalogItemId == item.id),
         )
         .toList(growable: false);
     if (candidates.isEmpty) {
@@ -8578,9 +8619,7 @@ class _SetContentsStepState extends State<_SetContentsStep> {
       context: context,
       builder: (_) => _ManualComponentDialog(
         candidates: candidates,
-        variants: widget.contextData.templateSetCatalogVariants
-            .where((entry) => entry.isSelectable)
-            .toList(growable: false),
+        variants: variants,
         mediaRepository: widget.mediaRepository,
       ),
     );
@@ -9463,12 +9502,26 @@ bool _manufacturingRangesOverlap(List<double>? left, List<double>? right) {
   return math.min(left[1], right[1]) - math.max(left[0], right[0]) > 0.0001;
 }
 
+// A "+" copy without its own field assignment belongs to the manufacturing fields of its source row.
+CalculatorSetContentItem? _manufacturingFieldSource(
+  CalculatorSetContentTab tab,
+  CalculatorSetContentItem item,
+) {
+  final sourceId = item.duplicateOf;
+  if (sourceId == null || _manufacturingFieldIndexForItem(item) != null) return null;
+  return tab.items
+      .where((entry) => entry.duplicateOf == null && entry.identity == sourceId)
+      .firstOrNull;
+}
+
 bool _itemBelongsToManufacturingField(
   CalculatorSetContentTab tab,
   CalculatorSetContentItem item,
   String kind,
   int fieldIndex,
 ) {
+  final source = _manufacturingFieldSource(tab, item);
+  if (source != null) return _itemBelongsToManufacturingField(tab, source, kind, fieldIndex);
   final assignedIndex = _manufacturingFieldIndexForItem(item);
   final assignedKind = _manufacturingFieldKindForItem(item);
   if (assignedIndex != null) {
@@ -9531,6 +9584,8 @@ String? _manufacturingFieldLabelForItem(
   CalculatorSetContentTab tab,
   CalculatorSetContentItem item,
 ) {
+  final source = _manufacturingFieldSource(tab, item);
+  if (source != null) return _manufacturingFieldLabelForItem(tab, source);
   final assignedIndex = _manufacturingFieldIndexForItem(item);
   final assignedKind = _manufacturingFieldKindForItem(item);
   if (assignedIndex != null) {
@@ -9610,13 +9665,6 @@ List<_SetContentVisibleRow> _visibleSetContentRows(CalculatorContext contextData
   }
   return rows;
 }
-
-// Calculated cut pieces of the continuous gutter in this tab (item index, item), left to right.
-List<(int, CalculatorSetContentItem)> _gutterCutPieces(CalculatorSetContentTab tab) => [
-      for (var i = 0; i < tab.items.length; i++)
-        if (tab.items[i].isCalculated && (tab.items[i].segmentId ?? '').startsWith('gutter:overall:cut-'))
-          (i, tab.items[i]),
-    ]..sort((a, b) => (a.$2.cutGroupIndex ?? 0).compareTo(b.$2.cutGroupIndex ?? 0));
 
 // Rinne cut points: every joint on a beam axis (numbered left to right along the gutter), every piece within
 // the template limit (gutterSplitThresholdMm); a beam is offered for a cut only between its neighbouring cuts.
@@ -10111,6 +10159,7 @@ class _SetContentTabTable extends StatefulWidget {
     required this.onCommitItemValues,
     required this.onToggleItem,
     required this.onDeleteManual,
+    required this.onDuplicateItem,
     required this.onResetItem,
     required this.onEditModuleComponents,
     this.onEditGutterCuts,
@@ -10127,7 +10176,7 @@ class _SetContentTabTable extends StatefulWidget {
   static const _unitWidth = 58.0;
   static const _lengthWidth = 116.0;
   static const _stateWidth = 132.0;
-  static const _actionsWidth = 88.0;
+  static const _actionsWidth = 128.0;
   static const _columnGap = 12.0;
 
   final CalculatorContext contextData;
@@ -10143,6 +10192,8 @@ class _SetContentTabTable extends StatefulWidget {
   }) onCommitItemValues;
   final void Function(int itemIndex) onToggleItem;
   final void Function(int itemIndex) onDeleteManual;
+  // "+": the row is copied as a manual component directly below it.
+  final void Function(int itemIndex) onDuplicateItem;
   final void Function(int itemIndex) onResetItem;
   final VoidCallback onEditModuleComponents;
   // Rinne cut points; null when the tab has no cut pieces of the continuous gutter.
@@ -10433,19 +10484,27 @@ class _SetContentTabTableState extends State<_SetContentTabTable> {
     final diagnostic = item.isManual && manualIndex < widget.diagnostics.length ? widget.diagnostics[manualIndex] : null;
     final amount = _num(diagnostic?['amount']);
     final colorScheme = Theme.of(context).colorScheme;
+    final duplicateOf = item.duplicateOf ?? '';
     final sourceLabel = item.isCalculated
         ? (item.overrideState == 'excluded'
             ? 'Calculated · excluded'
             : item.isOverridden
                 ? 'Calculated · overridden'
                 : 'Calculated · automatic')
-        : 'Manual component';
+        : duplicateOf.isNotEmpty
+            ? 'Manual · copy of $duplicateOf'
+            : 'Manual component';
     final productionLabel = _manufacturingFieldLabelForItem(widget.tab, item);
+    // Manual rows: amber bar on the left (same amber as the manual-value icons) and a "Manual" chip.
+    final manualColor = Colors.amber.shade700;
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 140),
-      color: item.enabled ? Colors.transparent : colorScheme.surfaceContainerHighest.withValues(alpha: 0.55),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      decoration: BoxDecoration(
+        color: item.enabled ? Colors.transparent : colorScheme.surfaceContainerHighest.withValues(alpha: 0.55),
+        border: item.isManual ? Border(left: BorderSide(color: manualColor, width: 3)) : null,
+      ),
+      padding: EdgeInsets.fromLTRB(item.isManual ? 5 : 8, 5, 8, 5),
       child: Row(
         children: [
           _fixed(
@@ -10465,9 +10524,29 @@ class _SetContentTabTableState extends State<_SetContentTabTable> {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Text(item.name ?? 'Component', maxLines: 1, overflow: TextOverflow.ellipsis),
+                Row(
+                  children: [
+                    Flexible(child: Text(item.name ?? 'Component', maxLines: 1, overflow: TextOverflow.ellipsis)),
+                    if (item.isManual) ...[
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                        decoration: BoxDecoration(
+                          color: manualColor.withValues(alpha: 0.12),
+                          border: Border.all(color: manualColor.withValues(alpha: 0.6)),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          'Manual',
+                          style: Theme.of(context).textTheme.labelSmall?.copyWith(color: manualColor, fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
                 Text(
-                  [sourceLabel, if (productionLabel != null) productionLabel, if (item.segmentId != null) item.segmentId!].join(' · '),
+                  // The segment id of a manual row is an internal random key, so only calculated ids are shown.
+                  [sourceLabel, if (productionLabel != null) productionLabel, if (item.segmentId != null && !item.isManual) item.segmentId!].join(' · '),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(color: colorScheme.onSurfaceVariant),
@@ -10533,6 +10612,13 @@ class _SetContentTabTableState extends State<_SetContentTabTable> {
             width: _SetContentTabTable._actionsWidth,
             child: Row(
               children: [
+                IconButton(
+                  tooltip: 'Duplicate as manual component',
+                  onPressed: item.catalogItemId.isEmpty
+                      ? null
+                      : () => widget.onDuplicateItem(index),
+                  icon: const Icon(Icons.add, size: 20),
+                ),
                 if (showSaveAction)
                   IconButton(
                     tooltip: 'Save the entered values and recalculate',

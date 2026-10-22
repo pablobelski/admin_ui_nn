@@ -96,14 +96,35 @@ double? geometryPreviewPostSetLengthMm(List<CalculatorSetContentTab> modules) {
   return length;
 }
 
-// Joints (cut points) of the continuous gutter: running sum of its enabled cut pieces (gutter:overall:cut-N),
-// left to right, in mm from the left roof edge.
+/// Pieces of the continuous gutter (`gutter:overall`, `gutter:overall:cut-N`) of one tab as (item index, item),
+/// left to right. A "+" copy of a piece (`duplicate_of`) follows its source piece as one more piece, i.e. one
+/// more cut; the server warning and the GLB renderer use the same order.
+List<(int, CalculatorSetContentItem)> geometryPreviewGutterPieces(CalculatorSetContentTab tab) {
+  final calculated = [
+    for (var i = 0; i < tab.items.length; i++)
+      if (tab.items[i].isCalculated && (tab.items[i].segmentId ?? '').startsWith('gutter:overall')) (i, tab.items[i]),
+  ]..sort((a, b) => (a.$2.cutGroupIndex ?? 0).compareTo(b.$2.cutGroupIndex ?? 0));
+  return [
+    for (final piece in calculated) ...[
+      piece,
+      for (var i = 0; i < tab.items.length; i++)
+        if (!tab.items[i].isCalculated && tab.items[i].duplicateOf == piece.$2.segmentId) (i, tab.items[i]),
+    ],
+  ];
+}
+
+// Joints (cut points) of the continuous gutter: running sum of its enabled pieces, left to right, in mm from
+// the left roof edge.
 List<double> geometryPreviewGutterCutPositionsMm(List<CalculatorSetContentTab> modules) {
-  final pieces = [
-    for (final module in modules)
-      for (final item in module.items)
-        if (item.enabled && (item.segmentId ?? '').startsWith('gutter:overall:cut-') && (item.lengthMm ?? 0) > 0) item,
-  ]..sort((a, b) => (a.cutGroupIndex ?? 0).compareTo(b.cutGroupIndex ?? 0));
+  final pieces = <CalculatorSetContentItem>[];
+  for (final module in modules) {
+    // Copies of an excluded piece do not count, as on the server (only active pieces are in its BOM).
+    var sourceEnabled = true;
+    for (final (_, item) in geometryPreviewGutterPieces(module)) {
+      if (item.isCalculated) sourceEnabled = item.enabled;
+      if (sourceEnabled && item.enabled && (item.lengthMm ?? 0) > 0) pieces.add(item);
+    }
+  }
   final cuts = <double>[];
   var position = 0.0;
   for (var i = 0; i + 1 < pieces.length; i++) {
@@ -4541,6 +4562,8 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
   void _drawGutterCutPoints(Canvas canvas, Offset Function(double x, double y) at, _RoofLayout layout, double u) {
     final cuts = geometryPreviewGutterCutPositionsMm(modules);
     for (var i = 0; i < cuts.length; i++) {
+      // A copied piece of the same length can move a cut to or past the gutter end (as for the posts).
+      if (cuts[i] <= 1 || cuts[i] >= layout.widthMm - 1) continue;
       _drawCutPointArrow(canvas, at(cuts[i], _yAt(layout.front, cuts[i])),
           cuts.length > 1 ? 'cut point ${i + 1}' : 'cut point', u);
     }

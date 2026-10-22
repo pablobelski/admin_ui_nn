@@ -1331,6 +1331,10 @@ class CalculatorSetContentItem {
   Map<String, dynamic> get sourceComponent => _map(raw['source_component']);
   String get sourceType => _nullableString(sourceComponent['source_type'] ?? sourceComponent['sourceType']) ?? 'manual';
   String? get segmentId => _nullableString(sourceComponent['segment_id'] ?? sourceComponent['segmentId']);
+  /// Row identity across recalculations: the segment id, else the catalog key.
+  String get identity => segmentId ?? '$catalogItemId:${catalogVariantId ?? ''}:${articleNo ?? ''}';
+  /// Identity of the row a manual row was copied from with "+".
+  String? get duplicateOf => _nullableString(sourceComponent['duplicate_of']);
   String get overrideState => _nullableString(sourceComponent['override_state'] ?? sourceComponent['overrideState']) ?? 'automatic';
   num? get calculatedQuantity => _numOrNull(sourceComponent['calculated_quantity'] ?? sourceComponent['calculatedQuantity']);
   num? get calculatedLengthMm => _numOrNull(sourceComponent['calculated_length_mm'] ?? sourceComponent['calculatedLengthMm']);

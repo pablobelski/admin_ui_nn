@@ -37,9 +37,7 @@ class CalculatorSetContentArticleOverride {
   final bool resetToCalculated;
 }
 
-String _setContentItemIdentity(CalculatorSetContentItem item) =>
-    item.segmentId ??
-    '${item.catalogItemId}:${item.catalogVariantId ?? ''}:${item.articleNo ?? ''}';
+String _setContentItemIdentity(CalculatorSetContentItem item) => item.identity;
 
 final calculatorContextProvider = FutureProvider<CalculatorContext>((ref) async {
   // Depend only on the restored catalog of the loaded quote. A status-only
@@ -914,7 +912,9 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
               (index < state.setContents.length
                   ? state.setContents[index]
                   : null);
-          final items = _itemsWithRestoredExcludedOrder(tab.items, current);
+          final items = _withDuplicatesBelowSource(
+            _itemsWithRestoredExcludedOrder(tab.items, current),
+          );
           return identical(items, tab.items) ? tab : tab.copyWith(items: items);
         }(),
     ];
@@ -954,6 +954,38 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
       );
     }
     return restored;
+  }
+
+  /// The server returns the manual rows after the calculated ones. A row copied
+  /// with "+" (`duplicate_of` = identity of its source row) goes back directly
+  /// below its source; rows whose source is gone keep their place.
+  List<CalculatorSetContentItem> _withDuplicatesBelowSource(
+    List<CalculatorSetContentItem> items,
+  ) {
+    final identities = items.map(_setContentItemIdentity).toSet();
+    final roots = <CalculatorSetContentItem>[];
+    final copies = <String, List<CalculatorSetContentItem>>{};
+    for (final item in items) {
+      final sourceId = item.duplicateOf ?? '';
+      if (identities.contains(sourceId) && sourceId != _setContentItemIdentity(item)) {
+        copies.putIfAbsent(sourceId, () => []).add(item);
+      } else {
+        roots.add(item);
+      }
+    }
+    if (copies.isEmpty) return items;
+    final ordered = <CalculatorSetContentItem>[];
+    void place(CalculatorSetContentItem item) {
+      ordered.add(item);
+      for (final copy in copies.remove(_setContentItemIdentity(item)) ?? const <CalculatorSetContentItem>[]) {
+        place(copy);
+      }
+    }
+    roots.forEach(place);
+    for (final rest in copies.values) {
+      ordered.addAll(rest);
+    }
+    return ordered;
   }
 
   /// Derived-accessory overrides exist only on the client: the server consumes
@@ -1026,7 +1058,9 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
         preview.copyWith(
           id: current?.id ?? preview.id,
           label: current?.label ?? preview.label,
-          items: _itemsWithRestoredExcludedOrder(items, current),
+          items: _withDuplicatesBelowSource(
+            _itemsWithRestoredExcludedOrder(items, current),
+          ),
         ),
       );
     }
@@ -1707,6 +1741,37 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
     );
     final tabs = [...state.setContents];
     tabs[normalizedTab] = tab.copyWith(items: [...tab.items, item]);
+    state = state.copyWith(setContents: tabs);
+  }
+
+  /// "+" on a Set contents row: a manual component with the same article,
+  /// variant, quantity, unit and length, inserted directly below the row.
+  /// `duplicate_of` always names the original row (a copy of a copy too), so
+  /// the copy shares its manufacturing fields and, for a Rinne piece, counts
+  /// as one more piece of the continuous gutter. Only the explicit field of a
+  /// manual source is copied.
+  void duplicateSetContentItem(int tabIndex, int itemIndex) {
+    if (tabIndex < 0 || tabIndex >= state.setContents.length) return;
+    final tab = state.setContents[tabIndex];
+    if (itemIndex < 0 || itemIndex >= tab.items.length) return;
+    final item = tab.items[itemIndex];
+    if (item.catalogItemId.isEmpty) return;
+    final source = item.sourceComponent;
+    final copy = item.copyWith(
+      quantity: item.quantity <= 0 ? 1 : item.quantity,
+      enabled: true,
+      raw: {
+        'source_component': {
+          'source_type': 'manual',
+          'segment_id': 'manual:${tab.id}:${item.catalogItemId}:${DateTime.now().microsecondsSinceEpoch}',
+          'duplicate_of': item.duplicateOf ?? _setContentItemIdentity(item),
+          for (final key in const ['manufacturing_field_kind', 'manufacturing_field_index', 'manufacturing_field_count'])
+            if (source[key] != null) key: source[key],
+        },
+      },
+    );
+    final tabs = [...state.setContents];
+    tabs[tabIndex] = tab.copyWith(items: [...tab.items]..insert(itemIndex + 1, copy));
     state = state.copyWith(setContents: tabs);
   }
 
