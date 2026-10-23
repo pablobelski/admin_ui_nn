@@ -1459,6 +1459,10 @@ class CalculatorMarkiseSelection {
       };
 }
 
+/// A free post placed in "Rinnenstöße und Pfosten": its edge (front = gutter side, back) and the x of its beam
+/// from the left roof edge in mm (roof.post_positions).
+typedef CalculatorPostPosition = ({String edge, double xMm});
+
 class CalculatorDraft {
   const CalculatorDraft({
     this.isEinzelteile = false,
@@ -1481,6 +1485,7 @@ class CalculatorDraft {
     this.coveringEnabled = true,
     this.addWallSealPressurePlate = false,
     this.wallGutterBlendeLongLength = false,
+    this.postPositions = const [],
     this.markiseEnabled = false,
     this.markiseExcludeFromPrice = false,
     this.markiseSelections = const [],
@@ -1631,6 +1636,11 @@ class CalculatorDraft {
           (roof['wall_gutter_blende_long_length'] ?? roof['wallGutterBlendeLongLength']) is bool
               ? (roof['wall_gutter_blende_long_length'] ?? roof['wallGutterBlendeLongLength']) as bool
               : false,
+      postPositions: [
+        for (final position in _list(roof['post_positions']))
+          if (_numOrNull(position['x_mm']) != null)
+            (edge: position['edge'] == 'back' ? 'back' : 'front', xMm: _numOrNull(position['x_mm'])!.toDouble()),
+      ],
       markiseEnabled: markise['enabled'] is bool ? markise['enabled'] as bool : false,
       markiseExcludeFromPrice: markise['exclude_from_price'] is bool
           ? markise['exclude_from_price'] as bool
@@ -1707,6 +1717,7 @@ class CalculatorDraft {
   final bool coveringEnabled;
   final bool addWallSealPressurePlate;
   final bool wallGutterBlendeLongLength;
+  final List<CalculatorPostPosition> postPositions;
   final bool markiseEnabled;
   final bool markiseExcludeFromPrice;
   final List<CalculatorMarkiseSelection> markiseSelections;
@@ -1764,6 +1775,7 @@ class CalculatorDraft {
     bool? coveringEnabled,
     bool? addWallSealPressurePlate,
     bool? wallGutterBlendeLongLength,
+    List<CalculatorPostPosition>? postPositions,
     bool? markiseEnabled,
     bool? markiseExcludeFromPrice,
     List<CalculatorMarkiseSelection>? markiseSelections,
@@ -1827,6 +1839,7 @@ class CalculatorDraft {
           addWallSealPressurePlate ?? this.addWallSealPressurePlate,
       wallGutterBlendeLongLength:
           wallGutterBlendeLongLength ?? this.wallGutterBlendeLongLength,
+      postPositions: postPositions ?? this.postPositions,
       markiseEnabled: markiseEnabled ?? this.markiseEnabled,
       markiseExcludeFromPrice:
           markiseExcludeFromPrice ?? this.markiseExcludeFromPrice,
@@ -1948,6 +1961,10 @@ class CalculatorDraft {
       'add_covering': coveringEnabled,
       'add_wall_seal_pressure_plate': addWallSealPressurePlate,
       'wall_gutter_blende_long_length': wallGutterBlendeLongLength,
+      if (postPositions.isNotEmpty)
+        'post_positions': [
+          for (final position in postPositions) {'edge': position.edge, 'x_mm': position.xMm},
+        ],
       'add_static_beam_assembly': addStaticBeamAssembly,
       'static_beam_position_code': staticBeamPositionCode,
       'static_beam_length_calculation_method':

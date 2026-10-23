@@ -1820,6 +1820,25 @@ class _StepCard extends ConsumerWidget {
           diagnostics: result?.manualComponentDiagnostics ?? const [],
           mediaRepository: ref.read(resourceRepositoryProvider),
           weights: result?.weights ?? const {},
+          // Posts as the previews place them, from the current draft (the dialog reads it again after each choice).
+          postPlan: () {
+            final current = ref.read(calculatorDraftProvider);
+            final previewData = _geometryPreviewRenderDataFor(
+              draft: current,
+              calculatorContext: calculatorContext,
+              roofModelState: roofModelState,
+              result: ref.read(calculatorResultProvider).asData?.value,
+            );
+            return geometryPreviewPostPlan(
+              modelCode: current.modelCode,
+              modelLabel: previewData.selectedModel?.label,
+              geometryParams: geometryPreviewParamsFromDraft(current),
+              modules: current.setContents,
+              calculatedModules: previewData.roofCalculation.modules,
+              wallMounted: current.wallMounted,
+              postCount: previewData.postCount,
+            );
+          },
           onModuleFocusChanged: onModuleFocusChanged,
           onManufacturingFieldFocusChanged: onManufacturingFieldFocusChanged,
           onUpdateFromDefaults: () => _confirmAndReloadSetContents(context),
@@ -7916,6 +7935,7 @@ class _SetContentsStep extends StatefulWidget {
     required this.diagnostics,
     required this.mediaRepository,
     required this.weights,
+    required this.postPlan,
     required this.onModuleFocusChanged,
     required this.onManufacturingFieldFocusChanged,
     required this.onUpdateFromDefaults,
@@ -7932,6 +7952,7 @@ class _SetContentsStep extends StatefulWidget {
   final List<Map<String, dynamic>> diagnostics;
   final AdminResourceRepository mediaRepository;
   final Map<String, dynamic> weights;
+  final GeometryPreviewPostPlan Function() postPlan;
   final ValueChanged<int?> onModuleFocusChanged;
   final void Function(String? kind, int? fieldIndex) onManufacturingFieldFocusChanged;
   final Future<void> Function() onUpdateFromDefaults;
@@ -8395,9 +8416,7 @@ class _SetContentsStepState extends State<_SetContentsStep> {
                     ),
                     onResetItem: (itemIndex) => widget.notifier.resetSetContentItemOverride(tabIndex, itemIndex),
                     onEditModuleComponents: () => _showModuleComponentEditor(tabIndex),
-                    onEditGutterCuts: geometryPreviewGutterPieces(tabs[tabIndex]).length > 1
-                        ? () => _showGutterCutEditor(tabIndex)
-                        : null,
+                    onEditCutsAndPosts: () => _showCutsAndPostsEditor(tabIndex),
                     wallGutterBlendeRulesEnabled: tabs[tabIndex].geometryBool(
                       'wall_gutter_blende_rules_enabled',
                       widget.selectedTemplate
@@ -8448,13 +8467,13 @@ class _SetContentsStepState extends State<_SetContentsStep> {
     widget.notifier.applySetContentArticleOverrides(tabIndex, changes);
   }
 
-  // Rinne cut points of the continuous gutter. Each choice goes to the draft at once, so the preview moves the
-  // cut arrow and the posts while the dialog is open; the server warns about joints that are not on a beam.
-  // A "+" copy of a piece is one more piece; the cuts still divide the calculated gutter length.
-  Future<void> _showGutterCutEditor(int tabIndex) async {
+  // "Rinnenstöße und Pfosten": the cut points of the continuous gutter (with ≥ 2 pieces in this tab) and the free
+  // posts of the roof. Each choice goes to the draft at once, so the previews move the arrows and posts while the
+  // dialog is open; the server warns about joints that are not on a beam. A "+" copy of a piece is one more piece;
+  // the cuts still divide the calculated gutter length.
+  Future<void> _showCutsAndPostsEditor(int tabIndex) async {
     final pieces = geometryPreviewGutterPieces(widget.draft.setContents[tabIndex]);
-    if (pieces.length < 2) return;
-    final source = pieces.first.$2.sourceComponent;
+    final source = pieces.isEmpty ? const <String, dynamic>{} : pieces.first.$2.sourceComponent;
     final rawBeams = source['gutter_beam_positions_mm'];
     final totalMm = pieces.fold<double>(
       0,
@@ -8463,7 +8482,7 @@ class _SetContentsStepState extends State<_SetContentsStep> {
     await showDialog<void>(
       context: context,
       barrierColor: Colors.black12,
-      builder: (_) => _GutterCutDialog(
+      builder: (_) => _CutsAndPostsDialog(
         totalMm: totalMm,
         beamsMm: [
           if (rawBeams is List)
@@ -8471,7 +8490,11 @@ class _SetContentsStepState extends State<_SetContentsStep> {
               if (value is num) value.toDouble(),
         ],
         maxPieceMm: (source['gutter_max_piece_length_mm'] as num?)?.toDouble() ?? totalMm,
-        initialCutsMm: geometryPreviewGutterCutPositionsMm([widget.draft.setContents[tabIndex]]),
+        initialCutsMm: pieces.length < 2
+            ? const []
+            : geometryPreviewGutterCutPositionsMm([widget.draft.setContents[tabIndex]]),
+        postPlan: widget.postPlan,
+        onPostsChanged: widget.notifier.setPostPositions,
         onChanged: (cutsMm) => _applyGutterCuts(tabIndex, totalMm, cutsMm),
         // Back to the calculated cut: calculated pieces automatic again, copied pieces removed (last first).
         onReset: () {
@@ -9666,16 +9689,20 @@ List<_SetContentVisibleRow> _visibleSetContentRows(CalculatorContext contextData
   return rows;
 }
 
-// Rinne cut points: every joint on a beam axis (numbered left to right along the gutter), every piece within
-// the template limit (gutterSplitThresholdMm); a beam is offered for a cut only between its neighbouring cuts.
-class _GutterCutDialog extends StatefulWidget {
-  const _GutterCutDialog({
+// "Rinnenstöße und Pfosten". Rinnenstöße: every joint on a beam (numbered left to right along the gutter), every
+// piece within the template limit (gutterSplitThresholdMm); a beam is offered for a cut only between its
+// neighbouring cuts. Pfosten: the supports at corners, Rinnenstöße and module joints are shown for information;
+// each free post goes on a free beam between its neighbours, as the previews and the 3D model place it.
+class _CutsAndPostsDialog extends StatefulWidget {
+  const _CutsAndPostsDialog({
     required this.totalMm,
     required this.beamsMm,
     required this.maxPieceMm,
     required this.initialCutsMm,
     required this.onChanged,
     required this.onReset,
+    required this.postPlan,
+    required this.onPostsChanged,
   });
 
   final double totalMm;
@@ -9684,12 +9711,14 @@ class _GutterCutDialog extends StatefulWidget {
   final List<double> initialCutsMm;
   final ValueChanged<List<double>> onChanged;
   final VoidCallback onReset;
+  final GeometryPreviewPostPlan Function() postPlan;
+  final ValueChanged<List<CalculatorPostPosition>> onPostsChanged;
 
   @override
-  State<_GutterCutDialog> createState() => _GutterCutDialogState();
+  State<_CutsAndPostsDialog> createState() => _CutsAndPostsDialogState();
 }
 
-class _GutterCutDialogState extends State<_GutterCutDialog> {
+class _CutsAndPostsDialogState extends State<_CutsAndPostsDialog> {
   late final List<double> _cuts = [...widget.initialCutsMm];
 
   int? _beamAt(double x) {
@@ -9706,75 +9735,172 @@ class _GutterCutDialogState extends State<_GutterCutDialog> {
         next - x <= widget.maxPieceMm;
   }
 
+  // Free post [index] of [group] on beam [x]; the other placed pieces keep their posts, the rest stay automatic.
+  void _placePost(GeometryPreviewPostPlan plan, GeometryPreviewPostGroup group, int index, double x) {
+    widget.onPostsChanged([
+      for (final entry in plan.groups)
+        if (entry.manual || identical(entry, group))
+          for (var i = 0; i < entry.postsMm.length; i++)
+            (edge: entry.edge, xMm: identical(entry, group) && i == index ? x : entry.postsMm[i]),
+    ]);
+    setState(() {});
+  }
+
   @override
   Widget build(BuildContext context) {
     final bounds = [0.0, ..._cuts, widget.totalMm];
     final theme = Theme.of(context);
-    return AlertDialog(
-      title: const Text('Rinne cut points'),
-      content: SizedBox(
-        width: 520,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Each Rinne joint sits on a beam (numbered left to right along the gutter); every piece stays within '
-              '${widget.maxPieceMm.round()} mm. A post stands under each cut point, the other posts are spread again.',
-              style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+    final note = theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant);
+    final plan = widget.postPlan();
+    String side(String edge) => switch (edge) { 'front' => 'vorne', 'back' => 'hinten', _ => 'seitlich' };
+    String beam(double x) {
+      final index = plan.beamsMm.indexWhere((value) => (value - x).abs() < 1);
+      return '${index < 0 ? '' : 'Sparren ${index + 1} · '}${x.round()} mm';
+    }
+
+    // Posts along the gutter side, then the rear and the sides, left to right: fixed ones as text, free ones with a
+    // beam choice between their neighbours.
+    final posts = <(String, double, Widget?, String?)>[
+      for (final (kind, edge, x) in plan.fixed) (edge, x, null, '$kind · ${beam(x)}'),
+      for (final group in plan.groups)
+        for (var i = 0; i < group.postsMm.length; i++)
+          (
+            group.edge,
+            group.postsMm[i],
+            DropdownButtonFormField<double>(
+              key: ValueKey('post-${group.edge}-${group.fromMm}-$i-${group.postsMm[i]}'),
+              initialValue: group.postsMm[i],
+              isExpanded: true,
+              decoration: const InputDecoration(isDense: true, labelText: 'Sparren'),
+              items: [
+                for (final x in group.beamsMm)
+                  if ((x - group.postsMm[i]).abs() < 1 ||
+                      (x > (i == 0 ? group.fromMm : group.postsMm[i - 1]) + 1 &&
+                          x < (i == group.postsMm.length - 1 ? group.toMm : group.postsMm[i + 1]) - 1))
+                    DropdownMenuItem(value: x, child: Text(beam(x))),
+              ],
+              onChanged: (x) {
+                if (x != null) _placePost(plan, group, i, x);
+              },
             ),
-            const SizedBox(height: 12),
-            for (var cut = 0; cut < _cuts.length; cut++)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Row(
-                  children: [
-                    SizedBox(width: 80, child: Text('Cut ${cut + 1}')),
-                    Expanded(
-                      child: DropdownButtonFormField<int>(
-                        key: ValueKey('gutter-cut-$cut-${_cuts[cut]}'),
-                        initialValue: _beamAt(_cuts[cut]),
-                        isExpanded: true,
-                        decoration: InputDecoration(
-                          isDense: true,
-                          labelText: 'Beam',
-                          helperText: _beamAt(_cuts[cut]) == null ? '${_cuts[cut].round()} mm: not on a beam' : null,
-                        ),
-                        items: [
-                          for (var beam = 0; beam < widget.beamsMm.length; beam++)
-                            if (_fits(cut, widget.beamsMm[beam]) || _beamAt(_cuts[cut]) == beam)
-                              DropdownMenuItem(
-                                value: beam,
-                                child: Text('Beam ${beam + 1} · ${widget.beamsMm[beam].round()} mm'),
-                              ),
-                        ],
-                        onChanged: (beam) {
-                          if (beam == null) return;
-                          setState(() => _cuts[cut] = widget.beamsMm[beam]);
-                          widget.onChanged(List.of(_cuts));
-                        },
-                      ),
-                    ),
-                  ],
+            null,
+          ),
+    ]..sort((a, b) {
+        const order = ['front', 'back', 'side'];
+        final byEdge = order.indexOf(a.$1).compareTo(order.indexOf(b.$1));
+        return byEdge != 0 ? byEdge : a.$2.compareTo(b.$2);
+      });
+
+    return AlertDialog(
+      title: const Text('Rinnenstöße und Pfosten'),
+      content: SizedBox(
+        width: 560,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (_cuts.isNotEmpty) ...[
+                Text('Rinnenstöße', style: theme.textTheme.titleSmall),
+                const SizedBox(height: 4),
+                Text(
+                  'Jeder Rinnenstoß liegt auf einem Sparren (von links gezählt); jedes Rinnenstück bleibt höchstens '
+                  '${widget.maxPieceMm.round()} mm lang. Unter jedem Rinnenstoß steht ein Pfosten, die freien Pfosten '
+                  'werden neu verteilt.',
+                  style: note,
                 ),
-              ),
-            Text('Pieces: ${[
-              for (var i = 0; i + 1 < bounds.length; i++) '${(bounds[i + 1] - bounds[i]).round()} mm',
-            ].join(' / ')}'),
-          ],
+                const SizedBox(height: 12),
+                for (var cut = 0; cut < _cuts.length; cut++)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Row(
+                      children: [
+                        SizedBox(width: 120, child: Text('Rinnenstoß ${cut + 1}')),
+                        Expanded(
+                          child: DropdownButtonFormField<int>(
+                            key: ValueKey('gutter-cut-$cut-${_cuts[cut]}'),
+                            initialValue: _beamAt(_cuts[cut]),
+                            isExpanded: true,
+                            decoration: InputDecoration(
+                              isDense: true,
+                              labelText: 'Sparren',
+                              helperText: _beamAt(_cuts[cut]) == null ? '${_cuts[cut].round()} mm: nicht auf einem Sparren' : null,
+                            ),
+                            items: [
+                              for (var beam = 0; beam < widget.beamsMm.length; beam++)
+                                if (_fits(cut, widget.beamsMm[beam]) || _beamAt(_cuts[cut]) == beam)
+                                  DropdownMenuItem(
+                                    value: beam,
+                                    child: Text('Sparren ${beam + 1} · ${widget.beamsMm[beam].round()} mm'),
+                                  ),
+                            ],
+                            onChanged: (beam) {
+                              if (beam == null) return;
+                              setState(() => _cuts[cut] = widget.beamsMm[beam]);
+                              widget.onChanged(List.of(_cuts));
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                Text('Rinnenstücke: ${[
+                  for (var i = 0; i + 1 < bounds.length; i++) '${(bounds[i + 1] - bounds[i]).round()} mm',
+                ].join(' / ')}'),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    onPressed: () {
+                      widget.onReset();
+                      Navigator.of(context).pop();
+                    },
+                    child: const Text('Rinnenstöße automatisch'),
+                  ),
+                ),
+                const Divider(height: 24),
+              ],
+              Text('Pfosten', style: theme.textTheme.titleSmall),
+              const SizedBox(height: 4),
+              if (posts.isEmpty)
+                Text('Keine Pfosten im Set.', style: note)
+              else ...[
+                Text(
+                  'Pfosten an Ecken, Rinnenstößen und Modulstößen bleiben fest (nur zur Information). Jeder freie '
+                  'Pfosten steht auf einem freien Sparren zwischen seinen Nachbarn.',
+                  style: note,
+                ),
+                const SizedBox(height: 12),
+                for (var n = 0; n < posts.length; n++)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Row(
+                      children: [
+                        SizedBox(width: 120, child: Text('Pfosten ${n + 1} · ${side(posts[n].$1)}')),
+                        Expanded(child: posts[n].$3 ?? Text(posts[n].$4 ?? '', style: note)),
+                      ],
+                    ),
+                  ),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    onPressed: plan.groups.any((group) => group.manual)
+                        ? () {
+                            widget.onPostsChanged(const []);
+                            setState(() {});
+                          }
+                        : null,
+                    child: const Text('Pfosten automatisch'),
+                  ),
+                ),
+              ],
+            ],
+          ),
         ),
       ),
       actions: [
-        TextButton(
-          onPressed: () {
-            widget.onReset();
-            Navigator.of(context).pop();
-          },
-          child: const Text('Automatic'),
-        ),
         FilledButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Close'),
+          child: const Text('Schließen'),
         ),
       ],
     );
@@ -10162,7 +10288,7 @@ class _SetContentTabTable extends StatefulWidget {
     required this.onDuplicateItem,
     required this.onResetItem,
     required this.onEditModuleComponents,
-    this.onEditGutterCuts,
+    required this.onEditCutsAndPosts,
     required this.wallGutterBlendeRulesEnabled,
     required this.onWallGutterBlendeRulesChanged,
     required this.onAddManual,
@@ -10196,8 +10322,8 @@ class _SetContentTabTable extends StatefulWidget {
   final void Function(int itemIndex) onDuplicateItem;
   final void Function(int itemIndex) onResetItem;
   final VoidCallback onEditModuleComponents;
-  // Rinne cut points; null when the tab has no cut pieces of the continuous gutter.
-  final VoidCallback? onEditGutterCuts;
+  // "Rinnenstöße und Pfosten": Rinne cut points (with ≥ 2 pieces) and the free posts.
+  final VoidCallback onEditCutsAndPosts;
   final bool wallGutterBlendeRulesEnabled;
   final ValueChanged<bool> onWallGutterBlendeRulesChanged;
   final VoidCallback onAddManual;
@@ -10390,14 +10516,12 @@ class _SetContentTabTableState extends State<_SetContentTabTable> {
                     ],
                   ),
                 ),
-                if (widget.onEditGutterCuts != null) ...[
-                  const SizedBox(width: 8),
-                  IconButton.filledTonal(
-                    onPressed: widget.onEditGutterCuts,
-                    tooltip: 'Rinne cut points',
-                    icon: const Icon(Icons.content_cut, size: 18),
-                  ),
-                ],
+                const SizedBox(width: 8),
+                IconButton.filledTonal(
+                  onPressed: widget.onEditCutsAndPosts,
+                  tooltip: 'Rinnenstöße und Pfosten',
+                  icon: const Icon(Icons.view_week_outlined, size: 18),
+                ),
                 const SizedBox(width: 8),
                 IconButton.filledTonal(
                   onPressed: widget.onEditModuleComponents,
@@ -16726,6 +16850,8 @@ String _priceSignature(CalculatorDraft draft) {
     ..remove('external_notes')
     ..remove('branding')
     ..remove('language_code');
+  // Post positions only move posts in the previews and the 3D model, they do not change the price.
+  (input['roof'] as Map?)?.remove('post_positions');
   return jsonEncode(_stablePriceValue(input));
 }
 

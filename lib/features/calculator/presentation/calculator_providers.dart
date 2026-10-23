@@ -333,6 +333,10 @@ class CalculatorDraftNotifier extends Notifier<CalculatorDraft> {
   void setWallGutterBlendeLongLength(bool value) =>
       state = state.copyWith(wallGutterBlendeLongLength: value);
 
+  // Free posts placed in "Rinnenstöße und Pfosten"; empty = automatic placement.
+  void setPostPositions(List<CalculatorPostPosition> positions) =>
+      state = state.copyWith(postPositions: positions);
+
   void setCoveringEnabled(bool value) {
     if (value) {
       state = state.copyWith(coveringEnabled: true);
