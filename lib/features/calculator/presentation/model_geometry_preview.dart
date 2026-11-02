@@ -389,6 +389,7 @@ class ModelGeometryPreview extends ConsumerStatefulWidget {
     this.moduleRoles = const [],
     this.calculatedModules = const [],
     this.calculationNumber,
+    this.korrekturNo = 0,
     this.calculationSavedAt,
     this.buyerName,
     this.b2bPartnerName,
@@ -435,6 +436,7 @@ class ModelGeometryPreview extends ConsumerStatefulWidget {
   final List<String> moduleRoles;
   final List<RoofModuleCalculation> calculatedModules;
   final String? calculationNumber;
+  final int korrekturNo;
   final String? calculationSavedAt;
   final String? buyerName;
   final String? b2bPartnerName;
@@ -1141,6 +1143,7 @@ Widget _buildGeometryCanvasFor(
   bool drawing = false,
   bool geometryOnly = false,
   double drawingBottomRightReserve = 0,
+  double? overallDimensionsTop,
 }) {
   return CustomPaint(
     painter: _ModelGeometryPreviewPainter(
@@ -1183,6 +1186,7 @@ Widget _buildGeometryCanvasFor(
       geometryOnly: geometryOnly,
       drawing: drawing,
       drawingBottomRightReserve: drawingBottomRightReserve,
+      overallDimensionsTop: overallDimensionsTop,
     ),
   );
 }
@@ -1207,7 +1211,7 @@ class _ExpandedSchematicPreview extends StatelessWidget {
             Theme.of(context).colorScheme,
             drawing: true,
             geometryOnly: true,
-            drawingBottomRightReserve: _qrSize + 40,
+            drawingBottomRightReserve: _qrSize + (widget.korrekturNo > 0 ? 64 : 40),
           ),
         ),
         Positioned(
@@ -1232,6 +1236,10 @@ class _ExpandedSchematicPreview extends StatelessWidget {
                       fontWeight: FontWeight.w700,
                     ),
               ),
+              if (widget.korrekturNo > 0)
+                Text('Korrektur ${widget.korrekturNo}',
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    color: Theme.of(context).colorScheme.primary, fontWeight: FontWeight.w700)),
             ],
           ),
         ),
@@ -1339,6 +1347,23 @@ class _ExpandedGeometryPreview extends StatelessWidget {
                             (hasStaticBeamInstructionImage
                                 ? instructionImageHeight + 14
                                 : 0.0);
+                        final commissionLabel = 'Kommission${(widget.b2bPartnerName ?? '').trim().isNotEmpty ? ' B2B' : ''}: ${_expandedKommissionLabel(widget.calculationNumber)}';
+                        final commissionStyle = Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: Colors.black87,
+                          fontWeight: FontWeight.w600,
+                          fontSize: (Theme.of(context).textTheme.labelSmall?.fontSize ?? 11) * 1.6,
+                        );
+                        final korrekturStyle = Theme.of(context).textTheme.titleSmall?.copyWith(
+                          color: colorScheme.primary, fontWeight: FontWeight.w700);
+                        double labelHeight(String text, TextStyle? style) => (TextPainter(
+                          text: TextSpan(text: text, style: style),
+                          textDirection: Directionality.of(context),
+                          textScaler: MediaQuery.textScalerOf(context),
+                          maxLines: 1,
+                        )..layout()).height;
+                        // Header top + vertical padding/border + both text lines + a clear gap.
+                        final dimensionsTop = 8.0 + 10.0 + labelHeight(commissionLabel, commissionStyle)
+                            + (widget.korrekturNo > 0 ? labelHeight('Korrektur ${widget.korrekturNo}', korrekturStyle) : 0.0) + 8.0;
                         return Stack(
                           fit: StackFit.expand,
                           children: [
@@ -1350,6 +1375,7 @@ class _ExpandedGeometryPreview extends StatelessWidget {
                               sideInfoBottomReserve: sideBottomReserve,
                               alignRoofTop: true,
                               showRoofTypeInSideInfo: widget.showRoofType,
+                              overallDimensionsTop: dimensionsTop,
                             ),
                             Positioned(
                               left: 8,
@@ -1375,24 +1401,19 @@ class _ExpandedGeometryPreview extends StatelessWidget {
                                             color: Colors.black26,
                                           ),
                                         ),
-                                        child: Text(
-                                          'Kommission${(widget.b2bPartnerName ?? '').trim().isNotEmpty ? ' B2B' : ''}: ${_expandedKommissionLabel(widget.calculationNumber)}',
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: Theme.of(context)
-                                              .textTheme
-                                              .labelSmall
-                                              ?.copyWith(
-                                                color: Colors.black87,
-                                                fontWeight: FontWeight.w600,
-                                                fontSize:
-                                                    (Theme.of(context)
-                                                            .textTheme
-                                                            .labelSmall
-                                                            ?.fontSize ??
-                                                        11) *
-                                                    1.6,
-                                              ),
+                                        child: Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              commissionLabel,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: commissionStyle,
+                                            ),
+                                            if (widget.korrekturNo > 0)
+                                              Text('Korrektur ${widget.korrekturNo}', style: korrekturStyle),
+                                          ],
                                         ),
                                       ),
                                     ),
@@ -2293,6 +2314,7 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     this.geometryOnly = false,
     this.drawing = false,
     this.drawingBottomRightReserve = 0,
+    this.overallDimensionsTop,
     this.roofParameters = const {},
   });
 
@@ -2330,6 +2352,7 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
   final bool drawing;
   // Space kept free under the drawing legend (QR code of the large drawing).
   final double drawingBottomRightReserve;
+  final double? overallDimensionsTop;
   // Template roof parameters (tds_glass_params) with the real profile sizes.
   final Map<String, dynamic> roofParameters;
 
@@ -5597,7 +5620,7 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     )..layout();
     // The expanded preview prints the calculation number on a plate at the top
     // left; keep the B/T plate clear of it instead of overlapping.
-    final top = alignRoofTop && !geometryOnly ? 46.0 : 8.0;
+    final top = overallDimensionsTop ?? (alignRoofTop && !geometryOnly ? 46.0 : 8.0);
     final background = RRect.fromRectAndRadius(
       Rect.fromLTWH(
         8,
@@ -5669,6 +5692,7 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
         oldDelegate.geometryOnly != geometryOnly ||
         oldDelegate.drawing != drawing ||
         oldDelegate.drawingBottomRightReserve != drawingBottomRightReserve ||
+        oldDelegate.overallDimensionsTop != overallDimensionsTop ||
         oldDelegate.roofParameters != roofParameters;
   }
 }

@@ -42,6 +42,9 @@ class AdminResourceRepository {
     return _client.getJson('${resource.endpoint}/$id');
   }
 
+  Future<void> deleteQuoteDocuments(String quoteId) =>
+      _client.delete('/api/admin/quotes/$quoteId/documents');
+
   Future<List<Map<String, dynamic>>> fetchLookup(
       AdminLookup lookup, {
         String query = '',

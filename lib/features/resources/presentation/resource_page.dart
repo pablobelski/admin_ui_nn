@@ -715,14 +715,14 @@ Map<String, double> _expandListColumnWidths({
 
   final totalFlex = columns.fold<int>(
     0,
-    (sum, column) => sum + math.max(1, column.flex),
+    (sum, column) => sum + math.max(0, column.flex),
   );
   if (totalFlex <= 0) return baseWidths;
 
   return <String, double>{
     for (final column in columns)
       column.key: (baseWidths[column.key] ?? 0) +
-          extraWidth * (math.max(1, column.flex) / totalFlex),
+          extraWidth * (math.max(0, column.flex) / totalFlex),
   };
 }
 
@@ -746,6 +746,7 @@ bool _isInlinePreviewColumn(AdminResourceDefinition resource, AdminColumn column
 
 double _compactColumnWidth(String resourceKey, AdminColumn column) {
   final key = column.key;
+  if (resourceKey == 'quotes' && key == 'korrektur_no') return 44;
 
   if (resourceKey == 'asset_files') {
     return switch (key) {
@@ -1014,6 +1015,10 @@ String _displayListValue({
   required AdminColumn column,
   required Map<String, String>? lookupLabels,
 }) {
+  if (resource.key == 'quotes' && column.key == 'korrektur_no') {
+    final no = quoteKorrekturNo(row['korrektur_json'], row['order_type_code']?.toString());
+    return no > 0 ? 'K$no' : '';
+  }
   if (resource.key == 'catalog_media' && column.key == 'file_id') {
     final filename = row['file_original_filename']?.toString().trim();
     if (filename != null && filename.isNotEmpty) return filename;
@@ -2168,6 +2173,7 @@ class _QuoteDocumentsTab extends StatefulWidget {
 class _QuoteDocumentsTabState extends State<_QuoteDocumentsTab> {
   late Future<ResourceListResponse> _documentsFuture;
   final Set<String> _deletingIds = <String>{};
+  bool _deletingAll = false;
 
   AdminResourceDefinition get _resource => findResourceByKey('generated_documents');
 
@@ -2201,6 +2207,52 @@ class _QuoteDocumentsTabState extends State<_QuoteDocumentsTab> {
       _documentsFuture = _fetchDocuments();
     });
   }
+
+  Future<void> _deleteAllDocuments() async {
+    if (_deletingAll || _deletingIds.isNotEmpty) return;
+    final confirmed = await showDialog<bool>(context: context, builder: (dialogContext) => AlertDialog(
+      title: const Text('Delete all quote documents?'),
+      content: const Text('Delete all generated documents of this quote from the configurator?'),
+      actions: [
+        TextButton(onPressed: () => Navigator.of(dialogContext).pop(false), child: const Text('Cancel')),
+        FilledButton.tonal(onPressed: () => Navigator.of(dialogContext).pop(true), child: const Text('Delete all')),
+      ],
+    ));
+    if (confirmed != true || !mounted) return;
+    final quoteId = widget.quoteId;
+    setState(() => _deletingAll = true);
+    try {
+      await widget.repository.deleteQuoteDocuments(quoteId);
+      if (!mounted) return;
+      _reload();
+      notifyQuoteIntegrationsChanged();
+      showTopNotification(context, 'All quote documents deleted.', type: TopNotificationType.success);
+    } catch (error) {
+      if (mounted) showTopNotification(context, 'Document deletion failed: $error', type: TopNotificationType.error);
+    } finally {
+      if (mounted) setState(() => _deletingAll = false);
+    }
+  }
+
+  Widget _documentActions() => SizedBox(
+    width: 84,
+    child: Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+      IconButton(
+        tooltip: 'Refresh documents',
+        onPressed: _deletingAll ? null : _reload,
+        visualDensity: VisualDensity.compact,
+        icon: const Icon(Icons.refresh_rounded, size: 18),
+      ),
+      IconButton(
+        tooltip: 'Delete all documents',
+        onPressed: _deletingAll || _deletingIds.isNotEmpty ? null : _deleteAllDocuments,
+        visualDensity: VisualDensity.compact,
+        icon: _deletingAll
+          ? const SizedBox.square(dimension: 16, child: CircularProgressIndicator(strokeWidth: 2))
+          : Icon(Icons.delete_sweep_outlined, size: 18, color: Theme.of(context).colorScheme.error),
+      ),
+    ]),
+  );
 
   Future<void> _deleteDocument(Map<String, dynamic> row) async {
     final id = _firstText(row['id']);
@@ -2283,11 +2335,13 @@ class _QuoteDocumentsTabState extends State<_QuoteDocumentsTab> {
 
         final rows = snapshot.data?.items ?? const <Map<String, dynamic>>[];
         if (rows.isEmpty) {
-          return _QuoteRelatedTabEmpty(
-            icon: Icons.description_outlined,
-            message: 'No generated documents for this quote.',
-            onRefresh: _reload,
-          );
+          return Column(children: [
+            Align(alignment: Alignment.centerRight, child: _documentActions()),
+            const Expanded(child: _QuoteRelatedTabEmpty(
+              icon: Icons.description_outlined,
+              message: 'No generated documents for this quote.',
+            )),
+          ]);
         }
 
         return LayoutBuilder(
@@ -2306,18 +2360,7 @@ class _QuoteDocumentsTabState extends State<_QuoteDocumentsTab> {
                           const AdminTableHeaderCell(label: 'Type', width: 132),
                           const AdminTableHeaderCell(label: 'Filename', flex: 3),
                           const AdminTableHeaderCell(label: 'Generated by', flex: 2),
-                          SizedBox(
-                            width: 84,
-                            child: Align(
-                              alignment: Alignment.centerRight,
-                              child: IconButton(
-                                tooltip: 'Refresh documents',
-                                onPressed: _reload,
-                                visualDensity: VisualDensity.compact,
-                                icon: const Icon(Icons.refresh_rounded, size: 18),
-                              ),
-                            ),
-                          ),
+                          _documentActions(),
                         ],
                       ),
                     ),
@@ -2380,7 +2423,7 @@ class _QuoteDocumentsTabState extends State<_QuoteDocumentsTab> {
                                       ),
                                       IconButton(
                                         tooltip: 'Delete document',
-                                        onPressed: id == null || isDeleting
+                                        onPressed: id == null || isDeleting || _deletingAll
                                             ? null
                                             : () => _deleteDocument(row),
                                         padding: EdgeInsets.zero,
@@ -2727,12 +2770,10 @@ class _QuoteRelatedTabEmpty extends StatelessWidget {
   const _QuoteRelatedTabEmpty({
     required this.icon,
     required this.message,
-    this.onRefresh,
   });
 
   final IconData icon;
   final String message;
-  final VoidCallback? onRefresh;
 
   @override
   Widget build(BuildContext context) {
@@ -2743,14 +2784,6 @@ class _QuoteRelatedTabEmpty extends StatelessWidget {
           Icon(icon, size: 34, color: Theme.of(context).colorScheme.outline),
           const SizedBox(height: 8),
           Text(message),
-          if (onRefresh != null) ...[
-            const SizedBox(height: 8),
-            IconButton(
-              tooltip: 'Refresh',
-              onPressed: onRefresh,
-              icon: const Icon(Icons.refresh_rounded),
-            ),
-          ],
         ],
       ),
     );
@@ -3336,6 +3369,7 @@ class _SavedQuoteGeometryPreviewTab extends StatelessWidget {
             moduleRoles: moduleRoles,
             calculatedModules: roofCalculation?.modules ?? const [],
             calculationNumber: quoteNo,
+            korrekturNo: quoteKorrekturNo(data['korrektur_json'], data['order_type_code']?.toString()),
             calculationSavedAt:
                 _quoteTextField(data, 'updated_at', 'updatedAt') ??
                 _quoteTextField(data, 'created_at', 'createdAt'),

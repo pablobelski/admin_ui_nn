@@ -148,7 +148,6 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
           children: [
             _Header(
               calculationNumber: calculationNumber,
-              korrekturNo: loadedQuote?.korrekturNo ?? 0,
               isCalculationSaved: isCalculationSaved,
               selectedIndex: effectiveSelectedStep,
               steps: activeSteps,
@@ -868,6 +867,7 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
         moduleRoles: _moduleRolesFor(previewData.selectedModel),
         calculatedModules: previewData.roofCalculation.modules,
         calculationNumber: calculationNumber,
+        korrekturNo: persisted.korrekturNo,
         calculationSavedAt: previewSavedAt,
         buyerName: dealerPreviewName,
         b2bPartnerName: b2bPreviewName,
@@ -1149,13 +1149,11 @@ class _Header extends StatelessWidget {
     required this.draft,
     required this.buyerContact,
     required this.onStepSelected,
-    this.korrekturNo = 0,
   });
 
   final VoidCallback onRefresh;
   final VoidCallback onNewCalculation;
   final String? calculationNumber;
-  final int korrekturNo;
   final bool isCalculationSaved;
   final int selectedIndex;
   final List<_StepDefinition> steps;
@@ -1285,7 +1283,7 @@ class _Header extends StatelessWidget {
                                           const SizedBox(width: 8),
                                           Flexible(
                                             child: Text(
-                                              '${calculationNumber!.trim()}${korrekturNo > 0 ? ' · Korrektur $korrekturNo' : ''}',
+                                              calculationNumber!.trim(),
                                               maxLines: 1,
                                               textAlign: TextAlign.right,
                                               overflow: TextOverflow.ellipsis,
@@ -13896,7 +13894,7 @@ _GeometryPreviewRenderData _geometryPreviewRenderDataFor({
   );
 }
 
-class _GeometryPreviewTab extends StatelessWidget {
+class _GeometryPreviewTab extends ConsumerWidget {
   const _GeometryPreviewTab({
     required this.draft,
     required this.calculatorContext,
@@ -13932,7 +13930,7 @@ class _GeometryPreviewTab extends StatelessWidget {
   final String? highlightedManufacturingFieldKind;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final selectedTemplate = calculatorContext.templates
         .where((template) => template.id == draft.templateId).firstOrNull;
     if (draft.isEinzelteile) {
@@ -14034,6 +14032,7 @@ class _GeometryPreviewTab extends StatelessWidget {
               moduleRoles: _moduleRolesFor(previewData.selectedModel),
               calculatedModules: previewData.roofCalculation.modules,
               calculationNumber: calculationNumber,
+              korrekturNo: ref.watch(loadedQuoteProvider)?.korrekturNo ?? 0,
               calculationSavedAt: calculationSavedAt,
               buyerName: dealerPreviewName,
               b2bPartnerName: b2bPreviewName,
@@ -15331,6 +15330,7 @@ class _PriceHeaderState extends ConsumerState<_PriceHeader> {
         : orderTypes.where((row) => row['is_default'] == true).firstOrNull?['code']?.toString() ?? '';
     final orderTypeLabel = orderTypes.where((row) => row['code'] == orderTypeCode)
         .firstOrNull?['label']?.toString() ?? (orderTypeCode.isEmpty ? '—' : orderTypeCode);
+    final korrekturNo = loadedQuote?.id == effectiveQuoteId ? loadedQuote?.korrekturNo ?? 0 : 0;
 
     Widget messageSlot({
       required bool attention,
@@ -15367,16 +15367,21 @@ class _PriceHeaderState extends ConsumerState<_PriceHeader> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
-                  Flexible(
-                    child: Chip(
+                  if (korrekturNo > 0)
+                    Chip(
                       visualDensity: VisualDensity.compact,
-                      label: Text(orderTypeLabel, overflow: TextOverflow.ellipsis),
+                      label: Text('Korrektur $korrekturNo',
+                        style: TextStyle(color: Theme.of(context).colorScheme.primary, fontWeight: FontWeight.w700)),
                     ),
+                  Chip(
+                    visualDensity: VisualDensity.compact,
+                    label: Text(orderTypeLabel, softWrap: true),
                   ),
-                  const SizedBox(width: 6),
                   Chip(
                     visualDensity: VisualDensity.compact,
                     avatar: Icon(
@@ -15396,26 +15401,26 @@ class _PriceHeaderState extends ConsumerState<_PriceHeader> {
                         ? Theme.of(context).colorScheme.errorContainer
                         : null,
                   ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    flex: 2,
-                    child: Tooltip(
-                      message: dealerName,
-                      child: Text(dealerName, maxLines: 1, overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
-                    ),
+                  Tooltip(
+                    message: dealerName,
+                    child: Text(dealerName, maxLines: 1, overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
                   ),
-                  if (relationSelected)
-                    const Chip(visualDensity: VisualDensity.compact, label: Text('b2b')),
                 ],
               ),
+              if (relationSelected)
+                const Padding(
+                  padding: EdgeInsets.only(top: 4),
+                  child: Chip(visualDensity: VisualDensity.compact, label: Text('b2b')),
+                ),
               if (hasB2b) Align(
-                alignment: Alignment.centerRight,
+                alignment: Alignment.centerLeft,
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Transform.scale(
                       scale: 0.82,
+                      alignment: Alignment.centerLeft,
                       child: Switch(
                         value: _showB2bPrice,
                         onChanged: (value) =>

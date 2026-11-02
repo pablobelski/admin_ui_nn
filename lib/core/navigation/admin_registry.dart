@@ -860,6 +860,7 @@ const adminNavGroups = <AdminNavGroup>[
         supportsDelete: true,
         columns: [
           AdminColumn(key: 'created_at', label: 'Saved at', flex: 2),
+          AdminColumn(key: 'korrektur_no', label: '#', flex: 0),
           AdminColumn(key: 'quote_no', label: 'Quote no', isPrimary: true, flex: 2),
           AdminColumn(key: 'calculated_amount_eur', label: 'Amount EUR'),
           AdminColumn(key: 'created_by_name', label: 'Author', flex: 2),

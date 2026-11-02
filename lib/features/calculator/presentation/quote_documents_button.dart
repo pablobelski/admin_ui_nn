@@ -84,7 +84,7 @@ class _QuoteDocumentsOptionsDialogState extends State<QuoteDocumentsOptionsDialo
   bool _initialized = false;
   bool _isPrinting = false;
   String? _printJobId;
-  bool _splitOutput = false;
+  bool _splitOutput = true;
   bool _includeGeometryPreview = false;
   bool _includeGeometryWarnings = true;
   bool _includeSchematicPreview = false;
@@ -134,7 +134,6 @@ class _QuoteDocumentsOptionsDialogState extends State<QuoteDocumentsOptionsDialo
 
     if (batch != null) {
       _selectedBatchId = batch.id;
-      _splitOutput = batch.splitOutput;
       _selectedTemplateIds.addAll(batch.documentTemplateIds);
       _includeGeometryPreview = batch.hasGeometryPreview && data.geometryPreviewSettings.printable;
       _includeGeometryWarnings = data.geometryPreviewSettings.includeWarnings;
@@ -411,7 +410,6 @@ class _QuoteDocumentsOptionsDialogState extends State<QuoteDocumentsOptionsDialo
                                     if (batch == null) return;
                                     setState(() {
                                       _selectedBatchId = batch.id;
-                                      _splitOutput = batch.splitOutput;
                                       _selectedTemplateIds
                                         ..clear()
                                         ..addAll(batch.documentTemplateIds);

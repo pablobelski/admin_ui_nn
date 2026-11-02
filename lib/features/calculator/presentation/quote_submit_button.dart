@@ -194,6 +194,7 @@ class _QuoteSubmitButtonState extends State<QuoteSubmitButton> {
       final preview = await widget.repository.fetchQuoteSubmitPreview(
         widget.quoteId,
         operation: _operation,
+        delivery: const QuoteDeliveryChoice(splitOutput: true),
       );
       if (!mounted) return;
       final delivery = await showDialog<QuoteDeliveryChoice>(
@@ -330,7 +331,8 @@ class _QuoteSubmitButtonState extends State<QuoteSubmitButton> {
     final quoteId = widget.quoteId;
     setState(() => _busy = true);
     try {
-      final preview = await widget.repository.previewIntegrationBatch(quoteId, batchId: batchId);
+      final preview = await widget.repository.previewIntegrationBatch(quoteId, batchId: batchId,
+        delivery: const QuoteDeliveryChoice(splitOutput: true));
       if (!mounted || quoteId != widget.quoteId) return;
       final batch = Map<String, dynamic>.from(preview['batch'] as Map);
       final quote = Map<String, dynamic>.from(preview['quote'] as Map);
@@ -629,7 +631,7 @@ class _IntegrationBatchPreviewDialog extends StatefulWidget {
 
 class _IntegrationBatchPreviewDialogState extends State<_IntegrationBatchPreviewDialog> {
   late Map<String, dynamic> _preview = widget.preview;
-  late QuoteDeliveryChoice _delivery = _pinProfile(const QuoteDeliveryChoice(), (_preview['email'] as Map?)?['mailing_profile'] as Map? ?? const {});
+  late QuoteDeliveryChoice _delivery = _pinProfile(const QuoteDeliveryChoice(splitOutput: true), (_preview['email'] as Map?)?['mailing_profile'] as Map? ?? const {});
   bool _loading = false;
   String? _loadError;
   int _request = 0;
@@ -715,7 +717,7 @@ class _QuoteSubmitPreviewDialog extends StatefulWidget {
 
 class _QuoteSubmitPreviewDialogState extends State<_QuoteSubmitPreviewDialog> {
   late QuoteSubmitPreview preview = widget.preview;
-  late QuoteDeliveryChoice _delivery = _pinProfile(const QuoteDeliveryChoice(), preview.mailingProfile);
+  late QuoteDeliveryChoice _delivery = _pinProfile(const QuoteDeliveryChoice(splitOutput: true), preview.mailingProfile);
   bool _loading = false;
   String? _loadError;
   int _request = 0;
