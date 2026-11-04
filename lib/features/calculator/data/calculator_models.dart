@@ -330,7 +330,8 @@ class CalculatorTemplateOption {
   bool get hasCompleteRoofParameters => parametersModuleId != null && roofParameterMissingKeys.isEmpty && roofParameters.isNotEmpty;
 
   int? get defaultHeightMm => _intOrNull(
-        defaultValues['default_height'] ?? defaultValues['defaultHeight'],
+        defaultValues['default_height'] ?? defaultValues['defaultHeight'] ??
+            roofParameters['postLengthMm'] ?? roofParameters['post_length_mm'],
       );
 
   String get statiktragerLengthCalculationDefaultMethod {

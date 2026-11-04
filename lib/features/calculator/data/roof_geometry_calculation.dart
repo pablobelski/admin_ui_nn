@@ -383,10 +383,13 @@ RoofGeometryCalculation calculateRoofGeometryForDraft({
       .whereType<int>()
       .fold<int?>(null, (maxValue, value) => maxValue == null || value > maxValue ? value : maxValue);
   final effectiveDepth = maxDepthMm ?? draft.depthMm;
-  final rearHeight = draft.roofRearHeightMm ?? draft.heightMm;
+  final enteredRearHeight = draft.roofRearHeightMm ?? draft.heightMm;
+  final rearHeight = enteredRearHeight ?? (draft.roofFrontHeightMm != null && draft.roofAngleDeg != null && effectiveDepth != null
+      ? (draft.roofFrontHeightMm! + math.tan(draft.roofAngleDeg! * math.pi / 180) * effectiveDepth).round()
+      : template?.defaultHeightMm);
   final rawAngle = draft.roofAngleDeg ?? (
-    rearHeight != null && draft.roofFrontHeightMm != null && effectiveDepth != null && effectiveDepth > 0
-        ? (math.atan((rearHeight - draft.roofFrontHeightMm!) / effectiveDepth) * 180 / math.pi).round()
+    enteredRearHeight != null && draft.roofFrontHeightMm != null && effectiveDepth != null && effectiveDepth > 0
+        ? (math.atan((enteredRearHeight - draft.roofFrontHeightMm!) / effectiveDepth) * 180 / math.pi).round()
         : null
   );
   final angle = rawAngle?.clamp(

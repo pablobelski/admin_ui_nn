@@ -133,6 +133,8 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
             draft.widthMm != null &&
             draft.depthMm != null &&
             roofModelState.isSelected(draft.modelCode) &&
+            (!roofModelState.required || draft.roofAngleDeg != null ||
+                ((draft.roofRearHeightMm ?? draft.heightMm) != null && draft.roofFrontHeightMm != null)) &&
             (draft.colorCode ?? '').trim().isNotEmpty));
         final effectiveSelectedStep =
             _selectedStep.clamp(0, activeSteps.length - 1).toInt();
@@ -842,15 +844,16 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
         widthMm: draft.widthMm,
         depthMm: draft.depthMm,
         heightMm: draft.heightMm,
+        defaultHeightMm: selectedTemplate?.defaultHeightMm,
         geometryParams: geometryPreviewParamsFromDraft(draft),
         modules: draft.setContents,
         coveringName: previewData.coveringName,
         calculatedModules: previewData.roofCalculation.modules,
         wallMounted: draft.wallMounted,
         postCount: previewData.postCount,
-        roofAngleDeg: draft.roofAngleDeg,
+        roofAngleDeg: previewData.roofCalculation.angleDeg ?? draft.roofAngleDeg,
         rearHeightMm: draft.roofRearHeightMm ?? draft.heightMm,
-        frontHeightMm: draft.roofFrontHeightMm ?? previewData.roofCalculation.frontHeightMm,
+        frontHeightMm: draft.roofFrontHeightMm,
         humanImage: humanImage,
         rasterScale: geometryPreviewPrintSettings.smallPreviewScale,
       );
@@ -862,6 +865,7 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
         widthMm: draft.widthMm,
         depthMm: draft.depthMm,
         heightMm: draft.heightMm,
+        defaultHeightMm: selectedTemplate?.defaultHeightMm,
         geometryParams: geometryPreviewParamsFromDraft(draft),
         modules: draft.setContents,
         moduleRoles: _moduleRolesFor(previewData.selectedModel),
@@ -887,9 +891,9 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
         wallMounted: draft.wallMounted,
         postCount: previewData.postCount,
         quoteNotes: draft.externalNotes,
-        roofAngleDeg: draft.roofAngleDeg,
+        roofAngleDeg: previewData.roofCalculation.angleDeg ?? draft.roofAngleDeg,
         rearHeightMm: draft.roofRearHeightMm ?? draft.heightMm,
-        frontHeightMm: draft.roofFrontHeightMm ?? previewData.roofCalculation.frontHeightMm,
+        frontHeightMm: draft.roofFrontHeightMm,
         roofParameters: selectedTemplate?.roofParameters ?? const {},
         warnings: expandedWarnings,
       );
@@ -3070,6 +3074,7 @@ class _DimensionsStepState extends State<_DimensionsStep> {
   late final FocusNode _frontHeightFocus;
   String? _angleErrorText;
   String? _seededStaticBeamMethodTemplateId;
+  String? _seededAngleModelCode;
   int? _selectedModuleIndex;
 
   @override
@@ -3137,23 +3142,17 @@ class _DimensionsStepState extends State<_DimensionsStep> {
         firstModule != null &&
         ((widget.draft.widthMm != null && firstModule.moduleWidthMm == null) ||
             (widget.draft.depthMm != null && firstModule.moduleDepthMm == null));
-    final rawDefaultAngle = _defaultAngleFor(widget.selectedRoofModel);
-    final defaultAngle = rawDefaultAngle == null ? null : _clampRoofAngle(rawDefaultAngle);
-    final needsAngleSeed = !widget.isLoadedCalculation &&
-        widget.draft.roofAngleDeg == null &&
-        defaultAngle != null;
-    final defaultHeight = widget.selectedTemplate?.defaultHeightMm;
-    final needsHeightSeed = !widget.isLoadedCalculation &&
-        widget.draft.heightMm == null &&
-        defaultHeight != null &&
-        defaultHeight > 0;
     final templateId = widget.selectedTemplate?.id;
     final needsStaticBeamMethodSeed = !widget.isLoadedCalculation &&
         templateId != null &&
         _seededStaticBeamMethodTemplateId != templateId;
-    if (needsStaticBeamMethodSeed) {
-      _seededStaticBeamMethodTemplateId = templateId;
-    }
+    final rawDefaultAngle = _defaultAngleFor(widget.selectedRoofModel);
+    final defaultAngle = rawDefaultAngle == null ? null : _clampRoofAngle(rawDefaultAngle);
+    final modelCode = widget.selectedRoofModel?.code;
+    final needsAngleSeed = !widget.isLoadedCalculation && modelCode != null &&
+        _seededAngleModelCode != modelCode && _effectiveAngle(widget.draft) == null && defaultAngle != null;
+    if (!widget.isLoadedCalculation && modelCode != null) _seededAngleModelCode = modelCode;
+    if (needsStaticBeamMethodSeed) _seededStaticBeamMethodTemplateId = templateId;
     final rearHeight = _effectiveRearHeight(widget.draft);
     final frontHeight = widget.draft.roofFrontHeightMm;
     final needsFrontHeightCorrection = !widget.isLoadedCalculation &&
@@ -3163,7 +3162,6 @@ class _DimensionsStepState extends State<_DimensionsStep> {
     if (!needsModuleSeed &&
         !needsDimensionSeed &&
         !needsAngleSeed &&
-        !needsHeightSeed &&
         !needsStaticBeamMethodSeed &&
         !needsFrontHeightCorrection) {
       return;
@@ -3172,7 +3170,6 @@ class _DimensionsStepState extends State<_DimensionsStep> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || widget.isLoadedCalculation) return;
       if (needsModuleSeed || needsDimensionSeed) widget.notifier.setSetContentModuleRoles(roles);
-      if (needsHeightSeed) widget.notifier.setHeight(defaultHeight.toString());
       if (needsStaticBeamMethodSeed) {
         widget.notifier.setStaticBeamLengthCalculationMethod(
           widget.selectedTemplate!.statiktragerLengthCalculationDefaultMethod,
@@ -3180,15 +3177,6 @@ class _DimensionsStepState extends State<_DimensionsStep> {
       }
       if (needsAngleSeed) {
         widget.notifier.setRoofAngleValue(defaultAngle);
-        _recalculateFrontHeightFromAngle(
-          defaultAngle,
-          rearHeight: needsHeightSeed ? defaultHeight : null,
-        );
-      } else if (needsHeightSeed && widget.draft.roofAngleDeg != null) {
-        _recalculateFrontHeightFromAngle(
-          widget.draft.roofAngleDeg,
-          rearHeight: defaultHeight,
-        );
       } else if (needsFrontHeightCorrection) {
         widget.notifier.setRoofFrontHeightValue(rearHeight);
       }
@@ -3198,11 +3186,11 @@ class _DimensionsStepState extends State<_DimensionsStep> {
   int? _effectiveRearHeight(CalculatorDraft draft) => draft.roofRearHeightMm ?? draft.heightMm;
 
   int? _effectiveAngle(CalculatorDraft draft) {
-    if (draft.roofAngleDeg != null) return _clampRoofAngle(draft.roofAngleDeg!);
+    if (draft.roofAngleDeg != null) return draft.roofAngleDeg;
     final rear = _effectiveRearHeight(draft);
     final front = draft.roofFrontHeightMm;
     final depth = _effectiveDepth(draft);
-    if (rear == null || front == null || depth == null || depth <= 0) return _defaultAngleFor(widget.selectedRoofModel);
+    if (rear == null || front == null || depth == null || depth <= 0) return null;
     return _clampRoofAngle((math.atan((rear - front) / depth) * 180 / math.pi).round());
   }
 
@@ -3242,8 +3230,8 @@ class _DimensionsStepState extends State<_DimensionsStep> {
       widget.notifier.setRoofAngle(value);
       return;
     }
-    if (error != null) return;
     widget.notifier.setRoofAngleValue(angle);
+    if (error != null) return;
     _recalculateFrontHeightFromAngle(angle);
   }
 
@@ -3280,6 +3268,7 @@ class _DimensionsStepState extends State<_DimensionsStep> {
   }
 
   void _recalculateFrontHeightFromAngle(int? angle, {int? rearHeight, int? depthMm}) {
+    if (_frontHeight.text.trim().isEmpty) return;
     final rear = rearHeight ?? _effectiveRearHeight(widget.draft);
     final depth = depthMm ?? _effectiveDepth(widget.draft);
     if (angle == null || rear == null || depth == null || depth <= 0) return;
@@ -14038,6 +14027,7 @@ class _GeometryPreviewTab extends ConsumerWidget {
               widthMm: draft.widthMm,
               depthMm: draft.depthMm,
               heightMm: draft.heightMm,
+              defaultHeightMm: selectedTemplate?.defaultHeightMm,
               geometryParams: geometryPreviewParamsFromDraft(draft),
               modules: draft.setContents,
               moduleRoles: _moduleRolesFor(previewData.selectedModel),
@@ -14074,9 +14064,9 @@ class _GeometryPreviewTab extends ConsumerWidget {
               highlightedModuleIndex: highlightedModuleIndex,
               highlightedGlassFieldIndex: highlightedGlassFieldIndex,
               highlightedManufacturingFieldKind: highlightedManufacturingFieldKind,
-              roofAngleDeg: draft.roofAngleDeg,
+              roofAngleDeg: previewData.roofCalculation.angleDeg ?? draft.roofAngleDeg,
               rearHeightMm: draft.roofRearHeightMm ?? draft.heightMm,
-              frontHeightMm: draft.roofFrontHeightMm ?? previewData.roofCalculation.frontHeightMm,
+              frontHeightMm: draft.roofFrontHeightMm,
               roofParameters: selectedTemplate?.roofParameters ?? const {},
             ),
         ],
@@ -14958,8 +14948,7 @@ Map<String, List<String>> _calculatorWarningMessagesByStep({
 
   // Höhe UKR (Unterkante Rinne) is the top of the posts: above the post length of the set the posts are too short.
   final postSetLength = geometryPreviewPostSetLengthMm(draft.setContents);
-  final frontHeight = draft.roofFrontHeightMm ??
-      (result == null ? null : roofGeometryCalculationFromSources(result.sources)?.frontHeightMm);
+  final frontHeight = draft.roofFrontHeightMm;
   if (postSetLength != null && frontHeight != null && frontHeight > postSetLength) {
     final message = 'Höhe UKR $frontHeight mm exceeds the post length in the set (${postSetLength.round()} mm). '
         'Plan longer posts in Set contents.';
@@ -16952,6 +16941,12 @@ String? _stepValidationMessage(
       return roofModelState.isSelected(draft.modelCode)
           ? null
           : 'Select a roof model / construction type before continuing.';
+    case 'dimensions':
+      if (roofModelState.required && draft.roofAngleDeg == null &&
+          ((draft.roofRearHeightMm ?? draft.heightMm) == null || draft.roofFrontHeightMm == null)) {
+        return 'Enter the roof angle when roof heights are omitted.';
+      }
+      return null;
     case 'color':
       return (draft.colorCode ?? '').trim().isEmpty
           ? 'Select a color before continuing.'

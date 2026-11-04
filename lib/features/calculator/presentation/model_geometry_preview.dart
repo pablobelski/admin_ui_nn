@@ -384,6 +384,7 @@ class ModelGeometryPreview extends ConsumerStatefulWidget {
     this.widthMm,
     this.depthMm,
     this.heightMm,
+    this.defaultHeightMm,
     this.geometryParams = const [],
     this.modules = const [],
     this.moduleRoles = const [],
@@ -431,6 +432,7 @@ class ModelGeometryPreview extends ConsumerStatefulWidget {
   final int? widthMm;
   final int? depthMm;
   final int? heightMm;
+  final int? defaultHeightMm;
   final List<RoofGeometryParam> geometryParams;
   final List<CalculatorSetContentTab> modules;
   final List<String> moduleRoles;
@@ -1152,6 +1154,7 @@ Widget _buildGeometryCanvasFor(
       widthMm: widget.widthMm,
       depthMm: widget.depthMm,
       heightMm: widget.heightMm,
+      defaultHeightMm: widget.defaultHeightMm,
       geometryParams: widget.geometryParams,
       modules: widget.modules,
       colorCode: widget.colorCode,
@@ -1748,7 +1751,8 @@ class _ExpandedPreviewInfo extends StatelessWidget {
             ),
             _PreviewMetadataRow(
               label: 'Overall dimensions',
-              value: 'B: ${_dimensionValue(widthMm)} mm × T: ${_dimensionValue(depthMm)} mm × H: ${_dimensionValue(heightMm)} mm',
+              value: 'B: ${_dimensionValue(widthMm)} mm × T: ${_dimensionValue(depthMm)} mm'
+                  '${heightMm == null ? '' : ' × H: $heightMm mm'}',
             ),
             if (roofAngleDeg != null) _PreviewMetadataRow(label: 'Roof angle', value: '$roofAngleDeg°'),
             const Spacer(),
@@ -2097,6 +2101,7 @@ Future<Uint8List> renderGeometryOnlyPreviewPng({
   required int? widthMm,
   required int? depthMm,
   required int? heightMm,
+  int? defaultHeightMm,
   required List<RoofGeometryParam> geometryParams,
   List<CalculatorSetContentTab> modules = const [],
   required String? coveringName,
@@ -2127,6 +2132,7 @@ Future<Uint8List> renderGeometryOnlyPreviewPng({
     widthMm: widthMm,
     depthMm: depthMm,
     heightMm: heightMm,
+    defaultHeightMm: defaultHeightMm,
     geometryParams: geometryParams,
     modules: modules,
     colorCode: null,
@@ -2287,6 +2293,7 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     required this.widthMm,
     required this.depthMm,
     required this.heightMm,
+    this.defaultHeightMm,
     required this.geometryParams,
     required this.modules,
     required this.colorCode,
@@ -2323,6 +2330,7 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
   final int? widthMm;
   final int? depthMm;
   final int? heightMm;
+  final int? defaultHeightMm;
   final List<RoofGeometryParam> geometryParams;
   final List<CalculatorSetContentTab> modules;
   final String? colorCode;
@@ -2626,7 +2634,12 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     final mainDepth = profile.shape == _RoofShape.rectangle
         ? params.value(const ['T', 'D', 'TK'], (depthMm ?? _defaultDepthMm).toDouble())
         : params.value(const ['TK', 'T', 'D'], (depthMm ?? _defaultDepthMm).toDouble());
-    final h = params.value(const ['H'], (heightMm ?? _defaultHeightMm).toDouble());
+    final maxDepth = modules.fold<double>(mainDepth,
+        (depth, module) => math.max(depth, (module.moduleDepthMm ?? 0).toDouble()));
+    final inferredRearHeight = frontHeightMm != null && roofAngleDeg != null
+        ? frontHeightMm! + math.tan(roofAngleDeg! * math.pi / 180) * maxDepth
+        : null;
+    final h = params.value(const ['H'], (rearHeightMm ?? heightMm ?? inferredRearHeight ?? defaultHeightMm ?? _defaultHeightMm).toDouble());
 
     switch (profile.shape) {
       case _RoofShape.lFront:
@@ -3670,7 +3683,8 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
         frontHeight > 0 &&
         frontHeight <= rearHeight;
 
-    const heightBlockHeight = 28.0;
+    final ukwHeight = params.intValue('H') ?? rearHeightMm ?? heightMm;
+    final heightBlockHeight = ukwHeight == null ? 0.0 : 28.0;
     const countsBlockHeight = 28.0;
     final markiseBlockHeight = hasMarkise ? 26.0 : 0.0;
     final roofTypeCode = modelCode?.trim() ?? '';
@@ -3685,7 +3699,8 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
 
     var insetHeight = _min(58, _max(34, infoHeight * 0.24));
     var slopeBlockHeight = hasSlope ? 52.0 : 0.0;
-    final blockCount = 3 +
+    final blockCount = 2 +
+        (ukwHeight != null ? 1 : 0) +
         (hasColor ? 1 : 0) +
         (hasSlope ? 1 : 0) +
         (hasMarkise ? 1 : 0) +
@@ -3775,26 +3790,27 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     }
 
     var blockTop = rect.bottom + blockGap;
-    final ukwHeight = params.intValue('H') ?? heightMm;
-    _drawText(
-      canvas,
-      'Höhe UKW:',
-      Offset(rect.center.dx, blockTop + 7),
-      lineColor,
-      _sideInfoFontSize,
-      isBold: true,
-      hAlign: 0.5,
-    );
-    _drawText(
-      canvas,
-      '${_dimensionValue(ukwHeight)} mm',
-      Offset(rect.center.dx, blockTop + 21),
-      lineColor,
-      _sideInfoFontSize,
-      isBold: true,
-      hAlign: 0.5,
-    );
-    blockTop += heightBlockHeight + blockGap;
+    if (ukwHeight != null) {
+      _drawText(
+        canvas,
+        'Höhe UKW:',
+        Offset(rect.center.dx, blockTop + 7),
+        lineColor,
+        _sideInfoFontSize,
+        isBold: true,
+        hAlign: 0.5,
+      );
+      _drawText(
+        canvas,
+        '${_dimensionValue(ukwHeight)} mm',
+        Offset(rect.center.dx, blockTop + 21),
+        lineColor,
+        _sideInfoFontSize,
+        isBold: true,
+        hAlign: 0.5,
+      );
+      blockTop += heightBlockHeight + blockGap;
+    }
 
     if (hasColor) {
       blockTop = _drawColorInset(canvas, rect, blockTop) + blockGap;
@@ -4399,13 +4415,17 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     final rearDimX = x2 + sideLeftW - 10 * u;
     // Höhe UKW from the lower edge of the wall profile, Höhe UKR from the lower edge of the gutter, depth from the
     // wall face to the gutter front.
-    dimension(Offset(rearDimX, ground), Offset(rearDimX, zy(rear)),
-        fromA: Offset(sx(0), ground), fromB: Offset(sx(0), zy(rear)));
-    label('${rear.round()}', Offset(rearDimX - 4 * u, (ground + zy(rear)) / 2), hAlign: 1);
-    final frontDimX = sx(d) + 14 * u;
-    dimension(Offset(frontDimX, ground), Offset(frontDimX, zy(front)),
-        fromA: Offset(sx(d), ground), fromB: Offset(sx(d), zy(front)));
-    label('${front.round()}', Offset(frontDimX + 4 * u, (ground + zy(front)) / 2), hAlign: 0);
+    if (rearHeightMm != null || heightMm != null) {
+      dimension(Offset(rearDimX, ground), Offset(rearDimX, zy(rear)),
+          fromA: Offset(sx(0), ground), fromB: Offset(sx(0), zy(rear)));
+      label('${rear.round()}', Offset(rearDimX - 4 * u, (ground + zy(rear)) / 2), hAlign: 1);
+    }
+    if (frontHeightMm != null) {
+      final frontDimX = sx(d) + 14 * u;
+      dimension(Offset(frontDimX, ground), Offset(frontDimX, zy(front)),
+          fromA: Offset(sx(d), ground), fromB: Offset(sx(d), zy(front)));
+      label('${front.round()}', Offset(frontDimX + 4 * u, (ground + zy(front)) / 2), hAlign: 0);
+    }
     dimension(Offset(sx(0), ground + 12 * u), Offset(sx(d), ground + 12 * u),
         fromA: Offset(sx(0), zy(rear)), fromB: Offset(sx(d), zy(front)));
     label('${d.round()}', Offset(sx(d / 2), ground + 20 * u));
@@ -5665,6 +5685,7 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
         oldDelegate.widthMm != widthMm ||
         oldDelegate.depthMm != depthMm ||
         oldDelegate.heightMm != heightMm ||
+        oldDelegate.defaultHeightMm != defaultHeightMm ||
         !_sameGeometryParams(oldDelegate.geometryParams, geometryParams) ||
         oldDelegate.modules != modules ||
         oldDelegate.colorCode != colorCode ||
