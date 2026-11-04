@@ -1,10 +1,12 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
 import '../data/calculator_repository.dart';
 import '../../../core/http/job_updates.dart';
+import '../../../core/ui/top_notification.dart';
 
 final quoteIntegrationsRefreshTick = ValueNotifier<int>(0);
 
@@ -244,6 +246,11 @@ class _QuoteIntegrationsTabState extends State<QuoteIntegrationsTab>
                 ],
               ),
               const SizedBox(height: 6),
+              _QuoteModelShareCard(
+                key: ValueKey('model-share-${widget.quoteId}'),
+                quoteId: widget.quoteId!,
+                repository: widget.repository,
+              ),
               if (overview.connections.isEmpty)
                 const Card(
                   child: ListTile(
@@ -268,6 +275,91 @@ class _QuoteIntegrationsTabState extends State<QuoteIntegrationsTab>
       },
     );
   }
+}
+
+class _QuoteModelShareCard extends StatefulWidget {
+  const _QuoteModelShareCard({super.key, required this.quoteId, required this.repository});
+  final String quoteId;
+  final CalculatorRepository repository;
+
+  @override
+  State<_QuoteModelShareCard> createState() => _QuoteModelShareCardState();
+}
+
+class _QuoteModelShareCardState extends State<_QuoteModelShareCard> {
+  Future<Map<String, dynamic>>? _future;
+  bool _busy = false;
+  bool _loading = false;
+
+  Future<Map<String, dynamic>> _load() async {
+    try { return await widget.repository.fetchQuoteModelShare(widget.quoteId); }
+    finally { if (mounted) setState(() => _loading = false); }
+  }
+
+  void _refresh() {
+    if (_loading) return;
+    setState(() { _loading = true; _future = _load(); });
+  }
+
+  Future<void> _revoke() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      final confirmed = await showDialog<bool>(context: context, builder: (context) => AlertDialog(
+        title: const Text('Revoke 3D link?'),
+        content: const Text('The current link will stop working, including in previously sent emails. Sending again with the 3D option creates a new link.'),
+        actions: [TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Revoke'))],
+      ));
+      if (confirmed != true) return;
+      await widget.repository.revokeQuoteModelShare(widget.quoteId);
+      if (mounted) _refresh();
+    } catch (error) {
+      if (mounted) showTopNotification(context, '3D link: $error', type: TopNotificationType.error);
+    } finally { if (mounted) setState(() => _busy = false); }
+  }
+
+  @override
+  Widget build(BuildContext context) => Card(
+    child: ExpansionTile(
+      title: const Text('3D model link'),
+      onExpansionChanged: (expanded) { if (expanded && _future == null) _refresh(); },
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+          child: FutureBuilder<Map<String, dynamic>>(
+            future: _future,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState != ConnectionState.done) return const LinearProgressIndicator();
+              final data = snapshot.data ?? const <String, dynamic>{};
+              final url = '${data['viewer_url'] ?? ''}';
+              final expires = DateTime.tryParse('${data['expires_at'] ?? ''}')?.toLocal();
+              return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                if (snapshot.hasError) Text('3D link could not be loaded: ${snapshot.error}')
+                else ...[
+                  Text('Status: ${data['state'] ?? 'none'}${data['enabled'] == true ? '' : ' · disabled in System Settings'}'),
+                  if (expires != null) Text('Expires: ${DateFormat('dd.MM.yyyy HH:mm').format(expires)}'),
+                  if (data['reason'] != null) Text('${data['reason']}'),
+                  if (url.isNotEmpty) SelectableText(url)
+                  else const Text('Send the quote with “3D-Modell ansehen” enabled to publish a link.'),
+                ],
+                const SizedBox(height: 8),
+                Wrap(spacing: 8, runSpacing: 8, children: [
+                  OutlinedButton.icon(onPressed: _busy ? null : _refresh, icon: const Icon(Icons.refresh), label: const Text('Refresh link')),
+                  OutlinedButton.icon(onPressed: _busy || url.isEmpty ? null : () async {
+                    await Clipboard.setData(ClipboardData(text: url));
+                    if (context.mounted) showTopNotification(context, '3D link copied.');
+                  }, icon: const Icon(Icons.copy), label: const Text('Copy link')),
+                  OutlinedButton.icon(onPressed: _busy || data['state'] != 'active' ? null : _revoke,
+                    icon: const Icon(Icons.link_off), label: const Text('Revoke link')),
+                ]),
+              ]);
+            },
+          ),
+        ),
+      ],
+    ),
+  );
 }
 
 class _ConnectionExpansionCard extends StatelessWidget {

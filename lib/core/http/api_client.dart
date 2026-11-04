@@ -13,6 +13,7 @@ class ApiClient {
   final String baseUrl;
   final String? Function() tokenProvider;
   final http.Client _httpClient;
+  final _pendingGets = <(Uri, String?), Future<http.Response>>{};
 
   Uri _uri(String path, [Map<String, String>? query]) {
     return Uri.parse('$baseUrl$path').replace(
@@ -37,17 +38,27 @@ class ApiClient {
     return _headers(extra: extra);
   }
 
+  Future<http.Response> _get(String path, Map<String, String>? query) async {
+    final uri = _uri(path, query);
+    final headers = _headers();
+    final key = (uri, headers['Authorization']);
+    // Share only requests that are still running, scoped to the auth session.
+    // Decode separately per caller; completed responses are never cached.
+    final request = _pendingGets.putIfAbsent(key, () => _httpClient.get(uri, headers: headers));
+    late final http.Response response;
+    try { response = await request; }
+    finally { if (identical(_pendingGets[key], request)) _pendingGets.remove(key); }
+    return response;
+  }
+
   Future<ApiBinaryResponse> getBytes(
     String path, {
     Map<String, String>? query,
   }) async {
-    final response = await _httpClient.get(
-      _uri(path, query),
-      headers: _headers(),
-    );
+    final response = await _get(path, query);
     _ensureSuccess(response);
     return ApiBinaryResponse(
-      bytes: response.bodyBytes,
+      bytes: Uint8List.fromList(response.bodyBytes),
       headers: response.headers,
       statusCode: response.statusCode,
     );
@@ -57,10 +68,7 @@ class ApiClient {
     String path, {
     Map<String, String>? query,
   }) async {
-    final response = await _httpClient.get(
-      _uri(path, query),
-      headers: _headers(),
-    );
+    final response = await _get(path, query);
     _ensureSuccess(response);
     final decoded = jsonDecode(response.body);
     if (decoded is Map<String, dynamic>) {

@@ -292,6 +292,12 @@ class CalculatorRepository {
     );
   }
 
+  Future<Map<String, dynamic>> fetchQuoteModelShare(String quoteId) =>
+      _client.getJson('/api/internal/calculator/quotes/$quoteId/model-share');
+
+  Future<void> revokeQuoteModelShare(String quoteId) =>
+      _client.delete('/api/internal/calculator/quotes/$quoteId/model-share');
+
   Future<QuoteIntegrationJob?> waitForBackgroundJob(
     String quoteId,
     String jobId, {
@@ -584,6 +590,7 @@ class QuoteDeliveryChoice {
     this.includeCustomer = true,
     this.includeGeometryPreview = false,
     this.includeSchematicPreview = false,
+    this.includeModel3d,
   });
 
   final String? mailingProfileId, mailingProfileVersion;
@@ -591,19 +598,21 @@ class QuoteDeliveryChoice {
   final bool includeCustomer;
   final bool includeGeometryPreview;
   final bool includeSchematicPreview;
+  final bool? includeModel3d;
 
-  QuoteDeliveryChoice copyWith({bool? splitOutput, bool? includeCustomer, bool? includeGeometryPreview, bool? includeSchematicPreview}) =>
+  QuoteDeliveryChoice copyWith({bool? splitOutput, bool? includeCustomer, bool? includeGeometryPreview, bool? includeSchematicPreview, bool? includeModel3d}) =>
       QuoteDeliveryChoice(
         mailingProfileId: mailingProfileId, mailingProfileVersion: mailingProfileVersion,
         splitOutput: splitOutput ?? this.splitOutput,
         includeCustomer: includeCustomer ?? this.includeCustomer,
         includeGeometryPreview: includeGeometryPreview ?? this.includeGeometryPreview,
         includeSchematicPreview: includeSchematicPreview ?? this.includeSchematicPreview,
+        includeModel3d: includeModel3d ?? this.includeModel3d,
       );
 
   QuoteDeliveryChoice withProfile(String? id, [String? version]) => QuoteDeliveryChoice(
     mailingProfileId: id, mailingProfileVersion: version, splitOutput: splitOutput,
-    includeCustomer: includeCustomer, includeGeometryPreview: includeGeometryPreview, includeSchematicPreview: includeSchematicPreview);
+    includeCustomer: includeCustomer, includeGeometryPreview: includeGeometryPreview, includeSchematicPreview: includeSchematicPreview, includeModel3d: includeModel3d);
 
   Map<String, dynamic> toJson() => {
         if ((mailingProfileId ?? '').isNotEmpty) 'mailing_profile_id': mailingProfileId,
@@ -612,6 +621,7 @@ class QuoteDeliveryChoice {
         'include_customer': includeCustomer,
         'include_geometry_preview': includeGeometryPreview,
         'include_schematic_preview': includeSchematicPreview,
+        if (includeModel3d != null) 'include_model_3d': includeModel3d,
       };
 }
 
@@ -626,11 +636,16 @@ class QuoteDeliveryOptions {
     this.geometryAvailable = false,
     this.schematicInBatch = false,
     this.schematicAvailable = false,
+    this.model3dEnabled = false,
+    this.model3dAvailable = false,
+    this.model3dInclude = false,
+    this.model3dReason,
   });
 
   factory QuoteDeliveryOptions.fromJson(Map<String, dynamic> json) {
     final geometry = _repoMap(json['geometry_preview']);
     final schematic = _repoMap(json['schematic_preview']);
+    final model3d = _repoMap(json['model_3d']);
     return QuoteDeliveryOptions(
       splitOutput: _repoBool(json['split_output']),
       customerAllowed: _repoBool(json['customer_allowed']),
@@ -642,6 +657,10 @@ class QuoteDeliveryOptions {
       geometryAvailable: _repoBool(geometry['available']),
       schematicInBatch: _repoBool(schematic['in_batch']),
       schematicAvailable: _repoBool(schematic['available']),
+      model3dEnabled: _repoBool(model3d['enabled']),
+      model3dAvailable: _repoBool(model3d['available']),
+      model3dInclude: _repoBool(model3d['include']),
+      model3dReason: _repoNullableString(model3d['reason']),
     );
   }
 
@@ -652,6 +671,8 @@ class QuoteDeliveryOptions {
   final bool geometryAvailable;
   final bool schematicInBatch;
   final bool schematicAvailable;
+  final bool model3dEnabled, model3dAvailable, model3dInclude;
+  final String? model3dReason;
 
   // Recipients as they are sent with the given choice (external addresses removed when the customer is off).
   List<String> recipients(List<String> emails, QuoteDeliveryChoice choice) {

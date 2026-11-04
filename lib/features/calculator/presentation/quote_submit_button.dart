@@ -526,6 +526,12 @@ class _IntegrationConfirmationDialog extends StatelessWidget {
 QuoteDeliveryChoice _pinProfile(QuoteDeliveryChoice choice, Map profile) => choice.withProfile(
   profile['id'] as String?, profile['version'] as String?);
 
+bool _sameDelivery(QuoteDeliveryChoice a, QuoteDeliveryChoice b, {bool ignoreModel3d = false}) {
+  final left = a.toJson(), right = b.toJson();
+  if (ignoreModel3d) { left.remove('include_model_3d'); right.remove('include_model_3d'); }
+  return jsonEncode(left) == jsonEncode(right);
+}
+
 class _MailingProfileChoice extends StatelessWidget {
   const _MailingProfileChoice({required this.profiles, required this.choice, required this.loading, required this.onChanged});
   final List<Map<String, dynamic>> profiles;
@@ -631,12 +637,20 @@ class _IntegrationBatchPreviewDialog extends StatefulWidget {
 
 class _IntegrationBatchPreviewDialogState extends State<_IntegrationBatchPreviewDialog> {
   late Map<String, dynamic> _preview = widget.preview;
-  late QuoteDeliveryChoice _delivery = _pinProfile(const QuoteDeliveryChoice(splitOutput: true), (_preview['email'] as Map?)?['mailing_profile'] as Map? ?? const {});
+  late QuoteDeliveryChoice _delivery = _pinProfile(QuoteDeliveryChoice(splitOutput: true,
+    includeModel3d: QuoteDeliveryOptions.fromJson(Map<String, dynamic>.from(((_preview['email'] as Map?)?['delivery_options'] as Map?) ?? const {})).model3dInclude),
+    (_preview['email'] as Map?)?['mailing_profile'] as Map? ?? const {});
   bool _loading = false;
   String? _loadError;
   int _request = 0;
 
   Future<void> _reload(QuoteDeliveryChoice choice) async {
+    if (_loadError == null && _sameDelivery(choice, _delivery)) return;
+    final options = QuoteDeliveryOptions.fromJson(Map<String, dynamic>.from(((_preview['email'] as Map?)?['delivery_options'] as Map?) ?? const {}));
+    if (_loadError == null && options.model3dAvailable && _sameDelivery(choice, _delivery, ignoreModel3d: true)) {
+      setState(() => _delivery = choice);
+      return;
+    }
     final request = ++_request;
     setState(() { _delivery = choice; _loading = true; _loadError = null; });
     try {
@@ -717,12 +731,18 @@ class _QuoteSubmitPreviewDialog extends StatefulWidget {
 
 class _QuoteSubmitPreviewDialogState extends State<_QuoteSubmitPreviewDialog> {
   late QuoteSubmitPreview preview = widget.preview;
-  late QuoteDeliveryChoice _delivery = _pinProfile(const QuoteDeliveryChoice(splitOutput: true), preview.mailingProfile);
+  late QuoteDeliveryChoice _delivery = _pinProfile(QuoteDeliveryChoice(splitOutput: true,
+    includeModel3d: preview.deliveryOptions.model3dInclude), preview.mailingProfile);
   bool _loading = false;
   String? _loadError;
   int _request = 0;
 
   Future<void> _reload(QuoteDeliveryChoice choice) async {
+    if (_loadError == null && _sameDelivery(choice, _delivery)) return;
+    if (_loadError == null && preview.deliveryOptions.model3dAvailable && _sameDelivery(choice, _delivery, ignoreModel3d: true)) {
+      setState(() => _delivery = choice);
+      return;
+    }
     final request = ++_request;
     setState(() { _delivery = choice; _loading = true; _loadError = null; });
     try {
@@ -926,6 +946,16 @@ class _DeliveryChoiceFields extends StatelessWidget {
           options.customerAllowed && choice.includeCustomer,
           options.customerAllowed ? (value) => onChanged(choice.copyWith(includeCustomer: value)) : null,
         ),
+        if (options.model3dEnabled || choice.includeModel3d == true)
+          _option(
+            '3D-Modell ansehen',
+            options.model3dAvailable
+                ? 'Add a roof model link to the email. The model opens in a browser.'
+                : options.model3dReason ?? 'The 3D link is unavailable.',
+            choice.includeModel3d ?? options.model3dInclude,
+            options.model3dAvailable || choice.includeModel3d == true
+                ? (value) => onChanged(choice.copyWith(includeModel3d: value)) : null,
+          ),
         if (options.geometryInBatch)
           _option(
             'Geometry preview',
