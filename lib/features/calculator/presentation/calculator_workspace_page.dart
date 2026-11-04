@@ -10354,16 +10354,16 @@ class _SetContentTabTableState extends State<_SetContentTabTable> {
   bool _isRowEditable(CalculatorSetContentItem item, String identity) =>
       item.isManual || item.isOverridden || _editingRows.contains(identity);
 
+  String _itemIdentity(CalculatorSetContentItem item, int index) =>
+      item.segmentId ??
+      '${item.catalogItemId}:${item.catalogVariantId ?? ''}:${item.articleNo ?? ''}:$index';
+
   void _setPendingValue(
     Map<String, String> target,
     String identity,
     String value,
   ) {
-    final hadPending = _hasPendingEdit(identity);
-    target[identity] = value;
-    // Only the presence of a buffered edit is rendered, so the list is rebuilt
-    // once per row instead of once per keystroke.
-    if (!hadPending) setState(() {});
+    setState(() => target[identity] = value);
   }
 
   void _setRowFocus(String identity, bool hasFocus) {
@@ -10414,18 +10414,17 @@ class _SetContentTabTableState extends State<_SetContentTabTable> {
   @override
   void didUpdateWidget(covariant _SetContentTabTable oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // Incoming tab data re-syncs every unfocused field, so buffered text of
-    // rows the user is not typing in would otherwise become stale.
-    if (!identical(oldWidget.tab, widget.tab)) {
-      for (final identity in <String>{
-        ..._pendingQuantity.keys,
-        ..._pendingLength.keys,
-      }) {
-        if (identity == _focusedRowIdentity) continue;
-        _pendingQuantity.remove(identity);
-        _pendingLength.remove(identity);
-      }
-    }
+    // Drafts belong to rows, not to the focused field. Keep them when another
+    // row is saved or the preview refreshes; discard only removed rows/tabs.
+    final identities = <String>{
+      if (oldWidget.tab.id == widget.tab.id)
+        for (var index = 0; index < widget.tab.items.length; index++)
+          _itemIdentity(widget.tab.items[index], index),
+    };
+    _pendingQuantity.removeWhere((identity, _) => !identities.contains(identity));
+    _pendingLength.removeWhere((identity, _) => !identities.contains(identity));
+    _editingRows.removeWhere((identity) => !identities.contains(identity));
+    if (!identities.contains(_focusedRowIdentity)) _focusedRowIdentity = null;
     final selectionKeys = _manufacturingFieldSelectionKeys(widget.tab);
     if (widget.selectedManufacturingFieldKey != _manufacturingFieldAllKey &&
         !selectionKeys.contains(widget.selectedManufacturingFieldKey)) {
@@ -10595,8 +10594,7 @@ class _SetContentTabTableState extends State<_SetContentTabTable> {
     final index = visible.itemIndex;
     // Every calculated article may be overridden; derived accessories follow the effective values.
     final canOverrideCalculated = item.isCalculated;
-    final itemIdentity = item.segmentId ??
-        '${item.catalogItemId}:${item.catalogVariantId ?? ''}:${item.articleNo ?? ''}:$index';
+    final itemIdentity = _itemIdentity(item, index);
     final editable = item.isManual ||
         (canOverrideCalculated && _isRowEditable(item, itemIdentity));
     final hasPendingEdit = _hasPendingEdit(itemIdentity);
@@ -10648,7 +10646,16 @@ class _SetContentTabTableState extends State<_SetContentTabTable> {
               children: [
                 Row(
                   children: [
-                    Flexible(child: Text(item.name ?? 'Component', maxLines: 1, overflow: TextOverflow.ellipsis)),
+                    Flexible(
+                      child: Text(
+                        item.name ?? 'Component',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: item.enabled && item.overrideState != 'excluded'
+                            ? null
+                            : const TextStyle(decoration: TextDecoration.lineThrough),
+                      ),
+                    ),
                     if (item.isManual) ...[
                       const SizedBox(width: 6),
                       Container(
@@ -10681,7 +10688,7 @@ class _SetContentTabTableState extends State<_SetContentTabTable> {
             context,
             _StableNumberField(
               key: ValueKey('set-qty-${widget.tabIndex}-$itemIdentity'),
-              value: _formatInputQuantity(item.quantity),
+              value: _pendingQuantity[itemIdentity] ?? _formatInputQuantity(item.quantity),
               enabled: item.enabled && editable,
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
               decoration: const InputDecoration(isDense: true),
@@ -10700,7 +10707,8 @@ class _SetContentTabTableState extends State<_SetContentTabTable> {
             item.isProfile
                 ? _StableNumberField(
                     key: ValueKey('set-length-${widget.tabIndex}-$itemIdentity'),
-                    value: item.lengthMm == null ? '' : _formatDecimalNumber(item.lengthMm!),
+                    value: _pendingLength[itemIdentity] ??
+                        (item.lengthMm == null ? '' : _formatDecimalNumber(item.lengthMm!)),
                     enabled: item.enabled && editable,
                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
                     decoration: const InputDecoration(isDense: true, suffixText: 'mm'),
@@ -10871,7 +10879,7 @@ bool _isAccessorySetContentItem(CalculatorContext contextData, CalculatorSetCont
   return itemTypeCode == 'accessory' || itemTypeCode.contains('accessory');
 }
 
-class _AccessoryStep extends StatelessWidget {
+class _AccessoryStep extends StatefulWidget {
   const _AccessoryStep({
     required this.contextData,
     required this.draft,
@@ -10895,13 +10903,21 @@ class _AccessoryStep extends StatelessWidget {
   final VoidCallback onFastenersPressed;
 
   @override
+  State<_AccessoryStep> createState() => _AccessoryStepState();
+}
+
+class _AccessoryStepState extends State<_AccessoryStep> {
+  // Keep drafts across scrolling/reordering and temporary preview reloads.
+  final _pendingQuantity = <String, String>{};
+
+  @override
   Widget build(BuildContext context) {
     final lines = _accessoryDisplayLines(
-      contextData,
-      draft,
-      derivedAccessories,
-      derivedDiagnostics,
-      manualDiagnostics,
+      widget.contextData,
+      widget.draft,
+      widget.derivedAccessories,
+      widget.derivedDiagnostics,
+      widget.manualDiagnostics,
     );
     final totalAmount = lines.fold<num>(0, (sum, line) => sum + line.amount);
     return Column(
@@ -10911,7 +10927,7 @@ class _AccessoryStep extends StatelessWidget {
           children: [
             Expanded(child: Text('Accessory / Derived Zubehör', style: Theme.of(context).textTheme.titleMedium)),
             const SizedBox(width: 12),
-            FilledButton.tonal(onPressed: onFastenersPressed, child: const Text('+ Fasteners')),
+            FilledButton.tonal(onPressed: widget.onFastenersPressed, child: const Text('+ Fasteners')),
           ],
         ),
         const SizedBox(height: 8),
@@ -10934,8 +10950,8 @@ class _AccessoryStep extends StatelessWidget {
               _InfoChip(label: 'Manual', value: '${lines.where((line) => !line.isDerived).length}'),
               _InfoChip(label: 'Priced', value: '${lines.where((line) => line.hasAmount).length}'),
               _InfoChip(label: 'Cost', value: totalAmount == 0 ? '—' : _moneyFormat.format(totalAmount)),
-              if (weights.isNotEmpty)
-                _InfoChip(label: 'Weight', value: _weightText(weights, 'accessories_kg', 'accessories_complete')),
+              if (widget.weights.isNotEmpty)
+                _InfoChip(label: 'Weight', value: _weightText(widget.weights, 'accessories_kg', 'accessories_complete')),
             ],
           ),
           const SizedBox(height: 12),
@@ -10967,36 +10983,35 @@ class _AccessoryStep extends StatelessWidget {
                       itemCount: lines.length,
                       separatorBuilder: (_, __) => const Divider(height: 1),
                       itemBuilder: (context, index) => _AccessoryDisplayRow(
-                        key: ValueKey(
-                          'accessory-${lines[index].articleNo}-${lines[index].sourceText}',
-                        ),
-                        contextData: contextData,
-                        mediaRepository: mediaRepository,
+                        key: ValueKey(lines[index].identity),
+                        contextData: widget.contextData,
+                        mediaRepository: widget.mediaRepository,
                         line: lines[index],
+                        pendingQuantity: _pendingQuantity,
                         onQuantityChanged: (quantity) {
                           final line = lines[index];
                           if (line.isDerived) {
-                            notifier.upsertDerivedAccessoryOverride(
+                            widget.notifier.upsertDerivedAccessoryOverride(
                               line.raw,
                               quantity,
                               line.enabled,
                               orderIndex: line.orderIndex,
                             );
                           } else if (line.tabIndex != null && line.itemIndex != null) {
-                            notifier.updateSetContentItemQuantity(line.tabIndex!, line.itemIndex!, quantity);
+                            widget.notifier.updateSetContentItemQuantity(line.tabIndex!, line.itemIndex!, quantity);
                           }
                         },
                         onToggle: () {
                           final line = lines[index];
                           if (line.isDerived) {
-                            notifier.upsertDerivedAccessoryOverride(
+                            widget.notifier.upsertDerivedAccessoryOverride(
                               line.raw,
                               line.quantity,
                               !line.enabled,
                               orderIndex: line.orderIndex,
                             );
                           } else if (line.tabIndex != null && line.itemIndex != null) {
-                            notifier.toggleSetContentItemEnabled(line.tabIndex!, line.itemIndex!);
+                            widget.notifier.toggleSetContentItemEnabled(line.tabIndex!, line.itemIndex!);
                           }
                         },
                       ),
@@ -11014,6 +11029,7 @@ class _AccessoryStep extends StatelessWidget {
 
 class _AccessoryDisplayLine {
   const _AccessoryDisplayLine({
+    required this.identity,
     required this.raw,
     required this.name,
     required this.articleNo,
@@ -11030,6 +11046,7 @@ class _AccessoryDisplayLine {
     this.itemIndex,
   });
 
+  final String identity;
   final Map<String, dynamic> raw;
   final String name;
   final String articleNo;
@@ -11138,6 +11155,7 @@ List<_AccessoryDisplayLine> _accessoryDisplayLines(
             )
           : null;
       manual.add(_AccessoryDisplayLine(
+        identity: 'manual:${tab.id}:${item.segmentId ?? '$itemIndex:${item.identity}'}',
         raw: item.raw,
         name: item.name ?? 'Manual accessory',
         articleNo: item.articleNo ?? item.profileNo ?? item.baseCode ?? '—',
@@ -11176,6 +11194,9 @@ List<_AccessoryDisplayLine> _accessoryDisplayLines(
         ? (source['derived_from'] as List).map((entry) => '$entry').join(', ')
         : '${source['derived_from'] ?? 'calculated BOM'}';
     result.add(_AccessoryDisplayLine(
+      identity: segmentId.isNotEmpty
+          ? 'derived:$segmentId'
+          : 'derived:${line['catalog_item_id']}:${line['catalog_variant_id'] ?? ''}:${line['article_no'] ?? line['profile_no'] ?? ''}',
       raw: line,
       name: '${line['name'] ?? 'Accessory'}',
       articleNo: '${line['article_no'] ?? line['profile_no'] ?? '—'}',
@@ -11212,6 +11233,7 @@ List<_AccessoryDisplayLine> _accessoryDisplayLines(
     restored.add(MapEntry(
       orderIndex,
       _AccessoryDisplayLine(
+        identity: 'derived:${entry.key}',
         raw: <String, dynamic>{
           'catalog_item_id': item.catalogItemId,
           if (item.catalogVariantId != null)
@@ -11261,6 +11283,7 @@ class _AccessoryDisplayRow extends StatefulWidget {
     required this.contextData,
     required this.mediaRepository,
     required this.line,
+    required this.pendingQuantity,
     required this.onQuantityChanged,
     required this.onToggle,
   });
@@ -11268,6 +11291,7 @@ class _AccessoryDisplayRow extends StatefulWidget {
   final CalculatorContext contextData;
   final AdminResourceRepository mediaRepository;
   final _AccessoryDisplayLine line;
+  final Map<String, String> pendingQuantity;
   final ValueChanged<num> onQuantityChanged;
   final VoidCallback onToggle;
 
@@ -11278,29 +11302,11 @@ class _AccessoryDisplayRow extends StatefulWidget {
 class _AccessoryDisplayRowState extends State<_AccessoryDisplayRow> {
   /// Buffered field text. Typing only fills this, so the draft and the server
   /// are touched once on save instead of once per keystroke.
-  String? _pendingQuantity;
+  String? get _pendingQuantity => widget.pendingQuantity[widget.line.identity];
   bool _hasFocus = false;
 
-  @override
-  void didUpdateWidget(covariant _AccessoryDisplayRow oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    // An unfocused field is re-synced to the incoming value, so a buffer left
-    // over from an earlier edit would become stale.
-    if (!_hasFocus &&
-        _pendingQuantity != null &&
-        oldWidget.line.quantity != widget.line.quantity) {
-      _pendingQuantity = null;
-    }
-  }
-
   void _setPendingQuantity(String value) {
-    // Only the presence of a buffered edit is rendered, so the row is rebuilt
-    // once per edit instead of once per keystroke.
-    if (_pendingQuantity == null) {
-      setState(() => _pendingQuantity = value);
-      return;
-    }
-    _pendingQuantity = value;
+    setState(() => widget.pendingQuantity[widget.line.identity] = value);
   }
 
   void _setFocus(bool hasFocus) {
@@ -11310,13 +11316,13 @@ class _AccessoryDisplayRowState extends State<_AccessoryDisplayRow> {
 
   void _discardPending() {
     if (_pendingQuantity == null) return;
-    setState(() => _pendingQuantity = null);
+    setState(() => widget.pendingQuantity.remove(widget.line.identity));
   }
 
   void _commit() {
     final text = _pendingQuantity;
     setState(() {
-      _pendingQuantity = null;
+      widget.pendingQuantity.remove(widget.line.identity);
       _hasFocus = false;
     });
     if (text == null) return;
@@ -11352,7 +11358,12 @@ class _AccessoryDisplayRowState extends State<_AccessoryDisplayRow> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(line.name),
+                  Text(
+                    line.name,
+                    style: line.enabled
+                        ? null
+                        : const TextStyle(decoration: TextDecoration.lineThrough),
+                  ),
                   Text(line.sourceText, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: colorScheme.onSurfaceVariant)),
                 ],
               ),
@@ -11360,8 +11371,8 @@ class _AccessoryDisplayRowState extends State<_AccessoryDisplayRow> {
             SizedBox(
               width: 90,
               child: _StableNumberField(
-                key: ValueKey('derived-accessory-${line.articleNo}-${line.sourceText}'),
-                value: _formatInputQuantity(line.quantity),
+                key: ValueKey('accessory-qty-${line.identity}'),
+                value: _pendingQuantity ?? _formatInputQuantity(line.quantity),
                 enabled: line.enabled,
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
                 decoration: const InputDecoration(isDense: true),
