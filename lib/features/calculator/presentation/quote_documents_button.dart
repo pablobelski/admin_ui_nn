@@ -9,6 +9,7 @@ import '../../../core/ui/media_file_actions.dart';
 import '../../../core/ui/top_notification.dart';
 import '../data/calculator_repository.dart';
 import 'quote_integrations_panel.dart';
+import 'generated_pdf_preview.dart';
 
 class QuoteDocumentsButton extends StatelessWidget {
   const QuoteDocumentsButton({
@@ -166,7 +167,7 @@ class _QuoteDocumentsOptionsDialogState extends State<QuoteDocumentsOptionsDialo
 
   // Not bound to the dialog lifetime: the job keeps running in background and
   // must report its result even when the user already closed this dialog.
-  Future<void> _watchPrintJob(String jobId) async {
+  Future<void> _watchPrintJob(String jobId, GeneratedPdfPreview pdfPreview) async {
     try {
       final job = await widget.repository.waitForBackgroundJob(
         widget.quoteId,
@@ -174,6 +175,7 @@ class _QuoteDocumentsOptionsDialogState extends State<QuoteDocumentsOptionsDialo
         timeout: const Duration(minutes: 30),
       );
       if (job == null) return;
+      pdfPreview.complete(job.autoOpenDocuments);
       notifyQuoteIntegrationsChanged();
       if (job.statusCode != 'succeeded') {
         final message = job.errorText?.trim().isNotEmpty == true
@@ -211,6 +213,7 @@ class _QuoteDocumentsOptionsDialogState extends State<QuoteDocumentsOptionsDialo
         _errorText = '$error';
       });
     } finally {
+      pdfPreview.close();
       if (mounted && _printJobId == jobId) setState(() => _printJobId = null);
     }
   }
@@ -224,6 +227,7 @@ class _QuoteDocumentsOptionsDialogState extends State<QuoteDocumentsOptionsDialo
       _errorText = null;
     });
 
+    GeneratedPdfPreview? pdfPreview;
     try {
       final selectedBatch = _batchById(data, _selectedBatchId);
       // Only the preview items of the batch: Geometry preview and / or Schematic preview.
@@ -241,6 +245,15 @@ class _QuoteDocumentsOptionsDialogState extends State<QuoteDocumentsOptionsDialo
           .map((template) => template.id)
           .toList(growable: false);
 
+      final selectedTemplates = data.templates
+          .where((template) => _selectedTemplateIds.contains(template.id)).toList(growable: false);
+      final autoOpenCount = geometryPreviewOnly ? 0 : _splitOutput
+          ? selectedTemplates.where((template) => template.openAfterPrint).length
+          : useExactBatch ? (selectedBatch.openAfterPrint ? 1 : 0)
+          : selectedTemplates.length == 1 && selectedTemplates.first.openAfterPrint ? 1 : 0;
+      pdfPreview = GeneratedPdfPreview(autoOpenCount, widget.repository, onError: (error) {
+        widget.onBackgroundNotification?.call('Open PDF failed: $error', TopNotificationType.error);
+      });
       final operation = await widget.repository.printPdf(
         quoteId: widget.quoteId,
         documentBatchId: geometryPreviewOnly
@@ -268,6 +281,7 @@ class _QuoteDocumentsOptionsDialogState extends State<QuoteDocumentsOptionsDialo
         throw StateError('Document generation job id is empty');
       }
       notifyQuoteIntegrationsChanged();
+      unawaited(_watchPrintJob(operation.jobId, pdfPreview));
       if (!mounted) return;
       setState(() {
         _printJobId = operation.jobId;
@@ -276,8 +290,8 @@ class _QuoteDocumentsOptionsDialogState extends State<QuoteDocumentsOptionsDialo
             : 'Document generation queued and continues in background.';
         _errorText = null;
       });
-      unawaited(_watchPrintJob(operation.jobId));
     } catch (error) {
+      pdfPreview?.close();
       if (!mounted) return;
       setState(() {
         _statusText = null;
@@ -337,8 +351,14 @@ class _QuoteDocumentsOptionsDialogState extends State<QuoteDocumentsOptionsDialo
                   ],
                 ),
                 const SizedBox(height: 6),
-                SizedBox(
+                Container(
                   height: documentsHeight,
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.surfaceContainerLowest,
+                    border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
                   child: _documents.isEmpty
                       ? const _DocumentsHint(
                           icon: Icons.picture_as_pdf_outlined,
@@ -764,34 +784,19 @@ class _GeneratedDocumentTile extends StatelessWidget {
     final printedBy = document.printedByLabel;
     final canOpen = document.fileId.trim().isNotEmpty || (document.url ?? '').isNotEmpty;
 
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      child: ListTile(
-        dense: true,
-        leading: const Icon(Icons.picture_as_pdf_outlined),
-        title: Text(document.filename, overflow: TextOverflow.ellipsis),
-        subtitle: printedBy == null && metadata.isEmpty
-            ? null
-            : Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (printedBy != null)
-                    Text(
-                      'by: $printedBy',
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  if (metadata.isNotEmpty)
-                    Text(
-                      metadata,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                ],
-              ),
-        trailing: TextButton.icon(
-          onPressed: canOpen ? () => _openPdf(context) : null,
-          icon: const Icon(Icons.open_in_new, size: 16),
-          label: const Text('View / Download PDF'),
-        ),
+    return ListTile(
+      dense: true,
+      visualDensity: VisualDensity.compact,
+      contentPadding: const EdgeInsets.only(left: 8),
+      title: Tooltip(
+        message: [document.filename, if (printedBy != null) 'by: $printedBy', metadata]
+            .where((value) => value.isNotEmpty).join('\n'),
+        child: Text(document.filename, overflow: TextOverflow.ellipsis),
+      ),
+      trailing: IconButton(
+        tooltip: 'View PDF',
+        onPressed: canOpen ? () => _openPdf(context) : null,
+        icon: const Icon(Icons.open_in_new, size: 18),
       ),
     );
   }

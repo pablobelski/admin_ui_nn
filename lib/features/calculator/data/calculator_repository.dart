@@ -465,6 +465,7 @@ class QuoteSubmitPreview {
     this.documentBatchName,
     this.documentBatchCode,
     this.documentCount = 0,
+    this.autoOpenPdfCount = 0,
     this.deliveryOptions = const QuoteDeliveryOptions(),
     this.orderTypeLabel,
     this.korrekturNo = 0,
@@ -496,6 +497,7 @@ class QuoteSubmitPreview {
     return QuoteSubmitPreview(
       mailingProfile: _repoMap(json['mailing_profile']), mailingProfiles: _repoList(json['mailing_profiles']),
       mailingDeliveries: _repoList(json['mailing_deliveries']), mailingSkipped: _repoList(json['mailing_skipped']),
+      autoOpenPdfCount: _repoIntOrNull(json['auto_open_pdf_count']) ?? 0,
       canSubmit: _repoBool(json['can_submit'] ?? json['canSubmit']),
       operation: _repoString(json['operation']),
       quoteId: _repoString(quote['id']),
@@ -577,6 +579,7 @@ class QuoteSubmitPreview {
   final String? documentBatchName;
   final String? documentBatchCode;
   final int documentCount;
+  final int autoOpenPdfCount;
   final List<QuoteSubmitIssue> errors;
   final List<QuoteSubmitIssue> warnings;
   final QuoteDeliveryOptions deliveryOptions;
@@ -761,6 +764,7 @@ class QuoteIntegrationJob {
     this.errorText,
     this.finishedAt,
     this.batchOutcome,
+    this.autoOpenDocuments = const [],
   });
 
   factory QuoteIntegrationJob.fromJson(Map<String, dynamic> json) =>
@@ -778,6 +782,7 @@ class QuoteIntegrationJob {
         errorText: _repoNullableString(json['error_text'] ?? json['errorText']),
         finishedAt: _repoNullableString(json['finished_at'] ?? json['finishedAt']),
         batchOutcome: _repoNullableString(json['batch_outcome']),
+        autoOpenDocuments: _repoList(json['auto_open_documents']),
       );
 
   final String id;
@@ -793,6 +798,7 @@ class QuoteIntegrationJob {
   final String? errorText;
   final String? finishedAt;
   final String? batchOutcome;
+  final List<Map<String, dynamic>> autoOpenDocuments;
 }
 
 class QuoteIntegrationOverview {
@@ -981,6 +987,7 @@ class DocumentBatchOption {
     required this.compatible,
     required this.items,
     this.compatibilityError,
+    this.openAfterPrint = false,
   });
 
   factory DocumentBatchOption.fromJson(Map<String, dynamic> json) {
@@ -990,6 +997,7 @@ class DocumentBatchOption {
       name: _repoString(json['name'] ?? json['code']),
       outputFilename: _repoString(json['batch_output_filename'] ?? json['batchOutputFilename']),
       splitOutput: _repoBool(json['split_output'] ?? json['splitOutput']),
+      openAfterPrint: _repoBool(json['open_after_print']),
       isDefault: _repoBool(json['is_default'] ?? json['isDefault']),
       compatible: _repoBool(json['compatible'], fallback: true),
       compatibilityError: _repoNullableString(json['compatibility_error'] ?? json['compatibilityError']),
@@ -1003,6 +1011,7 @@ class DocumentBatchOption {
   final String outputFilename;
   final bool splitOutput;
   final bool isDefault;
+  final bool openAfterPrint;
   final bool compatible;
   final String? compatibilityError;
   final List<DocumentBatchItemOption> items;
@@ -1097,6 +1106,8 @@ class PrintTemplateOption {
   final Map<String, dynamic> settingsJson;
 
   Map<String, dynamic> get printSettings => _repoMap(settingsJson['print']);
+
+  bool get openAfterPrint => printSettings['openAfterPrint'] == true;
 
   bool get isPrintEnabled {
     final value = printSettings['enabled'];

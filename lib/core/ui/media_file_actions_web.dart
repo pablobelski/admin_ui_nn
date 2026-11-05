@@ -22,8 +22,13 @@ void openMediaUrl(
 Future<void> openMediaUrlFromFuture(
   Future<String?> Function() resolveUrl, {
   String target = '_blank',
+  bool keepCurrentFocusWhileLoading = false,
 }) async {
   final openedWindow = web.window.open('about:blank', target);
+  if (keepCurrentFocusWhileLoading) {
+    openedWindow?.blur();
+    web.window.focus();
+  }
   try {
     final url = (await resolveUrl())?.trim() ?? '';
     if (url.isEmpty) {

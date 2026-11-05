@@ -9,6 +9,7 @@ import '../../../core/ui/top_notification.dart';
 import '../data/calculator_repository.dart';
 import 'calculator_message_dropdown.dart';
 import 'quote_integrations_panel.dart';
+import 'generated_pdf_preview.dart';
 
 class QuoteSubmitButton extends StatefulWidget {
   const QuoteSubmitButton({
@@ -93,17 +94,17 @@ class _QuoteSubmitButtonState extends State<QuoteSubmitButton> {
   String get _operation => _isResend ? 'resend' : 'submit';
   String get _emailLabel => _isResend ? 'Resend quote emails' : 'Send quote emails';
 
-  Future<void> _watchSubmitJob(QuoteSubmitResult queuedResult) async {
+  Future<void> _watchSubmitJob(QuoteSubmitResult queuedResult, GeneratedPdfPreview pdfPreview) async {
     try {
       final job = await widget.repository.waitForBackgroundJob(
-        widget.quoteId,
+        queuedResult.quoteId,
         queuedResult.jobId,
         timeout: const Duration(minutes: 30),
-        shouldContinue: () => mounted,
       );
       if (job == null) return;
+      pdfPreview.complete(job.autoOpenDocuments);
       notifyQuoteIntegrationsChanged();
-      if (!mounted) return;
+      if (!mounted || widget.quoteId != queuedResult.quoteId) return;
       if (job.statusCode != 'succeeded') {
         final errorText = job.errorText?.trim();
         showTopNotification(
@@ -116,8 +117,8 @@ class _QuoteSubmitButtonState extends State<QuoteSubmitButton> {
         return;
       }
 
-      final status = await widget.repository.fetchQuoteStatusTransitions(widget.quoteId);
-      if (!mounted) return;
+      final status = await widget.repository.fetchQuoteStatusTransitions(queuedResult.quoteId);
+      if (!mounted || widget.quoteId != queuedResult.quoteId) return;
       setState(() => _statusCode = status.statusCode);
       await widget.onCompleted?.call(QuoteSubmitResult(
         ok: true,
@@ -146,6 +147,8 @@ class _QuoteSubmitButtonState extends State<QuoteSubmitButton> {
         '${queuedResult.operation == 'resend' ? 'Resend' : 'Submit'} background status failed: $error',
         type: TopNotificationType.error,
       );
+    } finally {
+      pdfPreview.close();
     }
   }
 
@@ -190,6 +193,7 @@ class _QuoteSubmitButtonState extends State<QuoteSubmitButton> {
   Future<void> _sendToCustomer() async {
     if (_busy || widget.quoteId.trim().isEmpty) return;
     setState(() => _busy = true);
+    GeneratedPdfPreview? pdfPreview;
     try {
       final preview = await widget.repository.fetchQuoteSubmitPreview(
         widget.quoteId,
@@ -200,6 +204,7 @@ class _QuoteSubmitButtonState extends State<QuoteSubmitButton> {
       final delivery = await showDialog<QuoteDeliveryChoice>(
         context: context,
         builder: (_) => _QuoteSubmitPreviewDialog(preview: preview,
+          onConfirm: (count) => pdfPreview = _preparePdfPreview(count),
           reload: (delivery) => widget.repository.fetchQuoteSubmitPreview(widget.quoteId, operation: _operation, delivery: delivery)),
       );
       if (delivery == null) return;
@@ -210,6 +215,8 @@ class _QuoteSubmitButtonState extends State<QuoteSubmitButton> {
         delivery: delivery,
       );
       notifyQuoteIntegrationsChanged();
+      if (result.queued) { unawaited(_watchSubmitJob(result, pdfPreview!)); }
+      else { pdfPreview?.close(); }
       if (!mounted) return;
       if (result.queued) {
         showTopNotification(
@@ -219,7 +226,6 @@ class _QuoteSubmitButtonState extends State<QuoteSubmitButton> {
               : 'Quote submit queued and continues in background.',
           type: TopNotificationType.success,
         );
-        unawaited(_watchSubmitJob(result));
         return;
       }
       setState(() => _statusCode = result.statusCode);
@@ -233,6 +239,7 @@ class _QuoteSubmitButtonState extends State<QuoteSubmitButton> {
         type: TopNotificationType.success,
       );
     } catch (error) {
+      pdfPreview?.close();
       notifyQuoteIntegrationsChanged();
       if (!mounted) return;
       final message = error is ApiException ? error.displayMessage : '$error';
@@ -326,9 +333,15 @@ class _QuoteSubmitButtonState extends State<QuoteSubmitButton> {
     }
   }
 
+  GeneratedPdfPreview _preparePdfPreview(int count) => GeneratedPdfPreview(count, widget.repository,
+      onError: (error) {
+        if (mounted) showTopNotification(context, 'Open PDF failed: $error', type: TopNotificationType.error);
+      });
+
   Future<void> _runBatch([String? batchId]) async {
     if (_busy || widget.quoteId.trim().isEmpty) return;
     final quoteId = widget.quoteId;
+    GeneratedPdfPreview? pdfPreview;
     setState(() => _busy = true);
     try {
       final preview = await widget.repository.previewIntegrationBatch(quoteId, batchId: batchId,
@@ -338,26 +351,30 @@ class _QuoteSubmitButtonState extends State<QuoteSubmitButton> {
       final quote = Map<String, dynamic>.from(preview['quote'] as Map);
       final selection = await showDialog<_BatchDeliverySelection>(context: context, builder: (_) =>
         _IntegrationBatchPreviewDialog(preview: preview,
+          onConfirm: (count) => pdfPreview = _preparePdfPreview(count),
           reload: (delivery) => widget.repository.previewIntegrationBatch(quoteId, batchId: '${batch['id']}', delivery: delivery)));
-      if (selection == null || !mounted || quoteId != widget.quoteId) return;
+      if (selection == null || !mounted || quoteId != widget.quoteId) { pdfPreview?.close(); return; }
       final result = await widget.repository.submitIntegrationBatch(
         quoteId, '${batch['id']}', '${selection.preview['batch_version']}', delivery: selection.delivery);
       notifyQuoteIntegrationsChanged();
+      unawaited(_watchBatch(quoteId, '${quote['quote_no']}', result.jobId, '${batch['name']}', pdfPreview!));
       if (!mounted) return;
       showTopNotification(context, result.alreadyQueued ? 'Integration batch is already queued or running.' : '${batch['name']} queued and continues in background.', type: TopNotificationType.success);
-      unawaited(_watchBatch(quoteId, '${quote['quote_no']}', result.jobId, '${batch['name']}'));
     } catch (error) {
+      pdfPreview?.close();
       if (mounted) showTopNotification(context, 'Submit failed: ${error is ApiException ? error.displayMessage : error}', type: TopNotificationType.error);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
 
-  Future<void> _watchBatch(String quoteId, String quoteNo, String jobId, String name) async {
+  Future<void> _watchBatch(String quoteId, String quoteNo, String jobId, String name, GeneratedPdfPreview pdfPreview) async {
     try {
       final job = await widget.repository.waitForBackgroundJob(quoteId, jobId,
-        timeout: const Duration(minutes: 30), shouldContinue: () => mounted && widget.quoteId == quoteId);
-      if (job == null || !mounted || widget.quoteId != quoteId) return;
+        timeout: const Duration(minutes: 30));
+      if (job == null) return;
+      pdfPreview.complete(job.autoOpenDocuments);
+      if (!mounted || widget.quoteId != quoteId) return;
       notifyQuoteIntegrationsChanged();
       final status = await widget.repository.fetchQuoteStatusTransitions(quoteId);
       if (!mounted || widget.quoteId != quoteId) return;
@@ -370,6 +387,8 @@ class _QuoteSubmitButtonState extends State<QuoteSubmitButton> {
         type: job.statusCode == 'succeeded' ? TopNotificationType.success : TopNotificationType.error);
     } catch (error) {
       if (mounted) showTopNotification(context, 'Batch status failed: $error', type: TopNotificationType.error);
+    } finally {
+      pdfPreview.close();
     }
   }
 
@@ -628,9 +647,10 @@ class _BatchDeliverySelection {
 }
 
 class _IntegrationBatchPreviewDialog extends StatefulWidget {
-  const _IntegrationBatchPreviewDialog({required this.preview, required this.reload});
+  const _IntegrationBatchPreviewDialog({required this.preview, required this.reload, required this.onConfirm});
   final Map<String, dynamic> preview;
   final Future<Map<String, dynamic>> Function(QuoteDeliveryChoice) reload;
+  final ValueChanged<int> onConfirm;
   @override
   State<_IntegrationBatchPreviewDialog> createState() => _IntegrationBatchPreviewDialogState();
 }
@@ -713,17 +733,21 @@ class _IntegrationBatchPreviewDialogState extends State<_IntegrationBatchPreview
       actions: [
         TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
         FilledButton(onPressed: !_loading && _loadError == null && _preview['can_submit'] == true && hasRecipients
-          ? () => Navigator.of(context).pop(_BatchDeliverySelection(_preview, _delivery)) : null, child: const Text('Submit')),
+          ? () {
+            widget.onConfirm((_preview['auto_open_pdf_count'] as num?)?.toInt() ?? 0);
+            Navigator.of(context).pop(_BatchDeliverySelection(_preview, _delivery));
+          } : null, child: const Text('Submit')),
       ],
     );
   }
 }
 
 class _QuoteSubmitPreviewDialog extends StatefulWidget {
-  const _QuoteSubmitPreviewDialog({required this.preview, required this.reload});
+  const _QuoteSubmitPreviewDialog({required this.preview, required this.reload, required this.onConfirm});
 
   final QuoteSubmitPreview preview;
   final Future<QuoteSubmitPreview> Function(QuoteDeliveryChoice) reload;
+  final ValueChanged<int> onConfirm;
 
   @override
   State<_QuoteSubmitPreviewDialog> createState() => _QuoteSubmitPreviewDialogState();
@@ -896,7 +920,10 @@ class _QuoteSubmitPreviewDialogState extends State<_QuoteSubmitPreviewDialog> {
           child: const Text('Cancel'),
         ),
         FilledButton.icon(
-          onPressed: !_loading && _loadError == null && preview.canSubmit && hasRecipients ? () => Navigator.of(context).pop(_delivery) : null,
+          onPressed: !_loading && _loadError == null && preview.canSubmit && hasRecipients ? () {
+            widget.onConfirm(preview.autoOpenPdfCount);
+            Navigator.of(context).pop(_delivery);
+          } : null,
           icon: Icon(isResend ? Icons.forward_to_inbox_outlined : Icons.send_outlined),
           label: Text(isResend ? 'Resend email' : 'Submit'),
         ),

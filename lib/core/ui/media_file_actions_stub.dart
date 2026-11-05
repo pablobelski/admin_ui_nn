@@ -9,6 +9,7 @@ void openMediaUrl(
 Future<void> openMediaUrlFromFuture(
   Future<String?> Function() resolveUrl, {
   String target = '_blank',
+  bool keepCurrentFocusWhileLoading = false,
 }) async {
   await resolveUrl();
 }

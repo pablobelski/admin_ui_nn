@@ -2861,6 +2861,18 @@ const adminNavGroups = <AdminNavGroup>[
             defaultValue: '[]',
             helperText: 'JSON array. Empty means unrestricted.',
           ),
+          AdminField(
+            key: 'metadata_json.print.openAfterPrint',
+            label: 'Open merged PDF after Print',
+            type: AdminFieldType.boolType,
+            helperText: 'Open the merged batch PDF in a new tab and focus it. Separate PDFs use their template settings.',
+          ),
+          AdminField(
+            key: 'metadata_json.print.openAfterSubmit',
+            label: 'Open merged PDF after Submit',
+            type: AdminFieldType.boolType,
+            helperText: 'Open the merged batch PDF after sending / Submit. Separate PDFs use their template settings.',
+          ),
           AdminField(key: 'metadata_json', label: 'Metadata JSON', type: AdminFieldType.json, defaultValue: '{}'),
         ],
         detailActions: [
@@ -3010,6 +3022,18 @@ const adminNavGroups = <AdminNavGroup>[
             key: 'settings_json.print.outputFilename',
             label: 'Output filename',
             helperText: 'Name of this document when printed alone or separately from a batch. $filenamePlaceholdersHelp',
+          ),
+          AdminField(
+            key: 'settings_json.print.openAfterPrint',
+            label: 'Open PDF after Print',
+            type: AdminFieldType.boolType,
+            helperText: 'Open this template PDF in a new tab and focus it when printed alone or separately from a batch.',
+          ),
+          AdminField(
+            key: 'settings_json.print.openAfterSubmit',
+            label: 'Open PDF after Submit',
+            type: AdminFieldType.boolType,
+            helperText: 'Open this template PDF after sending / Submit. Applies to separate PDFs; merged output uses batch settings.',
           ),
           AdminField(
             key: 'settings_json.print.requiredOptionBomSourcePath',
