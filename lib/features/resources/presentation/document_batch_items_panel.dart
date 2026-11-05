@@ -107,12 +107,16 @@ class _DocumentBatchItemsPanelState
         repository: widget.repository,
       ),
     );
-    if (payload == null) return;
+    if (payload == null) {
+      return;
+    }
     payload['document_batch_id'] = widget.batchId;
 
     try {
       await widget.repository.create(_resource, payload);
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       _reload();
       showTopNotification(
         context,
@@ -120,7 +124,9 @@ class _DocumentBatchItemsPanelState
         type: TopNotificationType.success,
       );
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       showTopNotification(
         context,
         'Create failed: $error',
@@ -131,7 +137,9 @@ class _DocumentBatchItemsPanelState
 
   Future<void> _editItem(Map<String, dynamic> row) async {
     final id = row['id']?.toString().trim() ?? '';
-    if (id.isEmpty) return;
+    if (id.isEmpty) {
+      return;
+    }
     final payload = await showDialog<Map<String, dynamic>>(
       context: context,
       builder: (_) => ResourceEditorDialog(
@@ -140,11 +148,15 @@ class _DocumentBatchItemsPanelState
         initialData: row,
       ),
     );
-    if (payload == null) return;
+    if (payload == null) {
+      return;
+    }
 
     try {
       await widget.repository.update(_resource, id, payload);
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       _reload();
       showTopNotification(
         context,
@@ -152,7 +164,9 @@ class _DocumentBatchItemsPanelState
         type: TopNotificationType.success,
       );
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       showTopNotification(
         context,
         'Update failed: $error',
@@ -163,7 +177,9 @@ class _DocumentBatchItemsPanelState
 
   Future<void> _deleteItem(Map<String, dynamic> row) async {
     final id = row['id']?.toString().trim() ?? '';
-    if (id.isEmpty) return;
+    if (id.isEmpty) {
+      return;
+    }
     final label = _sourceLabel(row, const <String, String>{});
     final confirmed = await showDialog<bool>(
       context: context,
@@ -182,11 +198,15 @@ class _DocumentBatchItemsPanelState
         ],
       ),
     );
-    if (confirmed != true) return;
+    if (confirmed != true) {
+      return;
+    }
 
     try {
       await widget.repository.delete(_resource, id);
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       _reload();
       showTopNotification(
         context,
@@ -194,7 +214,9 @@ class _DocumentBatchItemsPanelState
         type: TopNotificationType.success,
       );
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       showTopNotification(
         context,
         'Delete failed: $error',
@@ -233,10 +255,14 @@ class _DocumentBatchItemsPanelState
     final labels = <String>[];
     for (final key in documentTemplateLookup.labelKeys) {
       final value = row[key]?.toString().trim() ?? '';
-      if (value.isNotEmpty) labels.add(value);
+      if (value.isNotEmpty) {
+        labels.add(value);
+      }
     }
     final id = row[documentTemplateLookup.idKey]?.toString().trim() ?? '';
-    if (labels.isEmpty) return id;
+    if (labels.isEmpty) {
+      return id;
+    }
     return labels.join(' · ');
   }
 
@@ -490,7 +516,7 @@ class _DocumentBatchItemsPanelState
                         _sourceLabel(row, templateLabels, mediaLabels),
                         overflow: TextOverflow.ellipsis,
                       ),
-                      subtitle: Text(
+                      subtitle: Text([
                         type == 'geometry_preview' || type == 'quote_media'
                             ? 'Geometry preview'
                             : type == 'schematic_preview'
@@ -498,7 +524,8 @@ class _DocumentBatchItemsPanelState
                                 : type == 'media_file'
                                 ? 'Media library file'
                                 : 'XLS document template',
-                      ),
+                        row['save_to_media'] == false ? 'Temporary PDF' : 'Save PDF',
+                      ].join(' · ')),
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [

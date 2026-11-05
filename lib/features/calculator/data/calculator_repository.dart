@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import '../../../core/http/api_client.dart';
 import '../../../core/http/job_updates.dart';
 import 'calculator_models.dart';
@@ -137,6 +139,7 @@ class CalculatorRepository {
     String? documentTemplateId,
     List<String> documentTemplateIds = const [],
     String? documentBatchId,
+    String? sourceDocumentBatchId,
     bool useDefaultBatch = false,
     bool? splitOutput,
     bool? includeGeometryPreview,
@@ -148,6 +151,7 @@ class CalculatorRepository {
       '/api/internal/calculator/print',
       body: {
         'quote_id': quoteId,
+        if (sourceDocumentBatchId != null) 'source_document_batch_id': sourceDocumentBatchId,
         if (documentBatchId != null && documentBatchId.isNotEmpty)
           'document_batch_id': documentBatchId
         else if (useDefaultBatch)
@@ -335,6 +339,11 @@ class CalculatorRepository {
       }
       throw StateError('Background job $jobId did not finish within ${timeout.inMinutes} minutes.');
     } finally { release(); }
+  }
+
+  Future<Uint8List> fetchTemporaryPdf(String quoteId, String id) async {
+    final result = await _client.getBytes('/api/internal/calculator/quotes/$quoteId/temporary-pdfs/$id');
+    return result.bytes;
   }
 
   Future<Map<String, dynamic>> fetchMediaFileUrl(String fileId) async {
@@ -1054,6 +1063,7 @@ class DocumentBatchItemOption {
     required this.id,
     required this.batchOrder,
     required this.itemTypeCode,
+    this.saveToMedia = true,
     this.mediaFileId,
     this.mediaFilename,
     this.mediaMimeType,
@@ -1067,6 +1077,7 @@ class DocumentBatchItemOption {
     return DocumentBatchItemOption(
       id: _repoString(json['id']),
       batchOrder: _repoIntOrNull(json['batch_order'] ?? json['batchOrder']) ?? 100,
+      saveToMedia: _repoBool(json['save_to_media'], fallback: true),
       itemTypeCode: _repoString(
         json['item_type_code'] ?? json['itemTypeCode'] ?? 'document_template',
       ),
@@ -1087,6 +1098,7 @@ class DocumentBatchItemOption {
   final String id;
   final int batchOrder;
   final String itemTypeCode;
+  final bool saveToMedia;
   final String? mediaFileId;
   final String? mediaFilename;
   final String? mediaMimeType;

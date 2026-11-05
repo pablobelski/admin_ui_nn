@@ -26,7 +26,9 @@ class QuoteDocumentsButton extends StatelessWidget {
   final bool filled;
 
   Future<void> _showDocuments(BuildContext context) async {
-    if (!enabled) return;
+    if (!enabled) {
+      return;
+    }
     await showDialog<void>(
       context: context,
       builder: (_) => QuoteDocumentsOptionsDialog(
@@ -35,7 +37,9 @@ class QuoteDocumentsButton extends StatelessWidget {
         // The button outlives the dialog, so the background print job can still
         // report its completion after the user closed the Documents dialog.
         onBackgroundNotification: (message, type) {
-          if (!context.mounted) return;
+          if (!context.mounted) {
+            return;
+          }
           showTopNotification(context, message, type: type);
         },
       ),
@@ -99,10 +103,14 @@ class _QuoteDocumentsOptionsDialogState extends State<QuoteDocumentsOptionsDialo
     _dataFuture = widget.repository.fetchPrintDialogData(widget.quoteId);
     _dataFuture.then(
       (data) {
-        if (!mounted) return;
+        if (!mounted) {
+          return;
+        }
         setState(() => _initialize(data));
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted || !_hasPrintSelection || _isPrinting) return;
+          if (!mounted || !_hasPrintSelection || _isPrinting) {
+            return;
+          }
           _printFocusNode.requestFocus();
         });
       },
@@ -118,7 +126,9 @@ class _QuoteDocumentsOptionsDialogState extends State<QuoteDocumentsOptionsDialo
   }
 
   void _initialize(PrintDialogData data) {
-    if (_initialized) return;
+    if (_initialized) {
+      return;
+    }
     _initialized = true;
     _documents = data.recentDocuments;
 
@@ -154,7 +164,9 @@ class _QuoteDocumentsOptionsDialogState extends State<QuoteDocumentsOptionsDialo
 
   DocumentBatchOption? _batchById(PrintDialogData data, String? id) {
     for (final batch in data.batches) {
-      if (batch.id == id) return batch;
+      if (batch.id == id) {
+        return batch;
+      }
     }
     return null;
   }
@@ -173,8 +185,11 @@ class _QuoteDocumentsOptionsDialogState extends State<QuoteDocumentsOptionsDialo
         widget.quoteId,
         jobId,
         timeout: const Duration(minutes: 30),
+        onProgress: (job) => pdfPreview.addDocuments(job.autoOpenDocuments),
       );
-      if (job == null) return;
+      if (job == null) {
+        return;
+      }
       pdfPreview.complete(job.autoOpenDocuments);
       notifyQuoteIntegrationsChanged();
       if (job.statusCode != 'succeeded') {
@@ -182,7 +197,9 @@ class _QuoteDocumentsOptionsDialogState extends State<QuoteDocumentsOptionsDialo
             ? 'Document generation failed: ${job.errorText!.trim()}'
             : 'Document generation ${job.statusCode}.';
         widget.onBackgroundNotification?.call(message, TopNotificationType.error);
-        if (!mounted) return;
+        if (!mounted) {
+          return;
+        }
         setState(() {
           _statusText = null;
           _errorText = message;
@@ -191,15 +208,19 @@ class _QuoteDocumentsOptionsDialogState extends State<QuoteDocumentsOptionsDialo
       }
 
       widget.onBackgroundNotification?.call(
-        'Document generation completed. The generated PDF is available in Documents.',
+        'Document generation completed.',
         TopNotificationType.success,
       );
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       final refreshed = await widget.repository.fetchPrintDialogData(widget.quoteId);
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       setState(() {
         _documents = refreshed.recentDocuments;
-        _statusText = 'Document generation completed. The generated PDF is available below.';
+        _statusText = 'Document generation completed.';
         _errorText = null;
       });
     } catch (error) {
@@ -207,19 +228,25 @@ class _QuoteDocumentsOptionsDialogState extends State<QuoteDocumentsOptionsDialo
         'Document generation background status failed: $error',
         TopNotificationType.error,
       );
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       setState(() {
         _statusText = null;
         _errorText = '$error';
       });
     } finally {
       pdfPreview.close();
-      if (mounted && _printJobId == jobId) setState(() => _printJobId = null);
+      if (mounted && _printJobId == jobId) {
+        setState(() => _printJobId = null);
+      }
     }
   }
 
   Future<void> _print(PrintDialogData data) async {
-    if (!_hasPrintSelection || _isPrinting || _printJobActive) return;
+    if (!_hasPrintSelection || _isPrinting || _printJobActive) {
+      return;
+    }
 
     setState(() {
       _isPrinting = true;
@@ -247,15 +274,26 @@ class _QuoteDocumentsOptionsDialogState extends State<QuoteDocumentsOptionsDialo
 
       final selectedTemplates = data.templates
           .where((template) => _selectedTemplateIds.contains(template.id)).toList(growable: false);
-      final autoOpenCount = geometryPreviewOnly ? 0 : _splitOutput
-          ? selectedTemplates.where((template) => template.openAfterPrint).length
-          : useExactBatch ? (selectedBatch.openAfterPrint ? 1 : 0)
+      final selectedItems = selectedBatch?.items.where((item) =>
+          (item.itemTypeCode == 'document_template' && _selectedTemplateIds.contains(item.documentTemplate?.id))
+          || (item.itemTypeCode == 'geometry_preview' && _includeGeometryPreview)
+          || (item.itemTypeCode == 'schematic_preview' && _includeSchematicPreview)
+          || (item.itemTypeCode == 'media_file' && useExactBatch)).toList() ?? <DocumentBatchItemOption>[];
+      final hasTemporary = selectedItems.any((item) => !item.saveToMedia);
+      final autoOpenCount = _splitOutput
+          ? selectedItems.isNotEmpty
+              ? selectedItems.where((item) => !item.saveToMedia || item.documentTemplate?.openAfterPrint == true).length
+              : selectedTemplates.where((template) => template.openAfterPrint).length
+          : geometryPreviewOnly ? 0 : useExactBatch ? (selectedBatch.openAfterPrint ? 1 : 0)
+          : selectedItems.length == 1 && hasTemporary ? 1
           : selectedTemplates.length == 1 && selectedTemplates.first.openAfterPrint ? 1 : 0;
       pdfPreview = GeneratedPdfPreview(autoOpenCount, widget.repository, onError: (error) {
         widget.onBackgroundNotification?.call('Open PDF failed: $error', TopNotificationType.error);
       });
       final operation = await widget.repository.printPdf(
         quoteId: widget.quoteId,
+        sourceDocumentBatchId: selectedBatch != null && orderedTemplateIds.every(selectedBatch.documentTemplateIds.contains)
+            ? selectedBatch.id : null,
         documentBatchId: geometryPreviewOnly
             ? selectedBatch.id
             : useExactBatch
@@ -282,7 +320,9 @@ class _QuoteDocumentsOptionsDialogState extends State<QuoteDocumentsOptionsDialo
       }
       notifyQuoteIntegrationsChanged();
       unawaited(_watchPrintJob(operation.jobId, pdfPreview));
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       setState(() {
         _printJobId = operation.jobId;
         _statusText = operation.alreadyQueued
@@ -292,13 +332,17 @@ class _QuoteDocumentsOptionsDialogState extends State<QuoteDocumentsOptionsDialo
       });
     } catch (error) {
       pdfPreview?.close();
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       setState(() {
         _statusText = null;
         _errorText = '$error';
       });
     } finally {
-      if (mounted) setState(() => _isPrinting = false);
+      if (mounted) {
+        setState(() => _isPrinting = false);
+      }
     }
   }
 
@@ -427,7 +471,9 @@ class _QuoteDocumentsOptionsDialogState extends State<QuoteDocumentsOptionsDialo
                                 ? null
                                 : (value) {
                                     final batch = _batchById(data, value);
-                                    if (batch == null) return;
+                                    if (batch == null) {
+                                      return;
+                                    }
                                     setState(() {
                                       _selectedBatchId = batch.id;
                                       _selectedTemplateIds
@@ -638,7 +684,9 @@ class _QuoteDocumentsOptionsDialogState extends State<QuoteDocumentsOptionsDialo
                                 TextButton.icon(
                                   onPressed: () async {
                                     await Clipboard.setData(ClipboardData(text: payloadText));
-                                    if (!context.mounted) return;
+                                    if (!context.mounted) {
+                                      return;
+                                    }
                                     showTopNotification(
                                       context,
                                       'Render JSON copied.',
@@ -756,10 +804,14 @@ class _GeneratedDocumentTile extends StatelessWidget {
         final media = await repository.fetchMediaFileUrl(document.fileId);
         url = '${media['url'] ?? media['download_url'] ?? ''}'.trim();
       }
-      if (url.isEmpty) throw StateError('Document URL is empty');
+      if (url.isEmpty) {
+        throw StateError('Document URL is empty');
+      }
       openMediaUrl(url, target: target);
     } catch (error) {
-      if (!context.mounted) return;
+      if (!context.mounted) {
+        return;
+      }
       showTopNotification(
         context,
         'Open PDF failed: $error',

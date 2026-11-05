@@ -9,7 +9,9 @@ void openMediaUrl(
   String target = '_blank',
   bool keepCurrentFocus = false,
 }) {
-  if (url.trim().isEmpty) return;
+  if (url.trim().isEmpty) {
+    return;
+  }
   final openedWindow = web.window.open(url, target);
   if (keepCurrentFocus) {
     openedWindow?.blur();
@@ -48,7 +50,9 @@ Future<void> openMediaUrlFromFuture(
 }
 
 void downloadMediaUrl(String url, {String? filename}) {
-  if (url.trim().isEmpty) return;
+  if (url.trim().isEmpty) {
+    return;
+  }
   final anchor = web.document.createElement('a') as web.HTMLAnchorElement
     ..href = url
     ..target = '_blank'
@@ -69,7 +73,9 @@ void openMediaBytes(
   String? filename,
   String? contentType,
 }) {
-  if (bytes.isEmpty) return;
+  if (bytes.isEmpty) {
+    return;
+  }
   final url = _objectUrl(bytes, contentType);
   web.window.open(url, '_blank');
   Future<void>.delayed(const Duration(seconds: 30), () {
@@ -82,7 +88,9 @@ void downloadMediaBytes(
   String? filename,
   String? contentType,
 }) {
-  if (bytes.isEmpty) return;
+  if (bytes.isEmpty) {
+    return;
+  }
   final url = _objectUrl(bytes, contentType);
   final anchor = web.document.createElement('a') as web.HTMLAnchorElement
     ..href = url
@@ -99,6 +107,12 @@ void downloadMediaBytes(
   Future<void>.delayed(const Duration(seconds: 1), () {
     web.URL.revokeObjectURL(url);
   });
+}
+
+String temporaryMediaUrl(Uint8List bytes, {String? contentType}) {
+  final url = _objectUrl(bytes, contentType);
+  Future<void>.delayed(const Duration(hours: 1), () => web.URL.revokeObjectURL(url));
+  return url;
 }
 
 String _objectUrl(Uint8List bytes, String? contentType) {

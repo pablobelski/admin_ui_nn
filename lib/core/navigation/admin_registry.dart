@@ -2924,6 +2924,7 @@ const adminNavGroups = <AdminNavGroup>[
           AdminColumn(key: 'item_type_code', label: 'Type'),
           AdminColumn(key: 'document_template_id', label: 'Document template', flex: 2, lookup: documentTemplateLookup),
           AdminColumn(key: 'media_file_id', label: 'Media file', flex: 2, lookup: documentBatchMediaFileLookup),
+          AdminColumn(key: 'save_to_media', label: 'Save PDF'),
           AdminColumn(key: 'batch_order', label: 'Batch order'),
           AdminColumn(key: 'is_active', label: 'Active'),
         ],
@@ -2962,6 +2963,11 @@ const adminNavGroups = <AdminNavGroup>[
             visibleWhenValues: ['geometry_preview', 'schematic_preview', 'media_file'],
             helperText: 'Name of this item when the batch prints its documents separately. Empty = "<item>_{{quote_no}}_{{date}}_{{time}}.pdf". '
                 '$filenamePlaceholdersHelp',
+          ),
+          AdminField(
+            key: 'save_to_media', label: 'Save generated PDF in Media Library',
+            type: AdminFieldType.boolType, defaultValue: 'true',
+            helperText: 'Off: separate PDF is temporary for printing, email and Google Drive. Merged batch PDFs are always saved, regardless of item flags.',
           ),
           AdminField(key: 'batch_order', label: 'Batch order', type: AdminFieldType.number, defaultValue: '100'),
           AdminField(key: 'is_active', label: 'Active', type: AdminFieldType.boolType),

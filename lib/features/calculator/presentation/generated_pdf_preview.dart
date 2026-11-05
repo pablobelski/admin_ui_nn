@@ -20,6 +20,11 @@ class GeneratedPdfPreview {
             if (document == null) {
               return null;
             }
+            final temporaryId = '${document['temporary_id'] ?? ''}'.trim();
+            if (temporaryId.isNotEmpty) {
+              final bytes = await repository.fetchTemporaryPdf('${document['quote_id']}', temporaryId);
+              return temporaryMediaUrl(bytes, contentType: 'application/pdf');
+            }
             final url = '${document['file_url'] ?? ''}'.trim();
             if (url.isNotEmpty) {
               return url;
@@ -47,7 +52,7 @@ class GeneratedPdfPreview {
       return;
     }
     for (final document in documents) {
-      final id = '${document['file_id'] ?? ''}'.trim();
+      final id = '${document['file_id'] ?? document['temporary_id'] ?? ''}'.trim();
       if (id.isNotEmpty && _seen.add(id) && _next < _pending.length) {
         _pending[_next++].complete(document);
       }
