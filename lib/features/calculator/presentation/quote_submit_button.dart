@@ -107,6 +107,7 @@ class _QuoteSubmitButtonState extends State<QuoteSubmitButton> {
         queuedResult.quoteId,
         queuedResult.jobId,
         timeout: const Duration(minutes: 30),
+        onProgress: (job) => pdfPreview.addDocuments(job.autoOpenDocuments),
       );
       if (job == null) {
         return;
@@ -438,7 +439,8 @@ class _QuoteSubmitButtonState extends State<QuoteSubmitButton> {
   Future<void> _watchBatch(String quoteId, String quoteNo, String jobId, String name, GeneratedPdfPreview pdfPreview) async {
     try {
       final job = await widget.repository.waitForBackgroundJob(quoteId, jobId,
-        timeout: const Duration(minutes: 30));
+        timeout: const Duration(minutes: 30),
+        onProgress: (job) => pdfPreview.addDocuments(job.autoOpenDocuments));
       if (job == null) {
         return;
       }
@@ -725,15 +727,6 @@ class _MailingPlanViewState extends State<_MailingPlanView> {
   }
 }
 
-Widget _emailPreviewToggle(bool shown, bool loading, VoidCallback onPressed) => Align(
-  alignment: Alignment.centerLeft,
-  child: TextButton.icon(
-    onPressed: loading ? null : onPressed,
-    icon: Icon(shown ? Icons.visibility_off_outlined : Icons.visibility_outlined),
-    label: Text(shown ? 'Hide email preview' : 'Preview email'),
-  ),
-);
-
 class _BatchDeliverySelection {
   const _BatchDeliverySelection(this.preview, this.delivery);
   final Map<String, dynamic> preview;
@@ -757,31 +750,30 @@ class _IntegrationBatchPreviewDialogState extends State<_IntegrationBatchPreview
   bool _loading = false;
   String? _loadError;
   int _request = 0;
-  bool _showEmailPreview = false;
   bool _emailPreviewDirty = true;
 
-  Future<void> _reload(QuoteDeliveryChoice choice, {bool force = false}) async {
-    if (!force && _loadError == null && _sameDelivery(choice, _delivery)) {
+  Future<void> _reload(QuoteDeliveryChoice choice, {bool emailPreview = false}) async {
+    if (!emailPreview && _loadError == null && _sameDelivery(choice, _delivery)) {
       return;
     }
     if (!_sameDelivery(choice, _delivery)) {
       _emailPreviewDirty = true;
     }
     final options = QuoteDeliveryOptions.fromJson(Map<String, dynamic>.from(((_preview['email'] as Map?)?['delivery_options'] as Map?) ?? const {}));
-    if (!force && !_showEmailPreview && _loadError == null && options.model3dAvailable && _sameDelivery(choice, _delivery, ignoreModel3d: true)) {
+    if (!emailPreview && _loadError == null && options.model3dAvailable && _sameDelivery(choice, _delivery, ignoreModel3d: true)) {
       setState(() => _delivery = choice);
       return;
     }
     final request = ++_request;
     setState(() { _delivery = choice; _loading = true; _loadError = null; });
     try {
-      final next = await widget.reload(choice.withProfile(choice.mailingProfileId), _showEmailPreview);
+      final next = await widget.reload(choice.withProfile(choice.mailingProfileId), emailPreview);
       if (!mounted || request != _request) {
         return;
       }
       setState(() {
         _preview = next;
-        _emailPreviewDirty = !_showEmailPreview;
+        _emailPreviewDirty = !emailPreview;
         _delivery = _pinProfile(choice, (next['email'] as Map?)?['mailing_profile'] as Map? ?? const {});
       });
     } catch (error) {
@@ -795,11 +787,15 @@ class _IntegrationBatchPreviewDialogState extends State<_IntegrationBatchPreview
     }
   }
 
-  Future<void> _toggleEmailPreview() async {
-    setState(() => _showEmailPreview = !_showEmailPreview);
-    if (_showEmailPreview && _emailPreviewDirty) {
-      await _reload(_delivery, force: true);
+  Future<void> _openEmailPreview() async {
+    if (_emailPreviewDirty) {
+      await _reload(_delivery, emailPreview: true);
     }
+    if (!mounted || _loadError != null) {
+      return;
+    }
+    final email = QuoteSubmitPreview.fromJson(Map<String, dynamic>.from(_preview['email'] as Map? ?? const {}));
+    await showQuoteEmailPreviewDialog(context, messages: email.emailPreviews, images: email.emailPreviewImages);
   }
 
   @override
@@ -814,7 +810,7 @@ class _IntegrationBatchPreviewDialogState extends State<_IntegrationBatchPreview
     final hasRecipients = email == null || [email.to, email.cc, email.bcc].any((values) => recipients(values).isNotEmpty);
     return AlertDialog(
       title: Text('Submit · ${batch['name']}'),
-      content: SizedBox(width: _showEmailPreview ? 900 : 620, child: SingleChildScrollView(child: Column(
+      content: SizedBox(width: 620, child: SingleChildScrollView(child: Column(
         mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text('Quote: ${quote['quote_no']}'), const SizedBox(height: 12),
           for (var index = 0; index < steps.length; index++)
@@ -835,9 +831,6 @@ class _IntegrationBatchPreviewDialogState extends State<_IntegrationBatchPreview
                 Text('Documents: ${email.documentBatchName ?? 'No batch selected'}'),
             ],
             AbsorbPointer(absorbing: _loading, child: _DeliveryChoiceFields(options: email.deliveryOptions, choice: _delivery, onChanged: _reload)),
-            _emailPreviewToggle(_showEmailPreview, _loading, _toggleEmailPreview),
-            if (_showEmailPreview && !_loading && !_emailPreviewDirty)
-              QuoteEmailPreview(messages: email.emailPreviews, images: email.emailPreviewImages),
             if (!hasRecipients) Text('No email recipient remains.', style: TextStyle(color: Theme.of(context).colorScheme.error)),
           ],
           if (_loading) const LinearProgressIndicator(),
@@ -849,6 +842,9 @@ class _IntegrationBatchPreviewDialogState extends State<_IntegrationBatchPreview
         ],
       ))),
       actions: [
+        if (email != null)
+          TextButton.icon(onPressed: _loading ? null : _openEmailPreview,
+            icon: const Icon(Icons.visibility_outlined), label: const Text('Preview email')),
         TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
         FilledButton(onPressed: !_loading && _loadError == null && _preview['can_submit'] == true && hasRecipients
           ? () {
@@ -878,28 +874,27 @@ class _QuoteSubmitPreviewDialogState extends State<_QuoteSubmitPreviewDialog> {
   bool _loading = false;
   String? _loadError;
   int _request = 0;
-  bool _showEmailPreview = false;
   bool _emailPreviewDirty = true;
 
-  Future<void> _reload(QuoteDeliveryChoice choice, {bool force = false}) async {
-    if (!force && _loadError == null && _sameDelivery(choice, _delivery)) {
+  Future<void> _reload(QuoteDeliveryChoice choice, {bool emailPreview = false}) async {
+    if (!emailPreview && _loadError == null && _sameDelivery(choice, _delivery)) {
       return;
     }
     if (!_sameDelivery(choice, _delivery)) {
       _emailPreviewDirty = true;
     }
-    if (!force && !_showEmailPreview && _loadError == null && preview.deliveryOptions.model3dAvailable && _sameDelivery(choice, _delivery, ignoreModel3d: true)) {
+    if (!emailPreview && _loadError == null && preview.deliveryOptions.model3dAvailable && _sameDelivery(choice, _delivery, ignoreModel3d: true)) {
       setState(() => _delivery = choice);
       return;
     }
     final request = ++_request;
     setState(() { _delivery = choice; _loading = true; _loadError = null; });
     try {
-      final next = await widget.reload(choice.withProfile(choice.mailingProfileId), _showEmailPreview);
+      final next = await widget.reload(choice.withProfile(choice.mailingProfileId), emailPreview);
       if (!mounted || request != _request) {
         return;
       }
-      setState(() { _emailPreviewDirty = !_showEmailPreview; preview = next; _delivery = _pinProfile(choice, next.mailingProfile); });
+      setState(() { _emailPreviewDirty = !emailPreview; preview = next; _delivery = _pinProfile(choice, next.mailingProfile); });
     } catch (error) {
       if (mounted && request == _request) {
         setState(() => _loadError = error is ApiException ? error.displayMessage : '$error');
@@ -911,11 +906,14 @@ class _QuoteSubmitPreviewDialogState extends State<_QuoteSubmitPreviewDialog> {
     }
   }
 
-  Future<void> _toggleEmailPreview() async {
-    setState(() => _showEmailPreview = !_showEmailPreview);
-    if (_showEmailPreview && _emailPreviewDirty) {
-      await _reload(_delivery, force: true);
+  Future<void> _openEmailPreview() async {
+    if (_emailPreviewDirty) {
+      await _reload(_delivery, emailPreview: true);
     }
+    if (!mounted || _loadError != null) {
+      return;
+    }
+    await showQuoteEmailPreviewDialog(context, messages: preview.emailPreviews, images: preview.emailPreviewImages);
   }
 
   String _emails(List<String> values) {
@@ -961,7 +959,7 @@ class _QuoteSubmitPreviewDialogState extends State<_QuoteSubmitPreviewDialog> {
     return AlertDialog(
       title: Text(isResend ? 'Resend quote email' : 'Submit quote'),
       content: SizedBox(
-        width: _showEmailPreview ? 900 : 620,
+        width: 620,
         child: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -1027,9 +1025,6 @@ class _QuoteSubmitPreviewDialogState extends State<_QuoteSubmitPreviewDialog> {
                 choice: _delivery,
                 onChanged: _reload,
               )),
-              _emailPreviewToggle(_showEmailPreview, _loading, _toggleEmailPreview),
-              if (_showEmailPreview && !_loading && !_emailPreviewDirty)
-                QuoteEmailPreview(messages: preview.emailPreviews, images: preview.emailPreviewImages),
               if (_loading) const LinearProgressIndicator(),
               if (_loadError != null) Text(_loadError!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
               if (!hasRecipients)
@@ -1056,6 +1051,8 @@ class _QuoteSubmitPreviewDialogState extends State<_QuoteSubmitPreviewDialog> {
         ),
       ),
       actions: [
+        TextButton.icon(onPressed: _loading ? null : _openEmailPreview,
+          icon: const Icon(Icons.visibility_outlined), label: const Text('Preview email')),
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('Cancel'),

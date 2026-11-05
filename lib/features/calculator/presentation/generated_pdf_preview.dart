@@ -11,17 +11,23 @@ class GeneratedPdfPreview {
     required void Function(Object error) onError,
   }) {
     for (var index = 0; index < count; index++) {
-      final documentIndex = index;
+      final pending = Completer<Map<String, dynamic>?>();
+      _pending.add(pending);
       unawaited(
         openMediaUrlFromFuture(
           () async {
-            final documents = await _documents.future;
-            if (documentIndex >= documents.length) return null;
-            final document = documents[documentIndex];
+            final document = await pending.future;
+            if (document == null) {
+              return null;
+            }
             final url = '${document['file_url'] ?? ''}'.trim();
-            if (url.isNotEmpty) return url;
+            if (url.isNotEmpty) {
+              return url;
+            }
             final fileId = '${document['file_id'] ?? ''}'.trim();
-            if (fileId.isEmpty) return null;
+            if (fileId.isEmpty) {
+              return null;
+            }
             final media = await repository.fetchMediaFileUrl(fileId);
             return '${media['url'] ?? media['download_url'] ?? ''}';
           },
@@ -31,20 +37,32 @@ class GeneratedPdfPreview {
     }
   }
 
-  final _documents = Completer<List<Map<String, dynamic>>>();
+  final _pending = <Completer<Map<String, dynamic>?>>[];
+  final _seen = <String>{};
+  int _next = 0;
+  bool _closed = false;
 
-  void complete(List<Map<String, dynamic>> documents) {
-    if (_documents.isCompleted) return;
-    final seen = <String>{};
-    _documents.complete(
-      documents
-          .where((document) {
-            final id = '${document['file_id'] ?? ''}';
-            return id.isNotEmpty && seen.add(id);
-          })
-          .toList(growable: false),
-    );
+  void addDocuments(List<Map<String, dynamic>> documents) {
+    if (_closed) {
+      return;
+    }
+    for (final document in documents) {
+      final id = '${document['file_id'] ?? ''}'.trim();
+      if (id.isNotEmpty && _seen.add(id) && _next < _pending.length) {
+        _pending[_next++].complete(document);
+      }
+    }
   }
 
-  void close() => complete(const []);
+  void complete(List<Map<String, dynamic>> documents) {
+    addDocuments(documents);
+    close();
+  }
+
+  void close() {
+    _closed = true;
+    while (_next < _pending.length) {
+      _pending[_next++].complete(null);
+    }
+  }
 }

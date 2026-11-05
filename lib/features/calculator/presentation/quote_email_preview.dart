@@ -4,6 +4,22 @@ import 'package:flutter/material.dart';
 
 import '../../../core/ui/email_html_frame.dart';
 
+Future<void> showQuoteEmailPreviewDialog(BuildContext context, {
+  required List<Map<String, dynamic>> messages,
+  required Map<String, dynamic> images,
+}) => showDialog<void>(
+  context: context,
+  builder: (previewContext) => AlertDialog(
+    title: const Text('Email preview'),
+    content: SizedBox(width: 900, child: SingleChildScrollView(
+      child: QuoteEmailPreview(messages: messages, images: images),
+    )),
+    actions: [
+      TextButton(onPressed: () => Navigator.of(previewContext).pop(), child: const Text('Close')),
+    ],
+  ),
+);
+
 class QuoteEmailPreview extends StatefulWidget {
   const QuoteEmailPreview({super.key, required this.messages, required this.images});
 

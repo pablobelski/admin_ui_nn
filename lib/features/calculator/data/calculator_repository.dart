@@ -306,6 +306,7 @@ class CalculatorRepository {
     String jobId, {
     Duration timeout = const Duration(minutes: 10),
     bool Function()? shouldContinue,
+    void Function(QuoteIntegrationJob job)? onProgress,
   }) async {
     final deadline = DateTime.now().add(timeout);
     final release = jobUpdates.watchQuote(quoteId, waiting: true);
@@ -320,6 +321,7 @@ class CalculatorRepository {
           query: {'quote_id': quoteId, 'job_id': jobId},
         );
         final job = QuoteIntegrationJob.fromJson(response);
+        onProgress?.call(job);
         if (job.statusCode == 'succeeded' ||
             job.statusCode == 'failed' ||
             job.statusCode == 'cancelled') {
