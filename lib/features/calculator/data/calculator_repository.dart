@@ -197,12 +197,14 @@ class CalculatorRepository {
     String quoteId, {
     required String operation,
     QuoteDeliveryChoice delivery = const QuoteDeliveryChoice(),
+    bool includeEmailPreview = false,
   }) async {
     final response = await _client.getJson(
       '/api/internal/calculator/submit',
       query: {
         'quote_id': quoteId,
         'operation': operation,
+        if (includeEmailPreview) 'include_email_preview': 'true',
         for (final entry in delivery.toJson().entries) entry.key: '${entry.value}',
       },
     );
@@ -225,10 +227,11 @@ class CalculatorRepository {
     return QuoteSubmitResult.fromJson(response);
   }
 
-  Future<Map<String, dynamic>> previewIntegrationBatch(String quoteId, {String? batchId, QuoteDeliveryChoice delivery = const QuoteDeliveryChoice()}) =>
+  Future<Map<String, dynamic>> previewIntegrationBatch(String quoteId, {String? batchId, QuoteDeliveryChoice delivery = const QuoteDeliveryChoice(), bool includeEmailPreview = false}) =>
       _client.getJson('/api/internal/calculator/integration-batch', query: {
         'quote_id': quoteId,
         if (batchId != null) 'integration_batch_id': batchId,
+        if (includeEmailPreview) 'include_email_preview': 'true',
         for (final entry in delivery.toJson().entries) entry.key: '${entry.value}',
       });
 
@@ -308,7 +311,9 @@ class CalculatorRepository {
     final release = jobUpdates.watchQuote(quoteId, waiting: true);
     try {
       while (DateTime.now().isBefore(deadline)) {
-        if (jobUpdates.disposed || (shouldContinue != null && !shouldContinue())) return null;
+        if (jobUpdates.disposed || (shouldContinue != null && !shouldContinue())) {
+          return null;
+        }
         final revision = jobUpdates.revision(quoteId);
         final response = await _client.getJson(
           '/api/internal/calculator/integration-job',
@@ -321,7 +326,9 @@ class CalculatorRepository {
           return job;
         }
         final remaining = deadline.difference(DateTime.now());
-        if (remaining.isNegative) break;
+        if (remaining.isNegative) {
+          break;
+        }
         await jobUpdates.waitForChange(quoteId, revision, remaining, shouldContinue: shouldContinue);
       }
       throw StateError('Background job $jobId did not finish within ${timeout.inMinutes} minutes.');
@@ -466,6 +473,8 @@ class QuoteSubmitPreview {
     this.documentBatchCode,
     this.documentCount = 0,
     this.autoOpenPdfCount = 0,
+    this.emailPreviews = const [],
+    this.emailPreviewImages = const {},
     this.deliveryOptions = const QuoteDeliveryOptions(),
     this.orderTypeLabel,
     this.korrekturNo = 0,
@@ -488,7 +497,9 @@ class QuoteSubmitPreview {
       final template = _repoMap(emailTemplates[key]);
       final name = _repoString(template['name']);
       final code = _repoString(template['code']);
-      if (name.isNotEmpty && code.isNotEmpty) return '$name ($code)';
+      if (name.isNotEmpty && code.isNotEmpty) {
+        return '$name ($code)';
+      }
       return name.isNotEmpty ? name : code;
     }
     List<String> emails(Object? value) => value is List
@@ -498,6 +509,8 @@ class QuoteSubmitPreview {
       mailingProfile: _repoMap(json['mailing_profile']), mailingProfiles: _repoList(json['mailing_profiles']),
       mailingDeliveries: _repoList(json['mailing_deliveries']), mailingSkipped: _repoList(json['mailing_skipped']),
       autoOpenPdfCount: _repoIntOrNull(json['auto_open_pdf_count']) ?? 0,
+      emailPreviews: _repoList(json['email_previews']),
+      emailPreviewImages: _repoMap(json['email_preview_images']),
       canSubmit: _repoBool(json['can_submit'] ?? json['canSubmit']),
       operation: _repoString(json['operation']),
       quoteId: _repoString(quote['id']),
@@ -580,6 +593,8 @@ class QuoteSubmitPreview {
   final String? documentBatchCode;
   final int documentCount;
   final int autoOpenPdfCount;
+  final List<Map<String, dynamic>> emailPreviews;
+  final Map<String, dynamic> emailPreviewImages;
   final List<QuoteSubmitIssue> errors;
   final List<QuoteSubmitIssue> warnings;
   final QuoteDeliveryOptions deliveryOptions;
@@ -679,7 +694,9 @@ class QuoteDeliveryOptions {
 
   // Recipients as they are sent with the given choice (external addresses removed when the customer is off).
   List<String> recipients(List<String> emails, QuoteDeliveryChoice choice) {
-    if (choice.includeCustomer) return emails;
+    if (choice.includeCustomer) {
+      return emails;
+    }
     final external = externalEmails.map((entry) => entry.toLowerCase()).toSet();
     return emails.where((entry) => !external.contains(entry.toLowerCase())).toList(growable: false);
   }
@@ -1111,8 +1128,12 @@ class PrintTemplateOption {
 
   bool get isPrintEnabled {
     final value = printSettings['enabled'];
-    if (value is bool) return value;
-    if (value is String) return ['true', '1', 'yes', 'y'].contains(value.trim().toLowerCase());
+    if (value is bool) {
+      return value;
+    }
+    if (value is String) {
+      return ['true', '1', 'yes', 'y'].contains(value.trim().toLowerCase());
+    }
     return false;
   }
 
@@ -1194,7 +1215,9 @@ List<Map<String, dynamic>> _repoList(Object? value) {
 }
 
 Map<String, dynamic> _repoMap(Object? value) {
-  if (value is Map) return Map<String, dynamic>.from(value);
+  if (value is Map) {
+    return Map<String, dynamic>.from(value);
+  }
   return const {};
 }
 
@@ -1206,19 +1229,33 @@ String? _repoNullableString(Object? value) {
 }
 
 int? _repoIntOrNull(Object? value) {
-  if (value is int) return value;
-  if (value is num) return value.toInt();
-  if (value is String) return int.tryParse(value.trim());
+  if (value is int) {
+    return value;
+  }
+  if (value is num) {
+    return value.toInt();
+  }
+  if (value is String) {
+    return int.tryParse(value.trim());
+  }
   return null;
 }
 
 bool _repoBool(Object? value, {bool fallback = false}) {
-  if (value is bool) return value;
-  if (value is num) return value != 0;
+  if (value is bool) {
+    return value;
+  }
+  if (value is num) {
+    return value != 0;
+  }
   if (value is String) {
     final normalized = value.trim().toLowerCase();
-    if (['true', '1', 'yes', 'y'].contains(normalized)) return true;
-    if (['false', '0', 'no', 'n'].contains(normalized)) return false;
+    if (['true', '1', 'yes', 'y'].contains(normalized)) {
+      return true;
+    }
+    if (['false', '0', 'no', 'n'].contains(normalized)) {
+      return false;
+    }
   }
   return fallback;
 }

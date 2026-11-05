@@ -629,6 +629,30 @@ const adminNavGroups = <AdminNavGroup>[
             visibleWhenValues: ['quote_model_sharing'],
           ),
           AdminField(
+            key: 'value_json.button_label',
+            label: '3D email button label',
+            defaultValue: '3D-Modell ansehen',
+            visibleWhenFieldKey: 'setting_code',
+            visibleWhenValues: ['quote_model_sharing'],
+            helperText: 'Text of {{model_3d_button}} in email HTML.',
+          ),
+          AdminField(
+            key: 'value_json.button_color',
+            label: '3D email button background',
+            defaultValue: '#4d5d98',
+            visibleWhenFieldKey: 'setting_code',
+            visibleWhenValues: ['quote_model_sharing'],
+            helperText: 'HEX color, e.g. #4d5d98.',
+          ),
+          AdminField(
+            key: 'value_json.button_text_color',
+            label: '3D email button text color',
+            defaultValue: '#ffffff',
+            visibleWhenFieldKey: 'setting_code',
+            visibleWhenValues: ['quote_model_sharing'],
+            helperText: 'HEX color, e.g. #ffffff.',
+          ),
+          AdminField(
             key: 'value_json.roles',
             label: 'MCP roles',
             type: AdminFieldType.json,
@@ -2500,6 +2524,7 @@ const adminNavGroups = <AdminNavGroup>[
             label: 'Logo file',
             type: AdminFieldType.file,
             filePurpose: 'branding_logo',
+            helperText: 'Email HTML: {{sender_logo_large}}. PNG / JPG are recommended for email clients.',
             accept: 'image/*,.svg',
           ),
           AdminField(
@@ -2507,6 +2532,7 @@ const adminNavGroups = <AdminNavGroup>[
             label: 'Secondary logo file',
             type: AdminFieldType.file,
             filePurpose: 'branding_secondary_logo',
+            helperText: 'Email HTML: {{sender_logo_small}}. If empty, the main logo is shown smaller.',
             accept: 'image/*,.svg',
           ),
           AdminField(key: 'engraving_text', label: 'Engraving text'),
@@ -3152,7 +3178,10 @@ const adminNavGroups = <AdminNavGroup>[
           AdminField(key: 'scope_code', label: 'Scope', options: scopeOptions),
           AdminField(key: 'subject_template', label: 'Subject template'),
           AdminField(key: 'body_text_template', label: 'Body text', type: AdminFieldType.longText),
-          AdminField(key: 'body_html_template', label: 'Body HTML', type: AdminFieldType.longText),
+          AdminField(
+            key: 'body_html_template', label: 'Body HTML', type: AdminFieldType.longText,
+            helperText: 'Place {{model_3d_button}}, {{sender_logo_large}} or {{sender_logo_small}} where the full button / logo should appear. Logos come from the submitting user’s default company Branding.',
+          ),
           AdminField(key: 'settings_json', label: 'Settings JSON', type: AdminFieldType.json),
           AdminField(
             key: 'settings_json.recipient_emails',
