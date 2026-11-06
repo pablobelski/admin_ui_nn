@@ -661,10 +661,11 @@ class _MailingProfileChoice extends StatelessWidget {
 
 // Internal blocks start collapsed below their addresses; the Documents line opens the batch composition.
 class _MailingPlanView extends StatefulWidget {
-  const _MailingPlanView({required this.deliveries, required this.skipped, required this.choice, this.showRecipients = true});
+  const _MailingPlanView({required this.deliveries, required this.skipped, required this.recipients, required this.choice, required this.onChanged});
   final List<Map<String, dynamic>> deliveries, skipped;
   final QuoteDeliveryChoice choice;
-  final bool showRecipients;
+  final List<Map<String, dynamic>> recipients;
+  final ValueChanged<QuoteDeliveryChoice> onChanged;
 
   @override
   State<_MailingPlanView> createState() => _MailingPlanViewState();
@@ -682,48 +683,76 @@ class _MailingPlanViewState extends State<_MailingPlanView> {
       });
 
   @override
-  Widget build(BuildContext context) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-    for (final delivery in widget.deliveries) ..._delivery(context, delivery),
-    for (final rule in widget.skipped)
-      Padding(padding: const EdgeInsets.only(bottom: 6), child: Text('${rule['name'] ?? rule['code']}: ${rule['reason']}')),
-  ]);
+  Widget build(BuildContext context) {
+    final deliveries = [...widget.deliveries];
+    final displayed = deliveries.expand((delivery) =>
+        (delivery['recipient_choices'] as List? ?? const []).whereType<Map>()).map((row) => row['key']).toSet();
+    // Keep unchecked/skipped rules visible so their recipients can be enabled again.
+    for (final recipient in widget.recipients.where((row) => !displayed.contains(row['key']))) {
+      final key = '${recipient['key']}'.split(':').first;
+      final index = deliveries.indexWhere((delivery) => delivery['rule_id'] == key);
+      if (index < 0) {
+        deliveries.add({'rule_id': key, 'name': recipient['delivery_name'], 'recipient_choices': [recipient]});
+      } else {
+        deliveries[index] = {...deliveries[index], 'recipient_choices': [
+          ...(deliveries[index]['recipient_choices'] as List? ?? const []), recipient,
+        ]};
+      }
+    }
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      for (final delivery in deliveries) ..._delivery(context, delivery),
+      for (final rule in widget.skipped)
+        if (!deliveries.any((delivery) => delivery['name'] == rule['name']))
+          Padding(padding: const EdgeInsets.only(bottom: 6), child: Text('${rule['name'] ?? rule['code']}: ${rule['reason']}')),
+    ]);
+  }
 
   List<Widget> _delivery(BuildContext context, Map<String, dynamic> delivery) {
     final key = '${delivery['rule_id']}';
     final documentsKey = '$key:documents';
-    final details = _open(key, delivery['recipient_type'] != 'internal');
+    final details = _open(key, false);
+    final hasDetails = delivery['email_template'] is Map;
     final batch = delivery['document_batch'] is Map ? delivery['document_batch'] as Map : const {};
     // Preview items are printed only when chosen in this dialog.
     final items = (batch['items'] as List? ?? const []).whereType<Map>().where((item) =>
         (item['item_type_code'] != 'geometry_preview' || widget.choice.includeGeometryPreview) &&
         (item['item_type_code'] != 'schematic_preview' || widget.choice.includeSchematicPreview)).toList();
     return [
-      InkWell(
-        onTap: () => _toggle(key),
-        child: Row(children: [
-          Expanded(child: Text('${delivery['name']} · ${delivery['recipient_type']}', style: Theme.of(context).textTheme.titleSmall)),
-          Icon(details ? Icons.expand_less : Icons.expand_more, size: 18),
+      Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        decoration: BoxDecoration(border: Border.all(color: Theme.of(context).dividerColor), borderRadius: BorderRadius.circular(4)),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          InkWell(
+            onTap: hasDetails ? () => _toggle(key) : null,
+            child: Padding(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6), child: Row(children: [
+              Expanded(child: Text('${delivery['name']}', style: Theme.of(context).textTheme.titleSmall)),
+              if (hasDetails) Icon(details ? Icons.expand_less : Icons.expand_more, size: 18),
+            ])),
+          ),
+          Padding(padding: const EdgeInsets.symmetric(horizontal: 4), child: _RecipientChoiceList(
+            recipients: (delivery['recipient_choices'] as List? ?? const []).whereType<Map>()
+                .map((row) => Map<String, dynamic>.from(row)).toList(),
+            choice: widget.choice, onChanged: widget.onChanged)),
+          if (details && hasDetails) Padding(padding: const EdgeInsets.fromLTRB(12, 0, 12, 8), child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const Divider(height: 12),
+              _PreviewLine(label: 'From', value: [delivery['from_name'], delivery['from_address']]
+                  .map((entry) => '${entry ?? ''}').where((entry) => entry.isNotEmpty).join(' · ')),
+              _PreviewLine(
+                label: 'Documents',
+                value: _documentBatchLabel(batch['items'] == null ? batch : {...batch, 'document_count': items.length},
+                    widget.choice.splitOutput),
+                expanded: _open(documentsKey, false),
+                onTap: () => _toggle(documentsKey),
+              ),
+              if (_open(documentsKey, false))
+                for (final item in items) _PreviewLine(label: '', value: '• ${item['name'] ?? '—'}'),
+              _PreviewLine(label: 'Email template', value: '${(delivery['email_template'] as Map?)?['name'] ?? '—'}'),
+              _PreviewLine(label: 'Subject', value: '${(delivery['email_template'] as Map?)?['subject'] ?? '—'}'),
+            ],
+          )),
         ]),
       ),
-      if (widget.showRecipients) for (final group in ['to', 'cc', 'bcc'])
-        if ((delivery[group] as List? ?? const []).isNotEmpty)
-          _PreviewLine(label: group.toUpperCase(), value: (delivery[group] as List).join(', ')),
-      if (details) ...[
-        _PreviewLine(label: 'From', value: [delivery['from_name'], delivery['from_address']]
-            .map((entry) => '${entry ?? ''}').where((entry) => entry.isNotEmpty).join(' · ')),
-        _PreviewLine(
-          label: 'Documents',
-          value: _documentBatchLabel(batch['items'] == null ? batch : {...batch, 'document_count': items.length},
-              widget.choice.splitOutput),
-          expanded: _open(documentsKey, false),
-          onTap: () => _toggle(documentsKey),
-        ),
-        if (_open(documentsKey, false))
-          for (final item in items) _PreviewLine(label: '', value: '• ${item['name'] ?? '—'}'),
-        _PreviewLine(label: 'Email template', value: '${(delivery['email_template'] as Map?)?['name'] ?? '—'}'),
-        _PreviewLine(label: 'Subject', value: '${(delivery['email_template'] as Map?)?['subject'] ?? '—'}'),
-      ],
-      const SizedBox(height: 8),
     ];
   }
 }
@@ -819,21 +848,9 @@ class _IntegrationBatchPreviewDialogState extends State<_IntegrationBatchPreview
           if (email != null) ...[
             const Divider(),
             _MailingProfileChoice(profiles: email.mailingProfiles, choice: _delivery, loading: _loading, onChanged: _reload),
-            AbsorbPointer(absorbing: _loading, child: _RecipientChoiceList(
+            AbsorbPointer(absorbing: _loading, child: _MailingPlanView(
+              deliveries: email.mailingDeliveries, skipped: email.mailingSkipped,
               recipients: email.deliveryOptions.recipientChoices, choice: _delivery, onChanged: _reload)),
-            if (email.mailingProfile.isNotEmpty)
-              _MailingPlanView(deliveries: email.mailingDeliveries, skipped: email.mailingSkipped, choice: _delivery,
-                showRecipients: email.deliveryOptions.recipientChoices.isEmpty)
-            else ...[
-              if (email.deliveryOptions.recipientChoices.isEmpty) for (final entry in {'to': email.to, 'cc': email.cc, 'bcc': email.bcc}.entries)
-                if (recipients(entry.value).isNotEmpty) ...[
-                  Text('${entry.key.toUpperCase()}: ${recipients(entry.value).join(', ')}'),
-                  if (email.attachmentMode == 'recipient_batches')
-                    Text('${entry.key.toUpperCase()} documents: ${_documentBatchLabel(email.recipientBatches[entry.key], _delivery.splitOutput)}'),
-                ],
-              if (email.attachmentMode != 'recipient_batches')
-                Text('Documents: ${email.documentBatchName ?? 'No batch selected'}'),
-            ],
             AbsorbPointer(absorbing: _loading, child: _DeliveryChoiceFields(options: email.deliveryOptions, choice: _delivery, onChanged: _reload)),
             if (!hasRecipients) Text('No email recipient remains.', style: TextStyle(color: Theme.of(context).colorScheme.error)),
           ],
@@ -920,45 +937,12 @@ class _QuoteSubmitPreviewDialogState extends State<_QuoteSubmitPreviewDialog> {
     await showQuoteEmailPreviewDialog(context, messages: preview.emailPreviews, images: preview.emailPreviewImages);
   }
 
-  String _emails(List<String> values) {
-    final sent = preview.deliveryOptions.recipients(values, _delivery);
-    return sent.isEmpty ? '—' : sent.join(', ');
-  }
-
   @override
   Widget build(BuildContext context) {
     final isResend = preview.operation == 'resend';
-    final customerDelivery = preview.customerDeliveryEnabled && _delivery.includeCustomer;
     final hasRecipients = [preview.to, preview.cc, preview.bcc]
         .any((emails) => preview.deliveryOptions.recipients(emails, _delivery).isNotEmpty);
-    final batchLabel = [
-      preview.documentBatchName,
-      if ((preview.documentBatchCode ?? '').isNotEmpty) '(${preview.documentBatchCode})',
-    ].whereType<String>().where((entry) => entry.isNotEmpty).join(' ');
     final warningGroups = _submitWarningGroups(preview.warnings);
-    final emailTemplateLabel = [
-      if ((preview.emailTemplateLabels['to'] ?? '').isNotEmpty)
-        "To: ${preview.emailTemplateLabels['to']}",
-      if ((preview.emailTemplateLabels['cc'] ?? '').isNotEmpty)
-        "CC: ${preview.emailTemplateLabels['cc']}",
-      if ((preview.emailTemplateLabels['bcc'] ?? '').isNotEmpty)
-        "BCC: ${preview.emailTemplateLabels['bcc']}",
-    ].join(' · ');
-    final subjectValues = [
-      preview.emailSubjects['to'] ?? '',
-      preview.emailSubjects['cc'] ?? '',
-      preview.emailSubjects['bcc'] ?? '',
-    ].where((entry) => entry.isNotEmpty).toSet();
-    final subjectLabel = subjectValues.length <= 1
-        ? preview.subject
-        : [
-            if ((preview.emailSubjects['to'] ?? '').isNotEmpty)
-              "To: ${preview.emailSubjects['to']}",
-            if ((preview.emailSubjects['cc'] ?? '').isNotEmpty)
-              "CC: ${preview.emailSubjects['cc']}",
-            if ((preview.emailSubjects['bcc'] ?? '').isNotEmpty)
-              "BCC: ${preview.emailSubjects['bcc']}",
-          ].join(' · ');
 
     return AlertDialog(
       title: Text(isResend ? 'Resend quote email' : 'Submit quote'),
@@ -982,53 +966,9 @@ class _QuoteSubmitPreviewDialogState extends State<_QuoteSubmitPreviewDialog> {
               if ((preview.customerContactName ?? '').isNotEmpty)
                 _PreviewLine(label: 'Contact', value: preview.customerContactName!),
               _MailingProfileChoice(profiles: preview.mailingProfiles, choice: _delivery, loading: _loading, onChanged: _reload),
-              AbsorbPointer(absorbing: _loading, child: _RecipientChoiceList(
+              AbsorbPointer(absorbing: _loading, child: _MailingPlanView(
+                deliveries: preview.mailingDeliveries, skipped: preview.mailingSkipped,
                 recipients: preview.deliveryOptions.recipientChoices, choice: _delivery, onChanged: _reload)),
-              if (preview.mailingProfile.isNotEmpty)
-                _MailingPlanView(deliveries: preview.mailingDeliveries, skipped: preview.mailingSkipped, choice: _delivery,
-                  showRecipients: preview.deliveryOptions.recipientChoices.isEmpty),
-              if (preview.mailingProfile.isEmpty) ...[
-              _PreviewLine(
-                label: 'Customer delivery',
-                value: customerDelivery
-                    ? 'Enabled for status ${preview.targetStatusLabel}'
-                    : preview.deliveryOptions.customerAllowed
-                        ? 'Left out · internal recipients only'
-                        : 'Disabled for status ${preview.targetStatusLabel} · internal recipients only',
-              ),
-              if (preview.b2bEmail != null && preview.deliveryOptions.recipientChoices.isEmpty)
-                _PreviewLine(
-                  label: 'B2B email',
-                  value: _delivery.includeCustomer ? preview.b2bEmail! : 'Left out · ${preview.b2bEmail}',
-                ),
-              if (preview.deliveryOptions.recipientChoices.isEmpty) ...[
-                _PreviewLine(label: 'To', value: _emails(preview.to)),
-                _PreviewLine(label: 'CC', value: _emails(preview.cc)),
-                _PreviewLine(label: 'BCC', value: _emails(preview.bcc)),
-              ],
-              _PreviewLine(
-                label: 'From',
-                value: [preview.senderName, preview.senderAddress].where((entry) => entry.isNotEmpty).join(' · '),
-              ),
-              if (preview.attachmentMode == 'recipient_batches') ...[
-                for (final group in ['to', 'cc', 'bcc'])
-                  if (_emails(group == 'to' ? preview.to : group == 'cc' ? preview.cc : preview.bcc) != '—')
-                    _PreviewLine(
-                      label: '${group.toUpperCase()} documents',
-                      value: _documentBatchLabel(preview.recipientBatches[group], _delivery.splitOutput),
-                    ),
-              ] else
-                _PreviewLine(
-                  label: 'Documents',
-                  value: batchLabel.isEmpty
-                      ? 'No batch selected'
-                      : (_delivery.splitOutput ?? preview.deliveryOptions.splitOutput)
-                          ? '$batchLabel · ${preview.documentCount} item(s) · separate PDFs'
-                          : '$batchLabel · ${preview.documentCount} item(s) · one merged PDF',
-                ),
-              _PreviewLine(label: 'Email templates', value: emailTemplateLabel),
-              _PreviewLine(label: 'Subject', value: subjectLabel),
-              ],
               AbsorbPointer(absorbing: _loading, child: _DeliveryChoiceFields(
                 options: preview.deliveryOptions,
                 choice: _delivery,
@@ -1091,11 +1031,8 @@ class _RecipientChoiceList extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       for (var index = 0; index < recipients.length; index++) ...[
-        if (index == 0 || recipients[index]['delivery_name'] != recipients[index - 1]['delivery_name'])
-          Padding(padding: const EdgeInsets.only(top: 8), child: Text(
-            '${recipients[index]['delivery_name'] ?? 'Recipients'}', style: Theme.of(context).textTheme.titleSmall)),
         CheckboxListTile(
-          dense: true, contentPadding: EdgeInsets.zero, controlAffinity: ListTileControlAffinity.leading,
+          dense: true, visualDensity: VisualDensity.compact, contentPadding: EdgeInsets.zero, controlAffinity: ListTileControlAffinity.leading,
           title: Text("${recipients[index]['group']?.toString().toUpperCase()}: ${recipients[index]['email']}"),
           subtitle: recipients[index]['reason'] == null ? null : Text('${recipients[index]['reason']}'),
           value: recipients[index]['can_disable'] == true
