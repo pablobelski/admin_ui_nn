@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import '../../../core/http/api_client.dart';
@@ -209,7 +210,7 @@ class CalculatorRepository {
         'quote_id': quoteId,
         'operation': operation,
         if (includeEmailPreview) 'include_email_preview': 'true',
-        for (final entry in delivery.toJson().entries) entry.key: '${entry.value}',
+        for (final entry in delivery.toJson().entries) entry.key: entry.value is List ? jsonEncode(entry.value) : '${entry.value}',
       },
     );
     return QuoteSubmitPreview.fromJson(response);
@@ -236,7 +237,7 @@ class CalculatorRepository {
         'quote_id': quoteId,
         if (batchId != null) 'integration_batch_id': batchId,
         if (includeEmailPreview) 'include_email_preview': 'true',
-        for (final entry in delivery.toJson().entries) entry.key: '${entry.value}',
+        for (final entry in delivery.toJson().entries) entry.key: entry.value is List ? jsonEncode(entry.value) : '${entry.value}',
       });
 
   Future<QuoteIntegrationResult> submitIntegrationBatch(
@@ -614,6 +615,7 @@ class QuoteSubmitPreview {
 // Send dialog choices: customer recipients and the preview items of the document batch (off by default).
 class QuoteDeliveryChoice {
   const QuoteDeliveryChoice({
+    this.excludedRecipients = const [],
     this.mailingProfileId, this.mailingProfileVersion,
     this.splitOutput,
     this.includeCustomer = true,
@@ -623,14 +625,16 @@ class QuoteDeliveryChoice {
   });
 
   final String? mailingProfileId, mailingProfileVersion;
+  final List<String> excludedRecipients;
   final bool? splitOutput;
   final bool includeCustomer;
   final bool includeGeometryPreview;
   final bool includeSchematicPreview;
   final bool? includeModel3d;
 
-  QuoteDeliveryChoice copyWith({bool? splitOutput, bool? includeCustomer, bool? includeGeometryPreview, bool? includeSchematicPreview, bool? includeModel3d}) =>
+  QuoteDeliveryChoice copyWith({List<String>? excludedRecipients, bool? splitOutput, bool? includeCustomer, bool? includeGeometryPreview, bool? includeSchematicPreview, bool? includeModel3d}) =>
       QuoteDeliveryChoice(
+        excludedRecipients: excludedRecipients ?? this.excludedRecipients,
         mailingProfileId: mailingProfileId, mailingProfileVersion: mailingProfileVersion,
         splitOutput: splitOutput ?? this.splitOutput,
         includeCustomer: includeCustomer ?? this.includeCustomer,
@@ -640,10 +644,12 @@ class QuoteDeliveryChoice {
       );
 
   QuoteDeliveryChoice withProfile(String? id, [String? version]) => QuoteDeliveryChoice(
+    excludedRecipients: excludedRecipients,
     mailingProfileId: id, mailingProfileVersion: version, splitOutput: splitOutput,
     includeCustomer: includeCustomer, includeGeometryPreview: includeGeometryPreview, includeSchematicPreview: includeSchematicPreview, includeModel3d: includeModel3d);
 
   Map<String, dynamic> toJson() => {
+        'excluded_recipients': excludedRecipients,
         if ((mailingProfileId ?? '').isNotEmpty) 'mailing_profile_id': mailingProfileId,
         if ((mailingProfileVersion ?? '').isNotEmpty) 'mailing_profile_version': mailingProfileVersion,
         if (splitOutput != null) 'split_output': splitOutput,
@@ -658,6 +664,7 @@ class QuoteDeliveryChoice {
 // whether the document batch has a saved Geometry / Schematic preview.
 class QuoteDeliveryOptions {
   const QuoteDeliveryOptions({
+    this.recipientChoices = const [],
     this.splitOutput = false,
     this.customerAllowed = false,
     this.externalEmails = const [],
@@ -676,6 +683,8 @@ class QuoteDeliveryOptions {
     final schematic = _repoMap(json['schematic_preview']);
     final model3d = _repoMap(json['model_3d']);
     return QuoteDeliveryOptions(
+      recipientChoices: (json['recipient_choices'] is List ? json['recipient_choices'] as List : const [])
+          .map(_repoMap).toList(growable: false),
       splitOutput: _repoBool(json['split_output']),
       customerAllowed: _repoBool(json['customer_allowed']),
       externalEmails: (json['external_emails'] is List ? json['external_emails'] as List : const [])
@@ -694,6 +703,7 @@ class QuoteDeliveryOptions {
   }
 
   final bool splitOutput;
+  final List<Map<String, dynamic>> recipientChoices;
   final bool customerAllowed;
   final List<String> externalEmails;
   final bool geometryInBatch;

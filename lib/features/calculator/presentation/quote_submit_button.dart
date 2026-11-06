@@ -661,9 +661,10 @@ class _MailingProfileChoice extends StatelessWidget {
 
 // Internal blocks start collapsed below their addresses; the Documents line opens the batch composition.
 class _MailingPlanView extends StatefulWidget {
-  const _MailingPlanView({required this.deliveries, required this.skipped, required this.choice});
+  const _MailingPlanView({required this.deliveries, required this.skipped, required this.choice, this.showRecipients = true});
   final List<Map<String, dynamic>> deliveries, skipped;
   final QuoteDeliveryChoice choice;
+  final bool showRecipients;
 
   @override
   State<_MailingPlanView> createState() => _MailingPlanViewState();
@@ -704,7 +705,7 @@ class _MailingPlanViewState extends State<_MailingPlanView> {
           Icon(details ? Icons.expand_less : Icons.expand_more, size: 18),
         ]),
       ),
-      for (final group in ['to', 'cc', 'bcc'])
+      if (widget.showRecipients) for (final group in ['to', 'cc', 'bcc'])
         if ((delivery[group] as List? ?? const []).isNotEmpty)
           _PreviewLine(label: group.toUpperCase(), value: (delivery[group] as List).join(', ')),
       if (details) ...[
@@ -818,10 +819,13 @@ class _IntegrationBatchPreviewDialogState extends State<_IntegrationBatchPreview
           if (email != null) ...[
             const Divider(),
             _MailingProfileChoice(profiles: email.mailingProfiles, choice: _delivery, loading: _loading, onChanged: _reload),
+            AbsorbPointer(absorbing: _loading, child: _RecipientChoiceList(
+              recipients: email.deliveryOptions.recipientChoices, choice: _delivery, onChanged: _reload)),
             if (email.mailingProfile.isNotEmpty)
-              _MailingPlanView(deliveries: email.mailingDeliveries, skipped: email.mailingSkipped, choice: _delivery)
+              _MailingPlanView(deliveries: email.mailingDeliveries, skipped: email.mailingSkipped, choice: _delivery,
+                showRecipients: email.deliveryOptions.recipientChoices.isEmpty)
             else ...[
-              for (final entry in {'to': email.to, 'cc': email.cc, 'bcc': email.bcc}.entries)
+              if (email.deliveryOptions.recipientChoices.isEmpty) for (final entry in {'to': email.to, 'cc': email.cc, 'bcc': email.bcc}.entries)
                 if (recipients(entry.value).isNotEmpty) ...[
                   Text('${entry.key.toUpperCase()}: ${recipients(entry.value).join(', ')}'),
                   if (email.attachmentMode == 'recipient_batches')
@@ -978,8 +982,11 @@ class _QuoteSubmitPreviewDialogState extends State<_QuoteSubmitPreviewDialog> {
               if ((preview.customerContactName ?? '').isNotEmpty)
                 _PreviewLine(label: 'Contact', value: preview.customerContactName!),
               _MailingProfileChoice(profiles: preview.mailingProfiles, choice: _delivery, loading: _loading, onChanged: _reload),
+              AbsorbPointer(absorbing: _loading, child: _RecipientChoiceList(
+                recipients: preview.deliveryOptions.recipientChoices, choice: _delivery, onChanged: _reload)),
               if (preview.mailingProfile.isNotEmpty)
-                _MailingPlanView(deliveries: preview.mailingDeliveries, skipped: preview.mailingSkipped, choice: _delivery),
+                _MailingPlanView(deliveries: preview.mailingDeliveries, skipped: preview.mailingSkipped, choice: _delivery,
+                  showRecipients: preview.deliveryOptions.recipientChoices.isEmpty),
               if (preview.mailingProfile.isEmpty) ...[
               _PreviewLine(
                 label: 'Customer delivery',
@@ -989,14 +996,16 @@ class _QuoteSubmitPreviewDialogState extends State<_QuoteSubmitPreviewDialog> {
                         ? 'Left out · internal recipients only'
                         : 'Disabled for status ${preview.targetStatusLabel} · internal recipients only',
               ),
-              if (preview.b2bEmail != null)
+              if (preview.b2bEmail != null && preview.deliveryOptions.recipientChoices.isEmpty)
                 _PreviewLine(
                   label: 'B2B email',
                   value: _delivery.includeCustomer ? preview.b2bEmail! : 'Left out · ${preview.b2bEmail}',
                 ),
-              _PreviewLine(label: 'To', value: _emails(preview.to)),
-              _PreviewLine(label: 'CC', value: _emails(preview.cc)),
-              _PreviewLine(label: 'BCC', value: _emails(preview.bcc)),
+              if (preview.deliveryOptions.recipientChoices.isEmpty) ...[
+                _PreviewLine(label: 'To', value: _emails(preview.to)),
+                _PreviewLine(label: 'CC', value: _emails(preview.cc)),
+                _PreviewLine(label: 'BCC', value: _emails(preview.bcc)),
+              ],
               _PreviewLine(
                 label: 'From',
                 value: [preview.senderName, preview.senderAddress].where((entry) => entry.isNotEmpty).join(' · '),
@@ -1072,6 +1081,43 @@ class _QuoteSubmitPreviewDialogState extends State<_QuoteSubmitPreviewDialog> {
 
 // Send options: customer recipients (only where the system allows external delivery) and the preview items of
 // the document batch (off by default, only when saved for the quote).
+class _RecipientChoiceList extends StatelessWidget {
+  const _RecipientChoiceList({required this.recipients, required this.choice, required this.onChanged});
+  final List<Map<String, dynamic>> recipients;
+  final QuoteDeliveryChoice choice;
+  final ValueChanged<QuoteDeliveryChoice> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      for (var index = 0; index < recipients.length; index++) ...[
+        if (index == 0 || recipients[index]['delivery_name'] != recipients[index - 1]['delivery_name'])
+          Padding(padding: const EdgeInsets.only(top: 8), child: Text(
+            '${recipients[index]['delivery_name'] ?? 'Recipients'}', style: Theme.of(context).textTheme.titleSmall)),
+        CheckboxListTile(
+          dense: true, contentPadding: EdgeInsets.zero, controlAffinity: ListTileControlAffinity.leading,
+          title: Text("${recipients[index]['group']?.toString().toUpperCase()}: ${recipients[index]['email']}"),
+          subtitle: recipients[index]['reason'] == null ? null : Text('${recipients[index]['reason']}'),
+          value: recipients[index]['can_disable'] == true
+              ? !choice.excludedRecipients.contains(recipients[index]['key'])
+                && (recipients[index]['source'] != 'external' || choice.includeCustomer)
+              : recipients[index]['enabled'] == true,
+          onChanged: recipients[index]['can_disable'] == true ? (checked) {
+            final excluded = choice.excludedRecipients.toSet();
+            final key = '${recipients[index]['key']}';
+            if (checked == true) {
+              excluded.remove(key);
+            } else {
+              excluded.add(key);
+            }
+            onChanged(choice.copyWith(excludedRecipients: excluded.toList()..sort()));
+          } : null,
+        ),
+      ],
+    ]);
+  }
+}
+
 class _DeliveryChoiceFields extends StatelessWidget {
   const _DeliveryChoiceFields({required this.options, required this.choice, required this.onChanged});
 
@@ -1103,7 +1149,7 @@ class _DeliveryChoiceFields extends StatelessWidget {
           choice.splitOutput ?? options.splitOutput,
           (value) => onChanged(choice.copyWith(splitOutput: value)),
         ),
-        _option(
+        if (options.recipientChoices.isEmpty) _option(
           'Send to external recipients',
           options.customerAllowed
               ? options.externalEmails.join(', ')
