@@ -2743,7 +2743,8 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     final rightDepth = profile.smallPartOnLeft
         ? params.value(const ['TK1'], depth)
         : params.value(const ['TK2'], depth * 0.62);
-    final d = _max(depth, _max(leftDepth, rightDepth));
+    // Deepest module, as in the server geometry and the GLB; the entered overall depth (TK) may differ.
+    final d = _max(leftDepth, rightDepth);
     final splitX = leftW / total * width;
     final leftFrontY = splitAtFront ? d - leftDepth : 0.0;
     final rightFrontY = splitAtFront ? d - rightDepth : 0.0;
