@@ -1358,8 +1358,8 @@ class _DetailsCardState extends ConsumerState<_DetailsCard> {
                                 quoteId: data['id']?.toString() ?? '',
                                 statusCode: data['status_code']?.toString() ?? 'draft',
                                 repository: ref.read(calculatorRepositoryProvider),
-                                // The Submit rules of quote_status_transitions decide on the server.
-                                enabled: (data['status_code']?.toString() ?? 'draft').trim().toLowerCase() != 'draft',
+                                // The Submit rules of quote_status_transitions decide on the server; a draft is
+                                // emailed only to the current employee (draft_internal).
                                 onCompleted: (_) async {
                                   ref.invalidate(resourceListProvider(resource));
                                   ref.invalidate(resourceDetailsProvider(resource));

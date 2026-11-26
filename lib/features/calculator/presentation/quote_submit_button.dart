@@ -98,7 +98,10 @@ class _QuoteSubmitButtonState extends State<QuoteSubmitButton> {
   }
 
   bool get _isResend => _statusCode.trim().toLowerCase() == 'sent';
-  String get _operation => _isResend ? 'resend' : 'submit';
+  // A draft has no integration batch: Submit emails it only to the current head-company employee
+  // (internal BCC as configured), the status stays draft.
+  bool get _isDraft => _statusCode.trim().toLowerCase() == 'draft';
+  String get _operation => _isDraft ? 'draft_internal' : _isResend ? 'resend' : 'submit';
   String get _emailLabel => _isResend ? 'Resend quote emails' : 'Send quote emails';
 
   Future<void> _watchSubmitJob(QuoteSubmitResult queuedResult, GeneratedPdfPreview pdfPreview) async {
@@ -153,7 +156,9 @@ class _QuoteSubmitButtonState extends State<QuoteSubmitButton> {
         context,
         queuedResult.operation == 'resend'
             ? 'Quote email resent successfully.'
-            : 'Quote submitted; configured emails sent.',
+            : queuedResult.operation == 'draft_internal'
+                ? 'Draft sent to your email.'
+                : 'Quote submitted; configured emails sent.',
         type: TopNotificationType.success,
       );
     } catch (error) {
@@ -261,7 +266,9 @@ class _QuoteSubmitButtonState extends State<QuoteSubmitButton> {
           context,
           result.operation == 'resend'
               ? 'Quote email resend queued and continues in background.'
-              : 'Quote submit queued and continues in background.',
+              : result.operation == 'draft_internal'
+                  ? 'Draft email to you queued and continues in background.'
+                  : 'Quote submit queued and continues in background.',
           type: TopNotificationType.success,
         );
         return;
@@ -275,7 +282,9 @@ class _QuoteSubmitButtonState extends State<QuoteSubmitButton> {
         context,
         result.operation == 'resend'
             ? 'Quote email resent successfully.'
-            : 'Quote submitted; configured emails sent.',
+            : result.operation == 'draft_internal'
+                ? 'Draft sent to your email.'
+                : 'Quote submitted; configured emails sent.',
         type: TopNotificationType.success,
       );
     } catch (error) {
@@ -506,6 +515,10 @@ class _QuoteSubmitButtonState extends State<QuoteSubmitButton> {
         child: FilledButton.icon(
           onPressed: canPress
               ? () async {
+                  if (_isDraft) {
+                    await _sendToCustomer();
+                    return;
+                  }
                   await _refreshIntegrationAvailability();
                   if (!mounted) {
                     return;
@@ -531,7 +544,7 @@ class _QuoteSubmitButtonState extends State<QuoteSubmitButton> {
                   height: 16,
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
-              : Icon(_overview?.canManageActions == true ? Icons.arrow_drop_down : Icons.send_outlined, size: 18),
+              : Icon(_overview?.canManageActions == true && !_isDraft ? Icons.arrow_drop_down : Icons.send_outlined, size: 18),
           label: const Text('Submit'),
         ),
       ),
@@ -940,12 +953,13 @@ class _QuoteSubmitPreviewDialogState extends State<_QuoteSubmitPreviewDialog> {
   @override
   Widget build(BuildContext context) {
     final isResend = preview.operation == 'resend';
+    final isDraft = preview.operation == 'draft_internal';
     final hasRecipients = [preview.to, preview.cc, preview.bcc]
         .any((emails) => preview.deliveryOptions.recipients(emails, _delivery).isNotEmpty);
     final warningGroups = _submitWarningGroups(preview.warnings);
 
     return AlertDialog(
-      title: Text(isResend ? 'Resend quote email' : 'Submit quote'),
+      title: Text(isResend ? 'Resend quote email' : isDraft ? 'Send draft to me (internal)' : 'Submit quote'),
       content: SizedBox(
         width: 620,
         child: SingleChildScrollView(
@@ -1012,7 +1026,7 @@ class _QuoteSubmitPreviewDialogState extends State<_QuoteSubmitPreviewDialog> {
             Navigator.of(context).pop(_delivery);
           } : null,
           icon: Icon(isResend ? Icons.forward_to_inbox_outlined : Icons.send_outlined),
-          label: Text(isResend ? 'Resend email' : 'Submit'),
+          label: Text(isResend ? 'Resend email' : isDraft ? 'Send to me' : 'Submit'),
         ),
       ],
     );

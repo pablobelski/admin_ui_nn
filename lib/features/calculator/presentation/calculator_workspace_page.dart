@@ -13558,12 +13558,11 @@ class _ResultPanel extends StatelessWidget {
                           needsRecalculation: needsRecalculation,
                           quoteId: loadedQuote?.id ?? savedQuote?.id,
                           quoteStatusCode: loadedQuote?.statusCode ?? savedQuote?.statusCode ?? 'draft',
-                          // The Submit rules of quote_status_transitions decide on the server (Angebot from calculated).
+                          // The Submit rules of quote_status_transitions decide on the server (Angebot from calculated);
+                          // a draft is emailed only to the current employee (draft_internal).
                           canSubmit: isCalculationSaved &&
                               !needsRecalculation &&
-                              result.status == 'valid' &&
-                              (loadedQuote?.statusCode ?? savedQuote?.statusCode ?? 'draft').trim().toLowerCase() !=
-                                  'draft',
+                              result.status == 'valid',
                           repository: documentsRepository,
                           onQuoteSubmitted: onQuoteSubmitted,
                           onQuoteStatusChanged: onQuoteStatusChanged,
@@ -14024,6 +14023,7 @@ class _GeometryPreviewTab extends ConsumerWidget {
               onAwaitGlbJob: onAwaitGlbJob,
               onCheckGeneratedGlb: onCheckGeneratedGlb,
               glbStatusKey: glbStatusKey,
+              defaultView: GeometryPreviewView.fromCode(calculatorContext.previewDefaultView),
               widthMm: draft.widthMm,
               depthMm: draft.depthMm,
               heightMm: draft.heightMm,

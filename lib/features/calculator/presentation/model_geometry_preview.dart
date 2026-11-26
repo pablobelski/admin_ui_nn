@@ -374,6 +374,20 @@ class TemplateGeometryPreview extends StatelessWidget {
   );
 }
 
+/// Content of the preview frame; the calculator's initial value comes from the
+/// system setting geometry_preview.calculator.default_view.
+enum GeometryPreviewView {
+  geometry,
+  schematic,
+  model3d;
+
+  static GeometryPreviewView fromCode(String? code) => switch (code?.trim().toLowerCase()) {
+        'schematic' => GeometryPreviewView.schematic,
+        'model_3d' => GeometryPreviewView.model3d,
+        _ => GeometryPreviewView.geometry,
+      };
+}
+
 class ModelGeometryPreview extends ConsumerStatefulWidget {
   const ModelGeometryPreview({
     super.key,
@@ -423,6 +437,7 @@ class ModelGeometryPreview extends ConsumerStatefulWidget {
     this.onAwaitGlbJob,
     this.onCheckGeneratedGlb,
     this.glbStatusKey,
+    this.defaultView = GeometryPreviewView.geometry,
   });
 
   final String? modelCode;
@@ -472,6 +487,7 @@ class ModelGeometryPreview extends ConsumerStatefulWidget {
   final Future<QuoteIntegrationJob?> Function(String jobId)? onAwaitGlbJob;
   final Future<bool> Function()? onCheckGeneratedGlb;
   final String? glbStatusKey;
+  final GeometryPreviewView defaultView;
 
   @override
   ConsumerState<ModelGeometryPreview> createState() => _ModelGeometryPreviewState();
@@ -482,7 +498,11 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
   late Future<Uint8List?> _staticBeamInstructionImageFuture;
   bool _isGeneratingGlb = false;
   bool _hasGeneratedGlb = false;
-  bool _showDrawing = false;
+  late GeometryPreviewView _view = widget.defaultView;
+  // GLB shown inline when the 3D view is selected (loaded once it exists).
+  Map<String, dynamic>? _glbResult;
+  Uint8List? _glbBytes;
+  bool _autoLoadedGlb = false;
   StreamSubscription<JobUpdate>? _jobUpdates;
 
   @override
@@ -514,6 +534,9 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
     }
     if (oldWidget.glbStatusKey != widget.glbStatusKey) {
       _hasGeneratedGlb = false;
+      _glbResult = null;
+      _glbBytes = null;
+      _autoLoadedGlb = false;
       unawaited(_refreshGlbAvailability());
     }
   }
@@ -526,6 +549,7 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
       final available = await check();
       if (!mounted || widget.glbStatusKey != statusKey) return;
       setState(() => _hasGeneratedGlb = available);
+      _showInlineGlbIfReady();
     } catch (_) {
       // The 3D availability indicator is optional UI state; generation itself
       // remains available through the existing button even if this check fails.
@@ -548,6 +572,7 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
       if (!mounted) return;
       if (job.statusCode == 'succeeded') {
         setState(() => _hasGeneratedGlb = true);
+        _showInlineGlbIfReady();
         showTopNotification(
           context,
           'GLB generation completed and saved to Media Library. Open the 3D preview to view it.',
@@ -573,7 +598,7 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
     }
   }
 
-  Future<void> _generateGlb() async {
+  Future<void> _generateGlb({bool openDialog = true}) async {
     final generate = widget.onGenerateGlb;
     if (generate == null || _isGeneratingGlb) return;
 
@@ -602,6 +627,11 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
       if (mounted) setState(() => _hasGeneratedGlb = true);
       final response = await widget.mediaRepository.viewMediaFile(fileId);
       if (!mounted) return;
+      setState(() {
+        _glbResult = result;
+        _glbBytes = response.bytes;
+      });
+      if (!openDialog) return;
 
       final filename = '${result['filename'] ?? 'GLB'}'.trim();
       final generated = result['generated'] != false;
@@ -636,9 +666,6 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
     final colorScheme = Theme.of(context).colorScheme;
     final filename = '${result['filename'] ?? 'GLB'}'.trim();
     final viewerUrl = '${result['viewer_url'] ?? ''}'.trim();
-    final iframeHtml = '${result['viewer_iframe_html'] ?? ''}'.trim();
-    final localPath = '${result['viewer_local_path'] ?? 'glb-viewer.html'}'.trim();
-    final embedMode = '${result['viewer_embed_mode'] ?? 'local'}'.trim();
     final allowExternal = result['open_viewer'] != false && viewerUrl.isNotEmpty;
 
     await showDialog<void>(
@@ -689,20 +716,75 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
                   ),
                 ),
                 const Divider(height: 1),
-                Expanded(
-                  child: GlbViewerFrame(
-                    bytes: bytes,
-                    embedMode: embedMode,
-                    localPath: localPath,
-                    externalUrl: viewerUrl.isEmpty ? null : viewerUrl,
-                    iframeHtml: iframeHtml.isEmpty ? null : iframeHtml,
-                  ),
-                ),
+                Expanded(child: _glbViewer(result, bytes)),
               ],
             ),
           ),
         );
       },
+    );
+  }
+
+  Widget _glbViewer(Map<String, dynamic> result, Uint8List bytes) {
+    final viewerUrl = '${result['viewer_url'] ?? ''}'.trim();
+    final iframeHtml = '${result['viewer_iframe_html'] ?? ''}'.trim();
+    return GlbViewerFrame(
+      bytes: bytes,
+      embedMode: '${result['viewer_embed_mode'] ?? 'local'}'.trim(),
+      localPath: '${result['viewer_local_path'] ?? 'glb-viewer.html'}'.trim(),
+      externalUrl: viewerUrl.isEmpty ? null : viewerUrl,
+      iframeHtml: iframeHtml.isEmpty ? null : iframeHtml,
+    );
+  }
+
+  // The 3D view falls back to the geometry preview until its GLB is loaded.
+  GeometryPreviewView get _shownView =>
+      _view == GeometryPreviewView.model3d && _glbBytes == null
+          ? GeometryPreviewView.geometry
+          : _view;
+
+  void _selectView(GeometryPreviewView view) {
+    setState(() => _view = view);
+    if (view == GeometryPreviewView.model3d && _glbBytes == null) {
+      unawaited(_generateGlb(openDialog: false));
+    }
+  }
+
+  // Loads an existing GLB (e.g. from the background job after saving) into the 3D view, once per revision.
+  void _showInlineGlbIfReady() {
+    if (_view != GeometryPreviewView.model3d || !_hasGeneratedGlb || _glbBytes != null ||
+        _isGeneratingGlb || _autoLoadedGlb) {
+      return;
+    }
+    _autoLoadedGlb = true;
+    unawaited(_generateGlb(openDialog: false));
+  }
+
+  Future<void> _showExpandedView(BuildContext context, String currentUser) => switch (_shownView) {
+        GeometryPreviewView.schematic => _showExpandedDrawing(context),
+        GeometryPreviewView.model3d => _showGlbPreview(context, _glbResult!, _glbBytes!),
+        GeometryPreviewView.geometry => _showExpandedPreview(context, currentUser),
+      };
+
+  Widget _viewButton(
+    GeometryPreviewView view, {
+    required String tooltip,
+    required bool enabled,
+    required ColorScheme colorScheme,
+    required Widget icon,
+  }) {
+    return IconButton(
+      tooltip: tooltip,
+      onPressed: enabled ? () => _selectView(view) : null,
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints.tightFor(width: 28, height: 28),
+      style: _view == view
+          ? IconButton.styleFrom(
+              backgroundColor: colorScheme.primaryContainer,
+              foregroundColor: colorScheme.onPrimaryContainer,
+            )
+          : null,
+      icon: icon,
     );
   }
 
@@ -729,23 +811,29 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
                 const SizedBox(width: 8),
                 Text('Geometry preview', style: theme.textTheme.titleSmall),
                 const Spacer(),
-                IconButton(
+                _viewButton(
+                  GeometryPreviewView.geometry,
+                  tooltip: 'Show geometry preview',
+                  enabled: hasSelection,
+                  colorScheme: colorScheme,
+                  icon: const Icon(Icons.schema_outlined, size: 18),
+                ),
+                _viewButton(
+                  GeometryPreviewView.schematic,
+                  tooltip: 'Show schematic preview (3 views)',
+                  enabled: hasSelection,
+                  colorScheme: colorScheme,
+                  icon: const Icon(Icons.architecture, size: 18),
+                ),
+                _viewButton(
+                  GeometryPreviewView.model3d,
                   tooltip: widget.onGenerateGlb == null
                       ? 'Save the current calculation to generate GLB'
                       : _hasGeneratedGlb
-                          ? '3D model is ready · open preview'
-                          : 'Open 3D preview (generate GLB if needed)',
-                  onPressed: widget.onGenerateGlb != null && !_isGeneratingGlb
-                      ? _generateGlb
-                      : null,
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints.tightFor(width: 28, height: 28),
-                  style: _hasGeneratedGlb
-                      ? IconButton.styleFrom(
-                          backgroundColor: colorScheme.primaryContainer,
-                          foregroundColor: colorScheme.onPrimaryContainer,
-                        )
-                      : null,
+                          ? '3D model is ready · show 3D model'
+                          : 'Show 3D model (generate GLB if needed)',
+                  enabled: hasSelection && !_isGeneratingGlb,
+                  colorScheme: colorScheme,
                   icon: _isGeneratingGlb
                       ? const SizedBox(
                           width: 16,
@@ -761,12 +849,12 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
                 ),
                 const SizedBox(width: 4),
                 IconButton(
-                  tooltip: _showDrawing ? 'Open enlarged schematic preview' : 'Open enlarged geometry preview',
-                  onPressed: hasSelection
-                      ? () => _showDrawing
-                          ? _showExpandedDrawing(context)
-                          : _showExpandedPreview(context, currentUser)
-                      : null,
+                  tooltip: switch (_shownView) {
+                    GeometryPreviewView.schematic => 'Open enlarged schematic preview',
+                    GeometryPreviewView.model3d => 'Open enlarged 3D preview',
+                    GeometryPreviewView.geometry => 'Open enlarged geometry preview',
+                  },
+                  onPressed: hasSelection ? () => _showExpandedView(context, currentUser) : null,
                   padding: EdgeInsets.zero,
                   constraints: const BoxConstraints.tightFor(width: 28, height: 28),
                   icon: const Icon(Icons.zoom_in, size: 18),
@@ -801,27 +889,36 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
               child: Stack(
                 children: [
                   Positioned.fill(
-                    child: _showDrawing
-                        ? _buildGeometryCanvasFor(widget, null, colorScheme, drawing: true)
-                        : _buildGeometryCanvas(colorScheme),
+                    child: switch (_shownView) {
+                      GeometryPreviewView.model3d => _glbViewer(_glbResult!, _glbBytes!),
+                      GeometryPreviewView.schematic =>
+                        _buildGeometryCanvasFor(widget, null, colorScheme, drawing: true),
+                      GeometryPreviewView.geometry => _buildGeometryCanvas(colorScheme),
+                    },
                   ),
-                  Positioned(
-                    left: 6,
-                    bottom: 6,
-                    child: IconButton(
-                      tooltip: _showDrawing ? 'Show geometry preview' : 'Show schematic preview (3 views)',
-                      onPressed: hasSelection ? () => setState(() => _showDrawing = !_showDrawing) : null,
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints.tightFor(width: 28, height: 28),
-                      style: _showDrawing
-                          ? IconButton.styleFrom(
-                              backgroundColor: colorScheme.primaryContainer,
-                              foregroundColor: colorScheme.onPrimaryContainer,
-                            )
-                          : null,
-                      icon: const Icon(Icons.architecture, size: 18),
+                  if (_view != _shownView)
+                    Positioned(
+                      left: 6,
+                      bottom: 6,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: colorScheme.surfaceContainerHighest,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          child: Text(
+                            widget.onGenerateGlb == null
+                                ? '3D model is shown after the calculation is saved'
+                                : _isGeneratingGlb
+                                    ? 'Loading 3D model…'
+                                    : '3D model is shown here once it is generated',
+                            style: theme.textTheme.labelSmall
+                                ?.copyWith(color: colorScheme.onSurfaceVariant),
+                          ),
+                        ),
+                      ),
                     ),
-                  ),
                 ],
               ),
             ),
@@ -4194,15 +4291,35 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
 
   // Schematic preview (Technische Zeichnung) on white: Vorderansicht, Seitenansicht (wall left, gutter right) and
   // Draufsicht (wall on top) in one scale, from the same layout, beams, posts and covering fields as the roof
-  // schematic. Beam width, gutter depth, beam/glass offsets come from the template roof parameters; gutter height,
-  // beam height and wall profile are schematic sizes. The red dashed line is the post length of the set contents.
+  // schematic. Beam width, gutter depth, beam/glass offsets come from the template roof parameters. With the
+  // profile sections of the template (roofParameters.profileGeometry, TDS) gutter, wall profile, beam and post are
+  // drawn in their real size and position: the depth ends at the post front face and the gutter overhangs it; the
+  // beam sits on the seats in the wall profile and in the gutter. Otherwise gutter height, beam height and wall
+  // profile are schematic sizes. The red dashed line is the post length of the set contents.
   void _drawRoofDrawing(Canvas canvas, Rect area, _RoofLayout layout) {
     canvas.drawRRect(
       RRect.fromRectAndRadius(area, Radius.circular(geometryOnly ? 0.0 : 10.0)),
       Paint()..color = Colors.white,
     );
-    const gutterH = 180.0, beamH = 150.0, glassT = 30.0, profileT = 80.0;
-    const postW = 110.0, wallT = 250.0, wallOver = 300.0;
+    final gutterShape = _profileOutline('gutter');
+    final wallShape = _profileOutline('wall_profile');
+    final real = gutterShape.length > 2 && wallShape.length > 2;
+    final gutterBox = _profileBox('gutter', const [0, 0, 116, 180]);
+    final wallBox = _profileBox('wall_profile', const [0, 0, 80, 180]);
+    final beamBox = _profileBox('beam', const [-30.5, 0, 30.5, 150]);
+    final postBox = _profileBox('post', const [-55, -55, 55, 55]);
+    final gutterH = real ? gutterBox[3] : 180.0;
+    final beamH = real ? beamBox[3] - beamBox[1] : 150.0;
+    final profileT = real ? wallBox[2] : 80.0;
+    final postW = real ? postBox[2] - postBox[0] : 110.0;
+    // Gutter frame: u from the rear lip; the depth ends at the post front face (u = postFront), the gutter front
+    // overhangs it. Beam bottom corners: on the wall profile (rear) and in the gutter (front), glass bed above.
+    final postFront = real ? _profileAnchor('gutter', 'depth_ref_post_front_u') ?? 148.79 : 0.0;
+    final gutterOverhang = real ? gutterBox[2] - postFront : 0.0;
+    final rearSeat = _profileAnchorPoint('wall_profile', 'beam_rear_bottom_corner') ?? const Offset(3.87, 7.48);
+    final frontSeat = _profileAnchorPoint('gutter', 'beam_front_bottom_corner') ?? const Offset(32.15, 3.79);
+    final glassBed = (_profileAnchor('beam', 'rail_top_v') ?? 96.7) + 3.65;
+    const glassT = 30.0, wallT = 250.0, wallOver = 300.0;
     final beamW = _roofParam('beamWidthMm', 'beam_width_mm', 61);
     final gutterD = _roofParam('frontOffsetMm', 'front_offset_mm', 116);
     final beamBackOffset = _roofParam('backOffsetMm', 'back_offset_mm', 4);
@@ -4223,8 +4340,9 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     final front = _frontHeightFor(rear, d).clamp(gutterH, rear).toDouble();
     // Höhe UKW / UKR are lower edges (wall profile / gutter = top of the posts). The roof top line (beam top, glass
     // underside) lies one gutter height above both; the wall profile is drawn as high as the gutter, so the slope
-    // stays atan((UKW - UKR) / depth) as calculated.
-    final topRear = rear + gutterH, topFront = front + gutterH;
+    // stays atan((UKW - UKR) / depth) as calculated. With real sections it lies one glass bed above the beam seats.
+    final topRear = real ? rear + rearSeat.dy + glassBed : rear + gutterH;
+    final topFront = real ? front + frontSeat.dy + glassBed : front + gutterH;
     final wallMm = wallMounted ? wallT : 0.0;
     final profileColor = colorSwatchColor ?? const Color(0xFFA7ABAF);
     // One opaque fill per covering of the fields; a further covering of the same kind (klar, matt) gets a darker shade.
@@ -4277,16 +4395,17 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
 
     // One scale for all views: front + top view stacked in the left column, side view and legend on the right.
     final fixedV = 2 * pad + 2 * titleH + frontDimH + gapY;
+    final sideD = d + gutterOverhang;
     final k = [
-      (area.width - 2 * pad - leftDimW - rightDimW - gapX - sideLeftW - sideRightW) / (w + wallMm + d),
+      (area.width - 2 * pad - leftDimW - rightDimW - gapX - sideLeftW - sideRightW) / (w + wallMm + sideD),
       (area.width - 2 * pad - leftDimW - rightDimW - gapX - legendWidth) / w,
-      (area.height - fixedV - topDimH) / (rear + wallOver + wallMm + d),
+      (area.height - fixedV - topDimH) / (rear + wallOver + wallMm + sideD),
       (area.height - fixedV - legendHeight - drawingBottomRightReserve) / (rear + wallOver),
     ].reduce(_min);
     if (k <= 0) return;
-    final contentW = leftDimW + w * k + rightDimW + gapX + _max(sideLeftW + (wallMm + d) * k + sideRightW, legendWidth);
+    final contentW = leftDimW + w * k + rightDimW + gapX + _max(sideLeftW + (wallMm + sideD) * k + sideRightW, legendWidth);
     final contentH = fixedV - 2 * pad + (rear + wallOver) * k +
-        _max((wallMm + d) * k + topDimH, legendHeight + drawingBottomRightReserve);
+        _max((wallMm + sideD) * k + topDimH, legendHeight + drawingBottomRightReserve);
     final x0 = area.left + pad + leftDimW + _max(0.0, (area.width - 2 * pad - contentW) / 2);
     final y1 = area.top + pad + _max(0.0, (area.height - 2 * pad - contentH) / 2);
     final x2 = x0 + w * k + rightDimW + gapX;
@@ -4353,8 +4472,8 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
         part(Rect.fromLTRB(x0 + x * k - beamPx / 2, zy(topRear), x0 + x * k + beamPx / 2, zy(topFront)), profileColor);
       }
     }
-    part(Rect.fromLTRB(x0, zy(topRear), x0 + w * k, zy(rear)), profileColor);
-    part(Rect.fromLTRB(x0, zy(topFront), x0 + w * k, zy(front)), profileColor);
+    part(Rect.fromLTRB(x0, zy(real ? rear + wallBox[3] : topRear), x0 + w * k, zy(rear)), profileColor);
+    part(Rect.fromLTRB(x0, zy(real ? front + gutterH : topFront), x0 + w * k, zy(front)), profileColor);
     final postX = <double>{
       for (final point in posts) point.dx.clamp(postW / 2, w - postW / 2).toDouble().roundToDouble(),
     }.toList()
@@ -4383,13 +4502,17 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     label('Seitenansicht', Offset(x2, y1 + titleH * 0.4), hAlign: 0, size: ts);
     final wallFace = x2 + sideLeftW + wallMm * k;
     double sx(double v) => wallFace + v * k;
-    double roofZ(double v) => topRear + (topFront - topRear) * v / d;
+    // Roof top line (glass underside); with real sections through the beam seats (v from the wall face).
+    final seatRearV = real ? rearSeat.dx : 0.0;
+    final seatFrontV = real ? d - postFront + frontSeat.dx : d;
+    double roofZ(double v) => topRear + (topFront - topRear) * (v - seatRearV) / (seatFrontV - seatRearV);
     if (wallMounted) {
       part(Rect.fromLTRB(x2 + sideLeftW, zy(rear + wallOver), wallFace, ground), wallColor);
     }
     // Beam from the back offset to the gutter, glass longer by glassFrontAddMm (as in the glass length formula).
-    final beamStart = _min(beamBackOffset, d / 4);
-    final beamEnd = _max(beamStart, d - gutterD);
+    final beamStart = real ? seatRearV : _min(beamBackOffset, d / 4);
+    final beamEnd = real ? seatFrontV : _max(beamStart, d - gutterD);
+    final beamDrop = real ? glassBed : beamH;
     final glassEnd = _min(d, beamEnd + glassFrontAdd);
     shape([
       Offset(sx(beamStart), zy(roofZ(beamStart) + glassT)),
@@ -4400,29 +4523,37 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     shape([
       Offset(sx(beamStart), zy(roofZ(beamStart))),
       Offset(sx(beamEnd), zy(roofZ(beamEnd))),
-      Offset(sx(beamEnd), zy(roofZ(beamEnd) - beamH)),
-      Offset(sx(beamStart), zy(roofZ(beamStart) - beamH)),
+      Offset(sx(beamEnd), zy(roofZ(beamEnd) - beamDrop)),
+      Offset(sx(beamStart), zy(roofZ(beamStart) - beamDrop)),
     ], profileColor);
-    part(Rect.fromLTRB(sx(d - gutterD), zy(topFront), sx(d), zy(front)), profileColor);
-    part(Rect.fromLTRB(sx(0), zy(topRear), sx(profileT), zy(rear)), profileColor);
+    if (real) {
+      shape([for (final p in gutterShape) Offset(sx(d - postFront + p.dx), zy(front + p.dy))], profileColor);
+      shape([for (final p in wallShape) Offset(sx(p.dx), zy(rear + p.dy))], profileColor);
+    } else {
+      part(Rect.fromLTRB(sx(d - gutterD), zy(topFront), sx(d), zy(front)), profileColor);
+      part(Rect.fromLTRB(sx(0), zy(topRear), sx(profileT), zy(rear)), profileColor);
+    }
     final postV = <double>{
       for (final point in posts) (d - point.dy).clamp(postW / 2, d - postW / 2).toDouble().roundToDouble(),
     };
     for (final v in postV) {
-      final top = roofZ(v) - (v > d - 2 * gutterD ? gutterH : beamH);
+      // Gutter posts end under the gutter (Höhe UKR); others under the beam bottom.
+      final top = real
+          ? (v > d - 2 * gutterD ? front : roofZ(v) - glassBed)
+          : roofZ(v) - (v > d - 2 * gutterD ? gutterH : beamH);
       part(Rect.fromLTRB(sx(v - postW / 2), zy(top), sx(v - postW / 2) + _max(2, postW * k), ground), profileColor);
     }
-    canvas.drawLine(Offset(x2 + sideLeftW - 6 * u, ground), Offset(sx(d) + 10 * u, ground), groundPaint);
+    canvas.drawLine(Offset(x2 + sideLeftW - 6 * u, ground), Offset(sx(sideD) + 10 * u, ground), groundPaint);
     final rearDimX = x2 + sideLeftW - 10 * u;
     // Höhe UKW from the lower edge of the wall profile, Höhe UKR from the lower edge of the gutter, depth from the
-    // wall face to the gutter front.
+    // wall face to the gutter front (schematic) or, with real sections (TDS), to the post front face.
     if (rearHeightMm != null || heightMm != null) {
       dimension(Offset(rearDimX, ground), Offset(rearDimX, zy(rear)),
           fromA: Offset(sx(0), ground), fromB: Offset(sx(0), zy(rear)));
       label('${rear.round()}', Offset(rearDimX - 4 * u, (ground + zy(rear)) / 2), hAlign: 1);
     }
     if (frontHeightMm != null) {
-      final frontDimX = sx(d) + 14 * u;
+      final frontDimX = sx(sideD) + 14 * u;
       dimension(Offset(frontDimX, ground), Offset(frontDimX, zy(front)),
           fromA: Offset(sx(d), ground), fromB: Offset(sx(d), zy(front)));
       label('${front.round()}', Offset(frontDimX + 4 * u, (ground + zy(front)) / 2), hAlign: 0);
@@ -4487,13 +4618,15 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
       part(Rect.fromPoints(pp(bx, yBack) - Offset(beamPx / 2, 0), pp(bx, _yAt(layout.front, bx)) + Offset(beamPx / 2, 0)),
           profileColor);
     }
-    canvas.drawPath(
-      polyline(layout.front),
-      Paint()
-        ..color = profileColor
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2 * gutterD * k,
-    );
+    if (!real) {
+      canvas.drawPath(
+        polyline(layout.front),
+        Paint()
+          ..color = profileColor
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2 * gutterD * k,
+      );
+    }
     // Wall profile along the wall only: on a wall step the flush beam forms the edge.
     final backProfile = Path();
     for (var i = 0; i < layout.back.length - 1; i++) {
@@ -4511,6 +4644,17 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
         ..strokeWidth = _max(3, 2 * profileT * k),
     );
     canvas.restore();
+    if (real) {
+      // Gutter from its rear lip (postFront behind the depth line) to its front, overhanging the footprint.
+      final gutterW = postFront + gutterOverhang;
+      canvas.drawPath(
+        polyline([for (final p in layout.front) Offset(p.dx, p.dy + postFront - gutterW / 2)]),
+        Paint()
+          ..color = profileColor
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = gutterW * k,
+      );
+    }
     canvas.drawPath(footprint, outline);
     for (final dim in depthDims) {
       final side = dim.offset.dx < 0 ? -1.0 : 1.0;
@@ -4544,7 +4688,7 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
       );
       final (l, r) = (inModule[i], inModule[i + 1]);
       Offset beamFront(double x) => pp(x, _yAt(layout.front, x));
-      final y = planTop + d * k + 8 * u;
+      final y = planTop + sideD * k + 8 * u;
       final centre = x0 + (l + r) / 2 * k;
       dimension(Offset(x0 + (l + beamW / 2) * k, y), Offset(x0 + (r - beamW / 2) * k, y),
           fromA: beamFront(l + beamW / 2), fromB: beamFront(r - beamW / 2));
@@ -4581,6 +4725,41 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     final front = frontHeightMm?.toDouble() ??
         (angle == null ? rear : rear - depth * math.tan(angle * math.pi / 180));
     return front.clamp(0.0, rear).toDouble();
+  }
+
+  // Profile section data of the template (roofParameters.profileGeometry by component role: outline_2d,
+  // anchors_mm, bbox_mm; mm, installed orientation), empty when the template has none.
+  Map<String, dynamic> _profile(String role) {
+    final all = roofParameters['profileGeometry'] ?? roofParameters['profile_geometry'];
+    final entry = all is Map ? all[role] : null;
+    return entry is Map ? entry.cast<String, dynamic>() : const <String, dynamic>{};
+  }
+
+  List<Offset> _profileOutline(String role) => [
+        for (final point in (_profile(role)['outline_2d'] as List?) ?? const [])
+          if (point is List && point.length >= 2 && point[0] is num && point[1] is num)
+            Offset((point[0] as num).toDouble(), (point[1] as num).toDouble()),
+      ];
+
+  List<double> _profileBox(String role, List<double> fallback) {
+    final box = _profile(role)['bbox_mm'];
+    return box is List && box.length == 4 && box.every((value) => value is num)
+        ? [for (final value in box) (value as num).toDouble()]
+        : fallback;
+  }
+
+  double? _profileAnchor(String role, String key) {
+    final anchors = _profile(role)['anchors_mm'];
+    final value = anchors is Map ? anchors[key] : null;
+    return value is num ? value.toDouble() : null;
+  }
+
+  Offset? _profileAnchorPoint(String role, String key) {
+    final anchors = _profile(role)['anchors_mm'];
+    final value = anchors is Map ? anchors[key] : null;
+    return value is List && value.length >= 2 && value[0] is num && value[1] is num
+        ? Offset((value[0] as num).toDouble(), (value[1] as num).toDouble())
+        : null;
   }
 
   // Template roof parameter (tds_glass_params) in millimetres, fallback when missing.

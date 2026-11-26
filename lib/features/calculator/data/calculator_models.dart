@@ -18,6 +18,7 @@ class CalculatorContext {
     required this.additionalHandlingByParentItemId,
     this.customPaintCatalogItem,
     this.additionalDiscountAvailable = true,
+    this.previewDefaultView = 'geometry',
     this.loadedCatalogWarnings = const [],
   });
 
@@ -56,6 +57,7 @@ class CalculatorContext {
       additionalDiscountAvailable: json['additionalDiscountAvailable'] is bool
           ? json['additionalDiscountAvailable'] as bool
           : true,
+      previewDefaultView: '${json['previewDefaultView'] ?? 'geometry'}',
     );
   }
 
@@ -75,6 +77,8 @@ class CalculatorContext {
   final Map<String, List<CalculatorAdditionalHandlingOption>> additionalHandlingByParentItemId;
   final CalculatorCatalogItemOption? customPaintCatalogItem;
   final bool additionalDiscountAvailable;
+  // System setting geometry_preview.calculator.default_view: geometry | schematic | model_3d.
+  final String previewDefaultView;
   final List<Map<String, dynamic>> loadedCatalogWarnings;
 
   List<CalculatorCatalogItemOption> templateSetCatalogItemsFor(String? templateId) {
@@ -119,6 +123,7 @@ class CalculatorContext {
       additionalHandlingByParentItemId: additionalHandlingByParentItemId,
       customPaintCatalogItem: customPaintCatalogItem,
       additionalDiscountAvailable: additionalDiscountAvailable,
+      previewDefaultView: previewDefaultView,
       loadedCatalogWarnings: warnings,
     );
   }
