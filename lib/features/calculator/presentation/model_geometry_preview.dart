@@ -571,11 +571,16 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
       notifyQuoteIntegrationsChanged();
       if (!mounted) return;
       if (job.statusCode == 'succeeded') {
-        setState(() => _hasGeneratedGlb = true);
+        setState(() {
+          _hasGeneratedGlb = true;
+          _autoLoadedGlb = false; // the earlier auto load only found the queued job
+        });
         _showInlineGlbIfReady();
         showTopNotification(
           context,
-          'GLB generation completed and saved to Media Library. Open the 3D preview to view it.',
+          _view == GeometryPreviewView.model3d
+              ? 'GLB generation completed and saved to Media Library.'
+              : 'GLB generation completed and saved to Media Library. Open the 3D preview to view it.',
           type: TopNotificationType.success,
         );
         return;
@@ -750,10 +755,10 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
     }
   }
 
-  // Loads an existing GLB (e.g. from the background job after saving) into the 3D view, once per revision.
+  // The selected 3D view (default view or button) loads its GLB like the button does: the server returns the
+  // current file or the queued/running job, which is shown when it finishes (_watchGlbJob). Once per revision.
   void _showInlineGlbIfReady() {
-    if (_view != GeometryPreviewView.model3d || !_hasGeneratedGlb || _glbBytes != null ||
-        _isGeneratingGlb || _autoLoadedGlb) {
+    if (_view != GeometryPreviewView.model3d || _glbBytes != null || _isGeneratingGlb || _autoLoadedGlb) {
       return;
     }
     _autoLoadedGlb = true;

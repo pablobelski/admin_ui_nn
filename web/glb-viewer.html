@@ -18,13 +18,13 @@
       background: #f5f5f3;
     }
   </style>
-  <script type="module" src="https://unpkg.com/@google/model-viewer@4.1.0/dist/model-viewer.min.js"></script>
+  <!-- @google/model-viewer 4.1.0 (npm, dist/model-viewer.min.js), served next to this page: no external CDN. -->
+  <script type="module" src="model-viewer.min.js"></script>
 </head>
 <body>
   <model-viewer
     id="viewer"
     camera-controls
-    auto-rotate
     interaction-prompt="none"
     shadow-intensity="0"
     exposure="1"
@@ -32,13 +32,110 @@
   </model-viewer>
   <script>
     const viewer = document.getElementById('viewer');
+    // Framed instead of model-viewer's default (whole scene incl. the ground grid, safe for any orbit): the roof parts
+    // and the scale figure of the configurator GLB fill the window in the start view (front, 75deg).
+    const FIT_MATERIALS = new Set(['alu', 'glass_clear', 'glass_matt', 'human']);
+    let modelUrl = null;
+    let fitBox = null;
+
+    function rotate([x, y, z, w], v) {
+      const t = [2 * (y * v[2] - z * v[1]), 2 * (z * v[0] - x * v[2]), 2 * (x * v[1] - y * v[0])];
+      return [v[0] + w * t[0] + y * t[2] - z * t[1], v[1] + w * t[1] + z * t[0] - x * t[2],
+        v[2] + w * t[2] + x * t[1] - y * t[0]];
+    }
+
+    // Corners of a part node: accessor bounds scaled, rotated and moved by the node.
+    function nodeCorners(node, {min, max}) {
+      const s = node.scale || [1, 1, 1];
+      const t = node.translation || [0, 0, 0];
+      const corners = [];
+      for (const x of [min[0], max[0]]) for (const y of [min[1], max[1]]) for (const z of [min[2], max[2]]) {
+        const p = rotate(node.rotation || [0, 0, 0, 1], [x * s[0], y * s[1], z * s[2]]);
+        corners.push(p.map((value, i) => value + t[i]));
+      }
+      return corners;
+    }
+
+    // Box of the fitted parts from the GLB JSON chunk (one transformed node per part); null for other models.
+    async function partsBox(url) {
+      const data = await (await fetch(url)).arrayBuffer();
+      const header = new DataView(data);
+      if (header.getUint32(0, true) !== 0x46546c67) return null;
+      const json = JSON.parse(new TextDecoder().decode(new Uint8Array(data, 20, header.getUint32(12, true))));
+      const lo = [Infinity, Infinity, Infinity];
+      const hi = [-Infinity, -Infinity, -Infinity];
+      for (const node of json.nodes || []) {
+        const primitive = json.meshes?.[node.mesh]?.primitives?.[0];
+        if (!primitive || !FIT_MATERIALS.has(json.materials?.[primitive.material]?.name)) continue;
+        for (const p of nodeCorners(node, json.accessors[primitive.attributes.POSITION])) {
+          for (let i = 0; i < 3; i++) {
+            lo[i] = Math.min(lo[i], p[i]);
+            hi[i] = Math.max(hi[i], p[i]);
+          }
+        }
+      }
+      return lo[0] < hi[0] ? {lo, hi} : null;
+    }
+
+    // Closest camera distance at which the box stays inside the window for this orbit.
+    function fit(theta, phi) {
+      if (!fitBox || !viewer.clientHeight) return;
+      const {lo, hi} = fitBox;
+      const center = lo.map((value, i) => (value + hi[i]) / 2);
+      const tanV = Math.tan(viewer.getFieldOfView() * Math.PI / 360);
+      const tanH = tanV * viewer.clientWidth / viewer.clientHeight;
+      const d = [Math.sin(phi) * Math.sin(theta), Math.cos(phi), Math.sin(phi) * Math.cos(theta)];
+      const r = [Math.cos(theta), 0, -Math.sin(theta)];
+      const u = [-Math.cos(phi) * Math.sin(theta), Math.sin(phi), -Math.cos(phi) * Math.cos(theta)];
+      let distance = 0;
+      for (const x of [lo[0], hi[0]]) for (const y of [lo[1], hi[1]]) for (const z of [lo[2], hi[2]]) {
+        const p = [x - center[0], y - center[1], z - center[2]];
+        const dot = (a) => a[0] * p[0] + a[1] * p[1] + a[2] * p[2];
+        distance = Math.max(distance, dot(d) + Math.abs(dot(r)) / tanH, dot(d) + Math.abs(dot(u)) / tanV);
+      }
+      distance *= 1.05;
+      viewer.cameraTarget = `${center[0]}m ${center[1]}m ${center[2]}m`;
+      viewer.minCameraOrbit = `auto auto ${distance / 2}m`;
+      viewer.cameraOrbit = `${theta}rad ${phi}rad ${distance}m`;
+      viewer.jumpCameraToGoal();
+    }
+
+    function show(url) {
+      modelUrl = url;
+      fitBox = null;
+      viewer.setAttribute('src', url);
+    }
+
+    viewer.addEventListener('load', async () => {
+      const url = modelUrl;
+      let box = null;
+      try {
+        box = await partsBox(url);
+      } catch (_) {
+        // Not readable here (e.g. cross-origin URL): frame the whole model.
+      }
+      if (url !== modelUrl) return;
+      if (!box) {
+        const size = viewer.getDimensions();
+        const center = viewer.getBoundingBoxCenter();
+        box = {lo: [center.x - size.x / 2, center.y - size.y / 2, center.z - size.z / 2],
+          hi: [center.x + size.x / 2, center.y + size.y / 2, center.z + size.z / 2]};
+      }
+      fitBox = box;
+      requestAnimationFrame(() => fit(0, 75 * Math.PI / 180));
+    });
+    window.addEventListener('resize', () => {
+      const {theta, phi} = viewer.getCameraOrbit();
+      fit(theta, phi);
+    });
+
     const directModelUrl = new URLSearchParams(window.location.search).get('model');
-    if (directModelUrl) viewer.setAttribute('src', directModelUrl);
+    if (directModelUrl) show(directModelUrl);
 
     window.addEventListener('message', (event) => {
       if (event.origin !== window.location.origin) return;
       if (typeof event.data !== 'string' || !event.data.startsWith('blob:')) return;
-      viewer.setAttribute('src', event.data);
+      show(event.data);
     });
   </script>
 </body>
