@@ -44,14 +44,15 @@
         v[2] + w * t[2] + x * t[1] - y * t[0]];
     }
 
-    // Corners of a part node: accessor bounds scaled, rotated and moved by the node.
+    // Corners of a part node: accessor bounds transformed by the node (matrix of the profile parts, else TRS).
     function nodeCorners(node, {min, max}) {
+      const m = node.matrix;
       const s = node.scale || [1, 1, 1];
       const t = node.translation || [0, 0, 0];
       const corners = [];
       for (const x of [min[0], max[0]]) for (const y of [min[1], max[1]]) for (const z of [min[2], max[2]]) {
-        const p = rotate(node.rotation || [0, 0, 0, 1], [x * s[0], y * s[1], z * s[2]]);
-        corners.push(p.map((value, i) => value + t[i]));
+        corners.push(m ? [0, 1, 2].map((i) => m[i] * x + m[4 + i] * y + m[8 + i] * z + m[12 + i])
+          : rotate(node.rotation || [0, 0, 0, 1], [x * s[0], y * s[1], z * s[2]]).map((value, i) => value + t[i]));
       }
       return corners;
     }
@@ -93,6 +94,7 @@
         const dot = (a) => a[0] * p[0] + a[1] * p[1] + a[2] * p[2];
         distance = Math.max(distance, dot(d) + Math.abs(dot(r)) / tanH, dot(d) + Math.abs(dot(u)) / tanV);
       }
+      if (!Number.isFinite(distance) || distance <= 0) return;
       distance *= 1.05;
       viewer.cameraTarget = `${center[0]}m ${center[1]}m ${center[2]}m`;
       viewer.minCameraOrbit = `auto auto ${distance / 2}m`;
@@ -115,13 +117,13 @@
         // Not readable here (e.g. cross-origin URL): frame the whole model.
       }
       if (url !== modelUrl) return;
-      if (!box) {
-        const size = viewer.getDimensions();
-        const center = viewer.getBoundingBoxCenter();
-        box = {lo: [center.x - size.x / 2, center.y - size.y / 2, center.z - size.z / 2],
-          hi: [center.x + size.x / 2, center.y + size.y / 2, center.z + size.z / 2]};
-      }
-      fitBox = box;
+      const size = viewer.getDimensions();
+      const center = viewer.getBoundingBoxCenter();
+      const scene = {lo: [center.x - size.x / 2, center.y - size.y / 2, center.z - size.z / 2],
+        hi: [center.x + size.x / 2, center.y + size.y / 2, center.z + size.z / 2]};
+      // Parts outside the scene model-viewer shows (another GLB layout) would aim the camera at nothing.
+      const inside = box && box.lo.every((value, i) => value >= scene.lo[i] - 0.01 && box.hi[i] <= scene.hi[i] + 0.01);
+      fitBox = inside ? box : scene;
       requestAnimationFrame(() => fit(0, 75 * Math.PI / 180));
     });
     window.addEventListener('resize', () => {
