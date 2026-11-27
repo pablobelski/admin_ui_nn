@@ -597,6 +597,20 @@ const adminNavGroups = <AdminNavGroup>[
                 '2 = 900 x 610 px. The picture is made when a quote is saved, so it applies to quotes saved afterwards.',
           ),
           AdminField(
+            key: 'value_json.calculator.roof_renderer',
+            label: 'Roof isometry in the geometry preview',
+            defaultValue: 'ui',
+            options: [
+              AdminSelectOption(value: 'ui', label: 'UI drawing'),
+              AdminSelectOption(value: 'server', label: 'Server drawing (GLB renderer)'),
+            ],
+            visibleWhenFieldKey: 'setting_code',
+            visibleWhenValues: ['geometry_preview'],
+            helperText: 'Server: the roof picture of the geometry preview (frame, enlarged view, large print page) and the '
+                'small picture in document templates (scale at least 2) are drawn by the GLB renderer from the '
+                'calculation result, with module dimensions; the side panel with the small plan and the other data stay.',
+          ),
+          AdminField(
             key: 'value_json.enabled',
             label: 'Enabled',
             type: AdminFieldType.boolType,

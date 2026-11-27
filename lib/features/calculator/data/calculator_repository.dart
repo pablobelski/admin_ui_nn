@@ -293,6 +293,42 @@ class CalculatorRepository {
         if (organizationId != null && organizationId.isNotEmpty) 'organization_id': organizationId,
       });
 
+  // Server roof isometry (system setting geometry_preview.calculator.roof_renderer = server): PNGs of a calculation
+  // result by name (geometry_roof for the preview, geometry_small for document templates). Only the parts the
+  // renderer reads are sent.
+  Future<Map<String, Uint8List>> renderRoofPreviewImages(
+    Map<String, dynamic> calculation, {
+    List<String> views = const ['geometry_roof'],
+    int? scale,
+  }) async {
+    final trace = calculation['trace'];
+    final response = await _client.postJson(
+      '/api/internal/calculator/roof-preview-image',
+      body: {
+        'calculation': {
+          for (final key in const [
+            'input', 'sources', 'weights', 'effectiveSetBom', 'effective_set_bom', 'manualBom', 'manual_bom',
+            'glassLines', 'glass_lines',
+          ])
+            if (calculation[key] != null) key: calculation[key],
+          'trace': [
+            if (trace is List)
+              for (final step in trace)
+                if (step is Map && step['step'] == 'roof_geometry_engine') step,
+          ],
+        },
+        'views': views,
+        if (scale != null) 'scale': scale,
+      },
+    );
+    final previews = response['previews'];
+    return {
+      if (previews is Map)
+        for (final entry in previews.entries)
+          if (entry.value is String) '${entry.key}': base64Decode(entry.value as String),
+    };
+  }
+
   Future<Map<String, dynamic>> generateGlb(String quoteId) {
     return _client.postJson(
       '/api/internal/calculator/glb',

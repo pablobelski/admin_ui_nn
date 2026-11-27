@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
@@ -18,6 +19,7 @@ import '../../../core/ui/top_notification.dart';
 import '../data/calculator_models.dart';
 import '../data/calculator_repository.dart';
 import '../data/roof_geometry_calculation.dart';
+import 'calculator_providers.dart';
 import 'quote_integrations_panel.dart';
 
 const geometryOnlyPreviewWidth = 450;
@@ -438,6 +440,7 @@ class ModelGeometryPreview extends ConsumerStatefulWidget {
     this.onCheckGeneratedGlb,
     this.glbStatusKey,
     this.defaultView = GeometryPreviewView.geometry,
+    this.serverRoofCalculation,
   });
 
   final String? modelCode;
@@ -488,6 +491,9 @@ class ModelGeometryPreview extends ConsumerStatefulWidget {
   final Future<bool> Function()? onCheckGeneratedGlb;
   final String? glbStatusKey;
   final GeometryPreviewView defaultView;
+  // Calculation result whose roof isometry the server draws (system setting geometry_preview.calculator.roof_renderer
+  // = server); null = the roof is drawn here.
+  final Map<String, dynamic>? serverRoofCalculation;
 
   @override
   ConsumerState<ModelGeometryPreview> createState() => _ModelGeometryPreviewState();
@@ -504,10 +510,15 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
   Uint8List? _glbBytes;
   bool _autoLoadedGlb = false;
   StreamSubscription<JobUpdate>? _jobUpdates;
+  // Server roof isometry of widget.serverRoofCalculation; the previous picture stays until the new one arrives.
+  ui.Image? _serverRoofImage;
+  String? _serverRoofKey;
+  Timer? _serverRoofTimer;
 
   @override
   void initState() {
     super.initState();
+    _scheduleServerRoof();
     _humanImageFuture = _loadHumanImage();
     _staticBeamInstructionImageFuture = _loadStaticBeamInstructionImage();
     unawaited(_refreshGlbAvailability());
@@ -520,7 +531,46 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
   @override
   void dispose() {
     _jobUpdates?.cancel();
+    _serverRoofTimer?.cancel();
     super.dispose();
+  }
+
+  // One server picture per calculation content (a recalculation), requested shortly after it settles.
+  void _scheduleServerRoof() {
+    final calculation = widget.serverRoofCalculation;
+    if (calculation == null || calculation['sources'] is! Map) {
+      _serverRoofTimer?.cancel();
+      _serverRoofKey = null;
+      _serverRoofImage = null;
+      return;
+    }
+    final input = calculation['input'];
+    final key = jsonEncode([
+      calculation['sources'],
+      calculation['effectiveSetBom'] ?? calculation['effective_set_bom'],
+      calculation['manualBom'] ?? calculation['manual_bom'],
+      input is Map ? [input['roof'], input['color_code']] : null,
+    ]);
+    if (key == _serverRoofKey) return;
+    _serverRoofKey = key;
+    _serverRoofTimer?.cancel();
+    _serverRoofTimer = Timer(const Duration(milliseconds: 400), () => unawaited(_loadServerRoof(calculation, key)));
+  }
+
+  Future<void> _loadServerRoof(Map<String, dynamic> calculation, String key) async {
+    try {
+      final png = (await ref.read(calculatorRepositoryProvider).renderRoofPreviewImages(calculation))['geometry_roof'];
+      if (png == null || !mounted || key != _serverRoofKey) return;
+      final image = await _decodeGeometryPreviewPng(png);
+      if (!mounted || key != _serverRoofKey) {
+        image.dispose();
+        return;
+      }
+      // Not disposed when replaced: an open enlarged preview may still paint the previous picture.
+      setState(() => _serverRoofImage = image);
+    } catch (_) {
+      // Optional picture: the previous one (or the drawing here) stays; the next calculation tries again.
+    }
   }
 
   @override
@@ -531,6 +581,9 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
     if (oldFilename != newFilename ||
         oldWidget.staticBeam?.enabled != widget.staticBeam?.enabled) {
       _staticBeamInstructionImageFuture = _loadStaticBeamInstructionImage();
+    }
+    if (!identical(oldWidget.serverRoofCalculation, widget.serverRoofCalculation)) {
+      _scheduleServerRoof();
     }
     if (oldWidget.glbStatusKey != widget.glbStatusKey) {
       _hasGeneratedGlb = false;
@@ -990,6 +1043,7 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
           sideInfoBottomReserve: sideInfoBottomReserve,
           alignRoofTop: alignRoofTop,
           showRoofTypeInSideInfo: showRoofTypeInSideInfo,
+          roofImage: _serverRoofImage,
         );
       },
     );
@@ -1099,6 +1153,7 @@ class _ModelGeometryPreviewState extends ConsumerState<ModelGeometryPreview> {
                             currentUser: currentUser,
                             humanImage: humanImage,
                             staticBeamInstructionImage: instructionImage,
+                            roofImage: _serverRoofImage,
                           ),
                         ),
                       ),
@@ -1248,6 +1303,7 @@ Widget _buildGeometryCanvasFor(
   bool geometryOnly = false,
   double drawingBottomRightReserve = 0,
   double? overallDimensionsTop,
+  ui.Image? roofImage,
 }) {
   return CustomPaint(
     painter: _ModelGeometryPreviewPainter(
@@ -1292,8 +1348,15 @@ Widget _buildGeometryCanvasFor(
       drawing: drawing,
       drawingBottomRightReserve: drawingBottomRightReserve,
       overallDimensionsTop: overallDimensionsTop,
+      roofImage: roofImage,
     ),
   );
+}
+
+Future<ui.Image> _decodeGeometryPreviewPng(Uint8List bytes) {
+  final completer = Completer<ui.Image>();
+  ui.decodeImageFromList(bytes, completer.complete);
+  return completer.future;
 }
 
 // Schematic preview in the enlarged size: technical drawing with the Kommission QR code and name at the bottom right.
@@ -1361,11 +1424,14 @@ class _ExpandedGeometryPreview extends StatelessWidget {
     required this.staticBeamInstructionImage,
     this.showWarnings = true,
     this.stablePrintTextLayout = false,
+    this.roofImage,
   });
   final ModelGeometryPreview widget;
   final String currentUser;
   final ui.Image? humanImage;
   final Uint8List? staticBeamInstructionImage;
+  // Server roof isometry (see ModelGeometryPreview.serverRoofCalculation).
+  final ui.Image? roofImage;
   final bool showWarnings;
   final bool stablePrintTextLayout;
   @override
@@ -1481,6 +1547,7 @@ class _ExpandedGeometryPreview extends StatelessWidget {
                               alignRoofTop: true,
                               showRoofTypeInSideInfo: widget.showRoofType,
                               overallDimensionsTop: dimensionsTop,
+                              roofImage: roofImage,
                             ),
                             Positioned(
                               left: 8,
@@ -2297,10 +2364,13 @@ Future<Uint8List> renderExpandedGeometryPreviewPng({
   required String currentUser,
   bool includeWarnings = true,
   bool stablePrintTextLayout = false,
+  // Server roof isometry PNG (geometry_preview.calculator.roof_renderer = server); null = drawn here.
+  Uint8List? serverRoofPng,
 }) async {
   final humanImage = await loadGeometryPreviewHumanImage(
     preview.mediaRepository,
   );
+  final roofImage = serverRoofPng == null ? null : await _decodeGeometryPreviewPng(serverRoofPng);
   final instructionImage = await _loadGeometryPreviewInstructionImage(preview);
   if (!context.mounted) {
     throw StateError('Geometry preview context is no longer available.');
@@ -2320,6 +2390,7 @@ Future<Uint8List> renderExpandedGeometryPreviewPng({
       staticBeamInstructionImage: instructionImage,
       showWarnings: includeWarnings,
       stablePrintTextLayout: stablePrintTextLayout,
+      roofImage: roofImage,
     ),
   );
 }
@@ -2425,6 +2496,7 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     this.drawingBottomRightReserve = 0,
     this.overallDimensionsTop,
     this.roofParameters = const {},
+    this.roofImage,
   });
 
   final String? modelCode;
@@ -2465,6 +2537,8 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
   final double? overallDimensionsTop;
   // Template roof parameters (tds_glass_params) with the real profile sizes.
   final Map<String, dynamic> roofParameters;
+  // Server roof isometry: replaces the drawn roof (with its dimensions); plan inset and B/T plate stay.
+  final ui.Image? roofImage;
 
   static const double _ddx = 0.52;
   static const double _ddy = 0.73;
@@ -2512,6 +2586,20 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
         layout,
       );
       if (!geometryOnly) _drawPlanInset(canvas, sideRect, layout, profile, params);
+      return;
+    }
+    if (roofImage != null && !geometryOnly) {
+      // The whole roof area; the B/T plate is drawn over the (empty) top left corner of the picture.
+      paintImage(
+        canvas: canvas,
+        rect: Rect.fromLTRB(pad, pad, sideRect.left - sideGap, size.height - pad),
+        image: roofImage!,
+        fit: BoxFit.contain,
+        alignment: alignRoofTop ? Alignment.topCenter : Alignment.center,
+        filterQuality: FilterQuality.medium,
+      );
+      _drawOverallRoofDimensions(canvas, layout);
+      _drawPlanInset(canvas, sideRect, layout, profile, params);
       return;
     }
 
@@ -4261,6 +4349,29 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     canvas.drawPath(body, silhouette);
   }
 
+  // Post centre (plan mm) as the GLB renderer places the post: flush inside its module; at a module joint the post
+  // belongs to the shallower module (the smaller part), centred on the joint only between modules of equal depth.
+  Offset _postCentre(_RoofLayout layout, Offset point, double size) {
+    final homes = [
+      for (final area in layout.moduleAreas)
+        if (area.corners.isNotEmpty)
+          Rect.fromLTRB(
+            area.corners.map((p) => p.dx).reduce(_min),
+            area.corners.map((p) => p.dy).reduce(_min),
+            area.corners.map((p) => p.dx).reduce(_max),
+            area.corners.map((p) => p.dy).reduce(_max),
+          ),
+    ].where((rect) => rect.inflate(1).contains(point)).toList()
+      ..sort((a, b) => a.height.compareTo(b.height));
+    final home = homes.length == 1 || (homes.length > 1 && homes[1].height - homes[0].height >= 1)
+        ? homes.first
+        : Rect.fromLTWH(0, 0, layout.widthMm, layout.depthMm);
+    return Offset(
+      point.dx.clamp(home.left + size / 2, home.right - size / 2).toDouble(),
+      point.dy.clamp(home.top + size / 2, home.bottom - size / 2).toDouble(),
+    );
+  }
+
   bool get _usesSharedModuleBeams => const {
         'LWTR',
         'LWTL',
@@ -4480,7 +4591,7 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
     part(Rect.fromLTRB(x0, zy(real ? rear + wallBox[3] : topRear), x0 + w * k, zy(rear)), profileColor);
     part(Rect.fromLTRB(x0, zy(real ? front + gutterH : topFront), x0 + w * k, zy(front)), profileColor);
     final postX = <double>{
-      for (final point in posts) point.dx.clamp(postW / 2, w - postW / 2).toDouble().roundToDouble(),
+      for (final point in posts) _postCentre(layout, point, postW).dx.roundToDouble(),
     }.toList()
       ..sort();
     for (final x in postX) {
@@ -4539,7 +4650,7 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
       part(Rect.fromLTRB(sx(0), zy(topRear), sx(profileT), zy(rear)), profileColor);
     }
     final postV = <double>{
-      for (final point in posts) (d - point.dy).clamp(postW / 2, d - postW / 2).toDouble().roundToDouble(),
+      for (final point in posts) (d - _postCentre(layout, point, postW).dy).roundToDouble(),
     };
     for (final v in postV) {
       // Gutter posts end under the gutter (Höhe UKR); others under the beam bottom.
@@ -5878,6 +5989,7 @@ class _ModelGeometryPreviewPainter extends CustomPainter {
         oldDelegate.isSpecialColor != isSpecialColor ||
         oldDelegate.coveringName != coveringName ||
         oldDelegate.humanImage != humanImage ||
+        oldDelegate.roofImage != roofImage ||
         oldDelegate.lineColor != lineColor ||
         oldDelegate.mutedLineColor != mutedLineColor ||
         oldDelegate.accentColor != accentColor ||

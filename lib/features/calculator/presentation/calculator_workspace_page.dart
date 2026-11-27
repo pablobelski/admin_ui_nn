@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:math' as math;
+//import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -838,7 +839,22 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
       );
       final mediaRepository = ref.read(resourceRepositoryProvider);
       final humanImage = await loadGeometryPreviewHumanImage(mediaRepository);
-      final geometryPng = await renderGeometryOnlyPreviewPng(
+      // Server roof isometry (system setting geometry_preview.calculator.roof_renderer = server): the small template
+      // picture and the roof of the large preview come from the server; on an error they are drawn here.
+      final smallScale = geometryPreviewPrintSettings.smallPreviewScale;
+      var serverRoof = <String, Uint8List>{};
+      if (calculatorContext.previewRoofRenderer == 'server') {
+        try {
+          serverRoof = await repository.renderRoofPreviewImages(
+            serverResult.raw,
+            views: const ['geometry_roof', 'geometry_small'],
+            scale: math.max(2, smallScale),
+          );
+        } catch (_) {}
+      }
+      final serverSmallPng = serverRoof['geometry_small'];
+      final geometryScale = serverSmallPng == null ? smallScale : math.max(2, smallScale);
+      final geometryPng = serverSmallPng ?? await renderGeometryOnlyPreviewPng(
         modelCode: draft.modelCode,
         modelLabel: previewData.selectedModel?.label,
         widthMm: draft.widthMm,
@@ -855,7 +871,7 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
         rearHeightMm: draft.roofRearHeightMm ?? draft.heightMm,
         frontHeightMm: draft.roofFrontHeightMm,
         humanImage: humanImage,
-        rasterScale: geometryPreviewPrintSettings.smallPreviewScale,
+        rasterScale: smallScale,
       );
       if (!mounted || !context.mounted) return;
       final expandedPreview = ModelGeometryPreview(
@@ -903,6 +919,7 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
         preview: expandedPreview,
         includeWarnings: includeGeometryWarnings,
         stablePrintTextLayout: true,
+        serverRoofPng: serverRoof['geometry_roof'],
       );
       final uploadedGeometry = await mediaRepository.uploadMediaFile(
         filename:
@@ -913,8 +930,8 @@ class _CalculatorWorkspacePageState extends ConsumerState<CalculatorWorkspacePag
         metadata: {
           'variant': 'geometry_only',
           'quote_id': savedQuote.id,
-          'width': geometryOnlyPreviewWidth * geometryPreviewPrintSettings.smallPreviewScale,
-          'height': geometryOnlyPreviewHeight * geometryPreviewPrintSettings.smallPreviewScale,
+          'width': geometryOnlyPreviewWidth * geometryScale,
+          'height': geometryOnlyPreviewHeight * geometryScale,
           'logical_width': geometryOnlyPreviewWidth,
           'logical_height': geometryOnlyPreviewHeight,
           'model_code': draft.modelCode,
@@ -14024,6 +14041,7 @@ class _GeometryPreviewTab extends ConsumerWidget {
               onCheckGeneratedGlb: onCheckGeneratedGlb,
               glbStatusKey: glbStatusKey,
               defaultView: GeometryPreviewView.fromCode(calculatorContext.previewDefaultView),
+              serverRoofCalculation: calculatorContext.previewRoofRenderer == 'server' ? result?.raw : null,
               widthMm: draft.widthMm,
               depthMm: draft.depthMm,
               heightMm: draft.heightMm,

@@ -19,6 +19,7 @@ class CalculatorContext {
     this.customPaintCatalogItem,
     this.additionalDiscountAvailable = true,
     this.previewDefaultView = 'geometry',
+    this.previewRoofRenderer = 'ui',
     this.loadedCatalogWarnings = const [],
   });
 
@@ -58,6 +59,7 @@ class CalculatorContext {
           ? json['additionalDiscountAvailable'] as bool
           : true,
       previewDefaultView: '${json['previewDefaultView'] ?? 'geometry'}',
+      previewRoofRenderer: '${json['previewRoofRenderer'] ?? 'ui'}',
     );
   }
 
@@ -79,6 +81,8 @@ class CalculatorContext {
   final bool additionalDiscountAvailable;
   // System setting geometry_preview.calculator.default_view: geometry | schematic | model_3d.
   final String previewDefaultView;
+  // System setting geometry_preview.calculator.roof_renderer: ui (Flutter drawing) | server (server roof isometry).
+  final String previewRoofRenderer;
   final List<Map<String, dynamic>> loadedCatalogWarnings;
 
   List<CalculatorCatalogItemOption> templateSetCatalogItemsFor(String? templateId) {
@@ -124,6 +128,7 @@ class CalculatorContext {
       customPaintCatalogItem: customPaintCatalogItem,
       additionalDiscountAvailable: additionalDiscountAvailable,
       previewDefaultView: previewDefaultView,
+      previewRoofRenderer: previewRoofRenderer,
       loadedCatalogWarnings: warnings,
     );
   }

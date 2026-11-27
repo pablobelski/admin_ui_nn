@@ -3405,6 +3405,7 @@ class _SavedQuoteGeometryPreviewTab extends StatelessWidget {
             frontHeightMm: draft.roofFrontHeightMm,
             roofParameters: selectedTemplate?.roofParameters ?? const {},
             showRoofType: true,
+            serverRoofCalculation: contextData?.previewRoofRenderer == 'server' ? resultJson : null,
           ),
       ],
     );
